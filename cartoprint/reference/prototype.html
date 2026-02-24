@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terralis — Custom Map Prints</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.1.0/maplibre-gl.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.1.0/maplibre-gl.css">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fafaf8; --panel-bg: #fff; --text: #1a1a1a;
+    --text-muted: #6b6b6b; --text-light: #999;
+    --border: #e8e8e6; --border-light: #f0f0ee;
+    --toggle-on: #1a1a1a; --toggle-off: #d4d4d0;
+    --panel-width: 320px; --header-height: 64px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); overflow:hidden; height:100vh; width:100vw; }
+
+  .header { position:fixed; top:0; left:0; right:0; height:var(--header-height); background:var(--panel-bg); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; padding:0 32px; z-index:1000; }
+  .logo { font-family:'Cormorant Garamond',serif; font-weight:300; font-size:26px; letter-spacing:3px; text-transform:uppercase; }
+  .logo span { font-weight:600; }
+  .header-actions { display:flex; align-items:center; gap:16px; }
+  .btn { font-family:'DM Sans',sans-serif; font-size:13px; font-weight:500; letter-spacing:0.8px; text-transform:uppercase; border:none; cursor:pointer; transition:all 0.2s; }
+  .btn-outline { background:transparent; color:var(--text); border:1.5px solid var(--text); padding:10px 24px; }
+  .btn-outline:hover { background:var(--text); color:#fff; }
+  .btn-primary { background:var(--text); color:#fff; padding:10px 24px; }
+  .btn-primary:hover { background:#333; }
+  .btn-sm { padding:6px 14px; font-size:11px; }
+  .zoom-display { font-size:12px; color:var(--text-muted); min-width:80px; text-align:center; }
+
+  .panel { position:fixed; top:var(--header-height); left:0; width:var(--panel-width); height:calc(100vh - var(--header-height)); background:var(--panel-bg); border-right:1px solid var(--border); overflow-y:auto; z-index:999; transition:transform 0.3s; }
+  .panel.collapsed { transform:translateX(calc(-1 * var(--panel-width))); }
+  .panel-toggle { position:fixed; top:calc(var(--header-height) + 16px); left:var(--panel-width); width:28px; height:48px; background:var(--panel-bg); border:1px solid var(--border); border-left:none; border-radius:0 6px 6px 0; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:999; transition:left 0.3s; font-size:14px; color:var(--text-muted); }
+  .panel.collapsed + .panel-toggle { left:0; }
+
+  .panel-section { padding:24px; border-bottom:1px solid var(--border-light); }
+  .panel-section:last-child { border-bottom:none; }
+  .section-title { font-family:'Cormorant Garamond',serif; font-size:14px; font-weight:600; letter-spacing:2px; text-transform:uppercase; color:var(--text-muted); margin-bottom:18px; }
+  .section-desc { font-size:12px; color:var(--text-light); margin-bottom:14px; line-height:1.5; }
+
+  .layer-item { display:flex; align-items:center; justify-content:space-between; padding:10px 0; cursor:pointer; user-select:none; }
+  .layer-name { font-size:14px; display:flex; align-items:center; gap:10px; }
+  .layer-icon { width:20px; height:20px; display:flex; align-items:center; justify-content:center; opacity:0.5; }
+  .layer-item.active .layer-icon { opacity:1; }
+  .toggle { width:36px; height:20px; border-radius:10px; background:var(--toggle-off); position:relative; transition:background 0.2s; flex-shrink:0; }
+  .toggle::after { content:''; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:transform 0.2s; box-shadow:0 1px 3px rgba(0,0,0,0.15); }
+  .layer-item.active .toggle { background:var(--toggle-on); }
+  .layer-item.active .toggle::after { transform:translateX(16px); }
+
+  .template-grid { display:flex; flex-direction:column; gap:8px; }
+  .template-btn { width:100%; padding:12px 14px; background:var(--bg); border:1px solid var(--border); border-radius:6px; font-family:'DM Sans',sans-serif; font-size:13px; color:var(--text); cursor:pointer; text-align:left; transition:all 0.15s; display:flex; align-items:center; gap:10px; }
+  .template-btn:hover { border-color:var(--text); background:#fff; }
+  .template-icon { font-size:16px; opacity:0.6; width:20px; text-align:center; }
+
+  .search-input { width:100%; padding:10px 14px; background:var(--bg); border:1px solid var(--border); border-radius:6px; font-family:'DM Sans',sans-serif; font-size:13px; color:var(--text); outline:none; transition:border-color 0.15s; }
+  .search-input:focus { border-color:var(--text); }
+  .search-input::placeholder { color:var(--text-light); }
+
+  .map-container { position:fixed; top:var(--header-height); left:var(--panel-width); right:0; bottom:0; transition:left 0.3s; }
+  .map-container.expanded { left:0; }
+  #map { width:100%; height:100%; }
+
+  .selection-bar {
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    background:var(--panel-bg); border:1px solid var(--border);
+    padding:12px 24px; z-index:998;
+    display:none; align-items:center; gap:16px;
+    box-shadow:0 4px 20px rgba(0,0,0,0.1);
+    font-size:13px;
+  }
+  .selection-bar.visible { display:flex; }
+  .selection-name { font-weight:500; }
+  .selection-type { color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:1px; }
+  .selection-divider { width:1px; height:24px; background:var(--border); }
+
+  .map-tooltip { position:fixed; background:var(--panel-bg); border:1px solid var(--border); padding:8px 14px; font-size:13px; color:var(--text); pointer-events:none; z-index:1001; box-shadow:0 2px 12px rgba(0,0,0,0.08); display:none; }
+
+  .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:2000; display:none; align-items:center; justify-content:center; }
+  .modal-overlay.visible { display:flex; }
+  .modal { background:var(--panel-bg); width:520px; max-height:80vh; overflow-y:auto; padding:48px; }
+  .modal-title { font-family:'Cormorant Garamond',serif; font-size:32px; font-weight:300; margin-bottom:8px; }
+  .modal-subtitle { font-size:14px; color:var(--text-muted); margin-bottom:36px; line-height:1.6; }
+  .option-group { margin-bottom:28px; }
+  .option-label { font-size:11px; font-weight:500; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-muted); margin-bottom:12px; }
+  .option-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .option-card { padding:14px 16px; border:1.5px solid var(--border); cursor:pointer; transition:all 0.15s; text-align:center; }
+  .option-card:hover { border-color:var(--text-muted); }
+  .option-card.selected { border-color:var(--text); background:var(--bg); }
+  .option-card-title { font-size:14px; font-weight:500; margin-bottom:2px; }
+  .option-card-desc { font-size:12px; color:var(--text-muted); }
+  .price-display { font-family:'Cormorant Garamond',serif; font-size:36px; font-weight:400; text-align:center; padding:24px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); margin:28px 0; }
+  .price-display span { font-size:16px; color:var(--text-muted); font-family:'DM Sans',sans-serif; }
+  .modal-actions { display:flex; gap:12px; }
+  .modal-actions .btn { flex:1; padding:14px; }
+  .btn-ghost { background:transparent; color:var(--text-muted); border:none; padding:14px; }
+  .btn-ghost:hover { color:var(--text); }
+
+  .map-info { position:fixed; bottom:24px; left:calc(var(--panel-width) + 24px); background:var(--panel-bg); border:1px solid var(--border); padding:10px 18px; font-size:12px; color:var(--text-muted); z-index:997; display:flex; gap:20px; transition:left 0.3s; box-shadow:0 2px 12px rgba(0,0,0,0.06); }
+  .map-info.expanded { left:24px; }
+  .info-item { display:flex; align-items:center; gap:6px; }
+  .info-label { font-weight:500; letter-spacing:0.5px; text-transform:uppercase; font-size:10px; }
+
+  .location-bar { position:fixed; top:calc(var(--header-height) + 16px); left:calc(var(--panel-width) + 60px); background:var(--panel-bg); border:1px solid var(--border); padding:8px 16px; font-size:13px; z-index:998; display:flex; align-items:center; gap:8px; box-shadow:0 2px 12px rgba(0,0,0,0.06); transition:left 0.3s; }
+  .location-bar.expanded { left:60px; }
+  .breadcrumb-current { font-weight:500; }
+
+  .loading-overlay { position:fixed; top:var(--header-height); left:var(--panel-width); right:0; bottom:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:997; transition:opacity 0.6s; font-family:'Cormorant Garamond',serif; font-size:18px; color:var(--text-muted); letter-spacing:2px; }
+  .loading-overlay.hidden { opacity:0; pointer-events:none; }
+
+  .panel::-webkit-scrollbar { width:4px; }
+  .panel::-webkit-scrollbar-track { background:transparent; }
+  .panel::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .maplibregl-ctrl-attrib { font-size:10px !important; opacity:0.5; }
+  .maplibregl-ctrl-group { border-radius:0 !important; border:1px solid var(--border) !important; box-shadow:0 2px 8px rgba(0,0,0,0.06) !important; }
+  .maplibregl-ctrl-group button { border-radius:0 !important; }
+  @media print { .header,.panel,.panel-toggle,.map-info,.location-bar,.loading-overlay,.selection-bar { display:none !important; } .map-container { top:0 !important; left:0 !important; } }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">TERRA<span>LIS</span></div>
+  <div class="header-actions">
+    <span class="zoom-display" id="zoomDisplay">Zoom: 4.0×</span>
+    <button class="btn btn-outline" id="resetBtn">Reset View</button>
+    <button class="btn btn-primary" id="printBtn">Order Print</button>
+  </div>
+</header>
+
+<aside class="panel" id="panel">
+  <div class="panel-section">
+    <div class="section-title">Navigate</div>
+    <input type="text" class="search-input" id="searchInput" placeholder="Search a location... (press Enter)">
+  </div>
+
+  <div class="panel-section">
+    <div class="section-title">Quick Start</div>
+    <div class="template-grid">
+      <button class="template-btn" data-template="usa-classic"><span class="template-icon">◻</span> United States — Classic</button>
+      <button class="template-btn" data-template="usa-topo"><span class="template-icon">▲</span> United States — Topographic</button>
+      <button class="template-btn" data-template="usa-water"><span class="template-icon">~</span> United States — Waterways</button>
+      <button class="template-btn" data-template="usa-roads"><span class="template-icon">═</span> United States — Highway Network</button>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <div class="section-title">Selection</div>
+    <div class="section-desc">Click any region on the map to select it. Toggle isolation to show only that region with white space around it.</div>
+    <div class="layer-item" data-layer="isolate" id="isolateToggle">
+      <span class="layer-name"><span class="layer-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="8" height="8"/><line x1="1" y1="1" x2="4" y2="4"/><line x1="15" y1="1" x2="12" y2="4"/><line x1="1" y1="15" x2="4" y2="12"/><line x1="15" y1="15" x2="12" y2="12"/></svg></span>Isolate Selection</span>
+      <div class="toggle"></div>
+    </div>
+    <div id="selectionInfo" style="font-size:12px; color:var(--text-muted); padding:8px 0 0 30px;">No region selected</div>
+  </div>
+
+  <div class="panel-section">
+    <div class="section-title">Boundaries</div>
+    <div class="layer-item active" data-layer="countries"><span class="layer-name"><span class="layer-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12"/></svg></span>Country Borders</span><div class="toggle"></div></div>
+    <div class="layer-item active" data-layer="states"><span class="layer-name"><span class="layer-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12"/><line x1="8" y1="2" x2="8" y2="14"/></svg></span>State / Province Lines</span><div class="toggle"></div></div>
+  </div>
+
+  <div class="panel-section">
+    <div class="section-title">Places</div>
+    <div class="layer-item active" data-layer="placelabels"><span class="layer-name"><span class="layer-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/></svg></span>City &amp; Place Labels</span><div class="toggle"></div></div>
+  </div>
+
+  <div class="panel-section">
+    <div class="section-title">Transportation</div>
+    <div class="layer-item" data-layer="roads"><span class="layer-name"><span class="layer-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="8" x2="14" y2="8"/></svg></span>Roads &amp; Highways</span><div class="toggle"></div></div>
+  </div>
+
+  <div class="panel-section">
+    <div class="section-title">Natural Features</div>
+    <div class="layer-item active" data-layer="water"><span class="layer-name"><span class="layer-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 8 Q5 5 8 8 Q11 11 14 8"/><path d="M2 11 Q5 8 8 11 Q11 14 14 11"/></svg></span>Water</span><div class="toggle"></div></div>
+    <div class="layer-item" data-layer="terrain"><span class="layer-name"><span class="layer-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 14 L6 6 L9 10 L11 7 L14 14 Z"/></svg></span>Terrain / Hillshade</span><div class="toggle"></div></div>
+    <div class="layer-item" data-layer="landcover"><span class="layer-name"><span class="layer-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M8 3 L4 9 H6 L3 13 H13 L10 9 H12 Z"/></svg></span>Parks &amp; Land Cover</span><div class="toggle"></div></div>
+  </div>
+</aside>
+
+<button class="panel-toggle" id="panelToggle">◂</button>
+<div class="location-bar" id="locationBar"><span class="breadcrumb-current" id="locationText">United States</span></div>
+<div class="map-container" id="mapContainer"><div id="map"></div></div>
+<div class="loading-overlay" id="loadingOverlay">Loading map...</div>
+
+<div class="selection-bar" id="selectionBar">
+  <div><span class="selection-name" id="selBarName">—</span><br><span class="selection-type" id="selBarType">—</span></div>
+  <div class="selection-divider"></div>
+  <button class="btn btn-outline btn-sm" id="selBarZoom">Zoom To</button>
+  <button class="btn btn-outline btn-sm" id="selBarIsolate">Isolate</button>
+  <button class="btn btn-ghost btn-sm" id="selBarClear" style="font-size:11px;text-transform:uppercase;letter-spacing:0.8px;">Clear</button>
+</div>
+
+<div class="map-info" id="mapInfo">
+  <div class="info-item"><span class="info-label">Lat</span><span id="infoLat">39.83</span></div>
+  <div class="info-item"><span class="info-label">Lng</span><span id="infoLng">-98.58</span></div>
+  <div class="info-item"><span class="info-label">Zoom</span><span id="infoZoom">4.0</span></div>
+</div>
+
+<div class="map-tooltip" id="tooltip"></div>
+
+<div class="modal-overlay" id="printModal">
+  <div class="modal">
+    <div class="modal-title">Order Your Print</div>
+    <div class="modal-subtitle">Your custom map, printed on museum-quality paper with archival inks. Ships in 5–7 business days.</div>
+    <div class="option-group"><div class="option-label">Print Size</div><div class="option-grid">
+      <div class="option-card selected" data-size="1" data-price="59"><div class="option-card-title">12 × 16"</div><div class="option-card-desc">Small</div></div>
+      <div class="option-card" data-size="2" data-price="89"><div class="option-card-title">18 × 24"</div><div class="option-card-desc">Medium</div></div>
+      <div class="option-card" data-size="3" data-price="129"><div class="option-card-title">24 × 36"</div><div class="option-card-desc">Large</div></div>
+      <div class="option-card" data-size="4" data-price="169"><div class="option-card-title">30 × 40"</div><div class="option-card-desc">Extra Large</div></div>
+    </div></div>
+    <div class="option-group"><div class="option-label">Paper</div><div class="option-grid">
+      <div class="option-card selected" data-paper="matte" data-price-add="0"><div class="option-card-title">Matte</div><div class="option-card-desc">Museum quality</div></div>
+      <div class="option-card" data-paper="lustre" data-price-add="15"><div class="option-card-title">Lustre</div><div class="option-card-desc">Subtle sheen</div></div>
+    </div></div>
+    <div class="option-group"><div class="option-label">Framing</div><div class="option-grid">
+      <div class="option-card selected" data-frame="none" data-frame-price="0"><div class="option-card-title">Print Only</div><div class="option-card-desc">Unframed</div></div>
+      <div class="option-card" data-frame="black" data-frame-price="89"><div class="option-card-title">Black Frame</div><div class="option-card-desc">Slim aluminum</div></div>
+      <div class="option-card" data-frame="white" data-frame-price="89"><div class="option-card-title">White Frame</div><div class="option-card-desc">Slim aluminum</div></div>
+      <div class="option-card" data-frame="oak" data-frame-price="139"><div class="option-card-title">Oak Frame</div><div class="option-card-desc">Natural wood</div></div>
+    </div></div>
+    <div class="price-display" id="priceDisplay">$59 <span>USD</span></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="closeModal">Cancel</button>
+      <button class="btn btn-primary" id="addToCart">Add to Cart</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+const state = {
+  layers: {
+    countries: true, states: true,
+    placelabels: true, roads: false,
+    water: true, terrain: false, landcover: false,
+    isolate: false
+  },
+  panelOpen: true,
+  selection: null, // { name, type, geojson, bbox }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// LAYER CLASSIFICATION
+// ═══════════════════════════════════════════════════════════════
+function classifyLayer(id) {
+  if (/admin.*country|boundary_country/.test(id)) return 'countries';
+  if (/admin.*(state|3|4)|boundary.*(state|3|4)/.test(id)) return 'states';
+  if (/place|poi/.test(id)) return 'placelabels';
+  if (/road|bridge|tunnel|motorway|trunk|primary|secondary|tertiary|minor|service|track|path|pedestrian|street|link|rail|transit|aeroway|one_way|building/.test(id)) return 'roads';
+  if (/^water|waterway/.test(id)) return 'water';
+  if (/landcover|landuse|park/.test(id)) return 'landcover';
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GREYSCALE
+// ═══════════════════════════════════════════════════════════════
+const _c = document.createElement('canvas'); _c.width=1; _c.height=1;
+const _x = _c.getContext('2d');
+
+function c2g(c) {
+  if (!c || typeof c !== 'string') return c;
+  _x.clearRect(0,0,1,1); _x.fillStyle=c; _x.fillRect(0,0,1,1);
+  const [r,g,b,a] = _x.getImageData(0,0,1,1).data;
+  const l = Math.round(0.299*r + 0.587*g + 0.114*b);
+  return a<255 ? `rgba(${l},${l},${l},${(a/255).toFixed(2)})` : `rgb(${l},${l},${l})`;
+}
+
+function greyify(v) {
+  if (typeof v === 'string' && (v.startsWith('#') || v.startsWith('rgb') || v.startsWith('hsl'))) return c2g(v);
+  if (Array.isArray(v)) return v.map(x => greyify(x));
+  return v;
+}
+
+function applyGreyscale() {
+  const style = map.getStyle(); if (!style) return;
+  style.layers.forEach(layer => {
+    if (layer.id === 'background') { try { map.setPaintProperty('background','background-color','#fafaf8'); } catch(e){} return; }
+    const paint = layer.paint || {};
+    ['fill-color','fill-outline-color','line-color','text-color','text-halo-color','icon-color','icon-halo-color','circle-color','circle-stroke-color'].forEach(p => {
+      if (paint[p] !== undefined) { try { map.setPaintProperty(layer.id, p, greyify(paint[p])); } catch(e){} }
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STYLE OVERRIDES - bolder borders, better zoom visibility
+// ═══════════════════════════════════════════════════════════════
+function applyStyleOverrides() {
+  const style = map.getStyle(); if (!style) return;
+
+  style.layers.forEach(layer => {
+    const id = layer.id;
+
+    // --- COUNTRY BORDERS: bolder, visible from zoom 0 ---
+    if (/admin.*country|admin.*2|boundary.*country/.test(id) && layer.type === 'line') {
+      try {
+        map.setPaintProperty(id, 'line-color', '#333');
+        map.setPaintProperty(id, 'line-width', ['interpolate',['linear'],['zoom'], 0,1, 4,2, 8,3]);
+        map.setLayoutProperty(id, 'visibility', 'visible');
+        if (layer.minzoom) map.setLayerZoomRange(id, 0, 24);
+      } catch(e){}
+    }
+
+    // --- STATE BORDERS: bolder, visible from zoom 2 ---
+    if (/admin.*(state|3|4)|boundary.*(state|3|4)/.test(id) && layer.type === 'line') {
+      try {
+        map.setPaintProperty(id, 'line-color', '#555');
+        map.setPaintProperty(id, 'line-width', ['interpolate',['linear'],['zoom'], 2,0.8, 5,1.5, 8,2.5]);
+        map.setLayoutProperty(id, 'visibility', 'visible');
+        map.setLayerZoomRange(id, 2, 24);
+      } catch(e){}
+    }
+
+    // --- WATER: slightly darker grey so lakes pop ---
+    if (/^water$/.test(id) && layer.type === 'fill') {
+      try { map.setPaintProperty(id, 'fill-color', '#d0d0ce'); } catch(e){}
+    }
+    if (/waterway/.test(id) && layer.type === 'line') {
+      try { map.setPaintProperty(id, 'line-color', '#bbbbb8'); } catch(e){}
+    }
+
+    // --- MOTORWAYS: visible from zoom 3 when toggled on ---
+    if (/motorway/.test(id) && !/link|casing/.test(id) && layer.type === 'line') {
+      try { map.setLayerZoomRange(id, 3, 24); } catch(e){}
+    }
+
+    // --- CITIES/CAPITALS: visible from zoom 3 ---
+    if (/place.*(city|capital)/.test(id) && layer.type === 'symbol') {
+      try { map.setLayerZoomRange(id, 3, 24); } catch(e){}
+    }
+
+    // --- Hide the natural_earth raster (colored terrain imagery) ---
+    if (id === 'natural_earth') {
+      try { map.setLayoutProperty(id, 'visibility', 'none'); } catch(e){}
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VISIBILITY
+// ═══════════════════════════════════════════════════════════════
+function applyVisibility() {
+  const style = map.getStyle(); if (!style) return;
+  style.layers.forEach(layer => {
+    if (layer.id === 'background' || layer.id === 'hillshade-layer' || layer.id === 'mask-layer' || layer.id === 'natural_earth') return;
+    const group = classifyLayer(layer.id);
+    if (group && state.layers[group] !== undefined) {
+      try { map.setLayoutProperty(layer.id, 'visibility', state.layers[group] ? 'visible' : 'none'); } catch(e){}
+    }
+  });
+  // Terrain hillshade
+  try { map.setLayoutProperty('hillshade-layer', 'visibility', state.layers.terrain ? 'visible' : 'none'); } catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAP INIT
+// ═══════════════════════════════════════════════════════════════
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://tiles.openfreemap.org/styles/liberty',
+  center: [-98.58, 39.83],
+  zoom: 4, minZoom: 2, maxZoom: 18
+});
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+
+map.on('load', () => {
+  // Greyscale the base style
+  applyGreyscale();
+
+  // Make borders bolder & adjust zoom ranges
+  applyStyleOverrides();
+
+  // Add terrain hillshade source (AWS free elevation tiles)
+  map.addSource('terrain-dem', {
+    type: 'raster-dem',
+    tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+    encoding: 'terrarium',
+    tileSize: 256,
+    maxzoom: 15
+  });
+
+  // Add hillshade layer (rendered in greyscale naturally)
+  map.addLayer({
+    id: 'hillshade-layer',
+    type: 'hillshade',
+    source: 'terrain-dem',
+    paint: {
+      'hillshade-exaggeration': 0.35,
+      'hillshade-shadow-color': '#555',
+      'hillshade-highlight-color': '#fafaf8',
+      'hillshade-accent-color': '#777'
+    },
+    layout: { visibility: 'none' }
+  }, 'waterway_tunnel'); // Insert below water layers
+
+  // Add mask source for isolation feature
+  map.addSource('selection-mask', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] }
+  });
+
+  // Mask layer: fills everything OUTSIDE the selected region with white
+  map.addLayer({
+    id: 'mask-layer',
+    type: 'fill',
+    source: 'selection-mask',
+    paint: { 'fill-color': '#fafaf8', 'fill-opacity': 1 },
+    layout: { visibility: 'none' }
+  });
+
+  // Selection highlight outline
+  map.addSource('selection-outline', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] }
+  });
+  map.addLayer({
+    id: 'selection-outline-layer',
+    type: 'line',
+    source: 'selection-outline',
+    paint: { 'line-color': '#333', 'line-width': 2, 'line-dasharray': [4, 3] },
+    layout: { visibility: 'visible' }
+  });
+
+  // Apply initial toggle states
+  applyVisibility();
+
+  document.getElementById('loadingOverlay').classList.add('hidden');
+});
+
+// ═══════════════════════════════════════════════════════════════
+// CLICK TO SELECT REGION
+// ═══════════════════════════════════════════════════════════════
+map.on('click', async (e) => {
+  // Query for admin boundary or place features at click point
+  const features = map.queryRenderedFeatures(e.point);
+
+  // Find the best boundary feature (prefer smaller admin levels)
+  let bestFeature = null;
+  for (const f of features) {
+    if (f.sourceLayer === 'boundary' && f.properties.admin_level) {
+      if (!bestFeature || f.properties.admin_level > bestFeature.properties.admin_level) {
+        bestFeature = f;
+      }
+    }
+  }
+
+  // Also check for place names
+  let placeName = null;
+  let placeType = null;
+  for (const f of features) {
+    if (f.sourceLayer === 'place' && f.properties.name) {
+      placeName = f.properties['name:latin'] || f.properties.name;
+      placeType = f.properties.class || 'place';
+      break;
+    }
+  }
+
+  if (!placeName && !bestFeature) return;
+
+  const searchName = placeName || 'boundary';
+  const lat = e.lngLat.lat;
+  const lng = e.lngLat.lng;
+
+  // Reverse geocode to get the region name and polygon
+  try {
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=${map.getZoom() > 8 ? 14 : map.getZoom() > 5 ? 8 : 5}&polygon_geojson=1`
+    );
+    const data = await resp.json();
+
+    if (data && data.display_name) {
+      const name = data.display_name.split(',').slice(0, 2).join(', ').trim();
+      const type = data.type || data.class || 'region';
+      const geojson = data.geojson || null;
+      const bbox = data.boundingbox || null;
+
+      state.selection = { name, type, geojson, bbox, fullName: data.display_name };
+
+      // Update UI
+      document.getElementById('selectionInfo').textContent = name;
+      document.getElementById('selBarName').textContent = name;
+      document.getElementById('selBarType').textContent = type;
+      document.getElementById('selectionBar').classList.add('visible');
+
+      // Show selection outline
+      if (geojson) {
+        map.getSource('selection-outline').setData({
+          type: 'Feature',
+          geometry: geojson
+        });
+      }
+
+      // If isolation is active, apply mask
+      if (state.layers.isolate) {
+        applyIsolationMask();
+      }
+    }
+  } catch(err) {
+    console.log('Reverse geocode error:', err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ISOLATION MASK
+// ═══════════════════════════════════════════════════════════════
+function applyIsolationMask() {
+  if (!state.selection || !state.selection.geojson) return;
+
+  // Create an inverted polygon: a huge rectangle with the selection cut out
+  const geo = state.selection.geojson;
+
+  // World bounds polygon
+  const worldRing = [[-180,-90],[180,-90],[180,90],[-180,90],[-180,-90]];
+
+  let mask;
+  if (geo.type === 'Polygon') {
+    mask = {
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        coordinates: [worldRing, ...geo.coordinates.map(ring => ring.slice().reverse())]
+      }
+    };
+  } else if (geo.type === 'MultiPolygon') {
+    // For MultiPolygon, create holes for each polygon
+    const holes = [];
+    geo.coordinates.forEach(poly => {
+      poly.forEach(ring => holes.push(ring.slice().reverse()));
+    });
+    mask = {
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        coordinates: [worldRing, ...holes]
+      }
+    };
+  } else {
+    return;
+  }
+
+  map.getSource('selection-mask').setData(mask);
+  map.setLayoutProperty('mask-layer', 'visibility', 'visible');
+
+  // Move mask layer to top
+  try { map.moveLayer('mask-layer'); } catch(e){}
+  // Keep selection outline on top of mask
+  try { map.moveLayer('selection-outline-layer'); } catch(e){}
+}
+
+function clearIsolationMask() {
+  map.getSource('selection-mask').setData({ type: 'FeatureCollection', features: [] });
+  map.setLayoutProperty('mask-layer', 'visibility', 'none');
+}
+
+function clearSelection() {
+  state.selection = null;
+  state.layers.isolate = false;
+  document.getElementById('isolateToggle').classList.remove('active');
+  document.getElementById('selectionInfo').textContent = 'No region selected';
+  document.getElementById('selectionBar').classList.remove('visible');
+  map.getSource('selection-outline').setData({ type: 'FeatureCollection', features: [] });
+  clearIsolationMask();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SELECTION BAR ACTIONS
+// ═══════════════════════════════════════════════════════════════
+document.getElementById('selBarZoom').addEventListener('click', () => {
+  if (!state.selection || !state.selection.bbox) return;
+  const bb = state.selection.bbox;
+  map.fitBounds([[+bb[2], +bb[0]], [+bb[3], +bb[1]]], { padding: 60, duration: 1200 });
+});
+
+document.getElementById('selBarIsolate').addEventListener('click', () => {
+  if (!state.selection) return;
+  state.layers.isolate = true;
+  document.getElementById('isolateToggle').classList.add('active');
+  applyIsolationMask();
+});
+
+document.getElementById('selBarClear').addEventListener('click', clearSelection);
+
+// ═══════════════════════════════════════════════════════════════
+// TOGGLE HANDLERS
+// ═══════════════════════════════════════════════════════════════
+document.querySelectorAll('.layer-item').forEach(item => {
+  item.addEventListener('click', () => {
+    const layer = item.dataset.layer;
+    state.layers[layer] = !state.layers[layer];
+    item.classList.toggle('active', state.layers[layer]);
+
+    if (layer === 'isolate') {
+      if (state.layers.isolate && state.selection) {
+        applyIsolationMask();
+      } else {
+        clearIsolationMask();
+      }
+    } else {
+      applyVisibility();
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// TEMPLATES
+// ═══════════════════════════════════════════════════════════════
+const templates = {
+  'usa-classic':  { countries:true, states:true, placelabels:true,  roads:true,  water:true,  terrain:false, landcover:false, isolate:false },
+  'usa-topo':     { countries:true, states:true, placelabels:true,  roads:false, water:true,  terrain:true,  landcover:true,  isolate:false },
+  'usa-water':    { countries:true, states:true, placelabels:false, roads:false, water:true,  terrain:false, landcover:false, isolate:false },
+  'usa-roads':    { countries:true, states:true, placelabels:true,  roads:true,  water:false, terrain:false, landcover:false, isolate:false },
+};
+
+document.querySelectorAll('.template-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = templates[btn.dataset.template]; if (!t) return;
+    Object.assign(state.layers, t);
+    document.querySelectorAll('.layer-item').forEach(item => item.classList.toggle('active', state.layers[item.dataset.layer]));
+    clearSelection();
+    map.flyTo({ center:[-98.58,39.83], zoom:4, duration:1200 });
+    applyVisibility();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// PANEL
+// ═══════════════════════════════════════════════════════════════
+const panel = document.getElementById('panel');
+document.getElementById('panelToggle').addEventListener('click', () => {
+  state.panelOpen = !state.panelOpen;
+  panel.classList.toggle('collapsed', !state.panelOpen);
+  document.getElementById('mapContainer').classList.toggle('expanded', !state.panelOpen);
+  document.getElementById('mapInfo').classList.toggle('expanded', !state.panelOpen);
+  document.getElementById('locationBar').classList.toggle('expanded', !state.panelOpen);
+  document.getElementById('panelToggle').textContent = state.panelOpen ? '◂' : '▸';
+  setTimeout(() => map.resize(), 320);
+});
+
+// ═══════════════════════════════════════════════════════════════
+// COORDS
+// ═══════════════════════════════════════════════════════════════
+map.on('move', () => {
+  const z = map.getZoom().toFixed(1), c = map.getCenter();
+  document.getElementById('zoomDisplay').textContent = `Zoom: ${z}×`;
+  document.getElementById('infoLat').textContent = c.lat.toFixed(4);
+  document.getElementById('infoLng').textContent = c.lng.toFixed(4);
+  document.getElementById('infoZoom').textContent = z;
+});
+
+// ═══════════════════════════════════════════════════════════════
+// RESET
+// ═══════════════════════════════════════════════════════════════
+document.getElementById('resetBtn').addEventListener('click', () => {
+  map.flyTo({ center:[-98.58,39.83], zoom:4, duration:1000 });
+  document.getElementById('locationText').textContent = 'United States';
+  clearSelection();
+});
+
+// ═══════════════════════════════════════════════════════════════
+// SEARCH
+// ═══════════════════════════════════════════════════════════════
+document.getElementById('searchInput').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const q = e.target.value.trim(); if (!q) return;
+  fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&polygon_geojson=1`)
+    .then(r => r.json()).then(res => {
+      if (res.length) {
+        const r = res[0];
+        const bb = r.boundingbox;
+        map.fitBounds([[+bb[2],+bb[0]],[+bb[3],+bb[1]]], { padding:60, duration:1200 });
+        const name = r.display_name.split(',').slice(0,2).join(', ');
+        document.getElementById('locationText').textContent = name;
+
+        // Auto-select the searched region
+        if (r.geojson) {
+          state.selection = { name, type: r.type || r.class || 'region', geojson: r.geojson, bbox: bb, fullName: r.display_name };
+          document.getElementById('selectionInfo').textContent = name;
+          document.getElementById('selBarName').textContent = name;
+          document.getElementById('selBarType').textContent = r.type || r.class || 'region';
+          document.getElementById('selectionBar').classList.add('visible');
+          map.getSource('selection-outline').setData({ type:'Feature', geometry: r.geojson });
+          if (state.layers.isolate) applyIsolationMask();
+        }
+      }
+    }).catch(() => {});
+});
+
+// ═══════════════════════════════════════════════════════════════
+// TOOLTIP
+// ═══════════════════════════════════════════════════════════════
+const tooltip = document.getElementById('tooltip');
+map.on('mousemove', (e) => {
+  const f = map.queryRenderedFeatures(e.point).find(f => f.properties && (f.properties['name:latin'] || f.properties.name));
+  if (f) {
+    tooltip.style.display = 'block';
+    tooltip.style.left = (e.originalEvent.clientX+14)+'px';
+    tooltip.style.top = (e.originalEvent.clientY+14)+'px';
+    tooltip.textContent = f.properties['name:latin'] || f.properties.name;
+  } else { tooltip.style.display = 'none'; }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// PRINT MODAL
+// ═══════════════════════════════════════════════════════════════
+const printModal = document.getElementById('printModal');
+let selSize=59, selPaper=0, selFrame=0;
+function updatePrice() { document.getElementById('priceDisplay').innerHTML = `$${selSize+selPaper+selFrame} <span>USD</span>`; }
+document.getElementById('printBtn').addEventListener('click', () => printModal.classList.add('visible'));
+document.getElementById('closeModal').addEventListener('click', () => printModal.classList.remove('visible'));
+printModal.addEventListener('click', (e) => { if (e.target===printModal) printModal.classList.remove('visible'); });
+document.querySelectorAll('.option-card[data-size]').forEach(c => c.addEventListener('click', () => { c.parentElement.querySelectorAll('.option-card').forEach(x => x.classList.remove('selected')); c.classList.add('selected'); selSize=+c.dataset.price; updatePrice(); }));
+document.querySelectorAll('.option-card[data-paper]').forEach(c => c.addEventListener('click', () => { c.parentElement.querySelectorAll('.option-card').forEach(x => x.classList.remove('selected')); c.classList.add('selected'); selPaper=+c.dataset.priceAdd; updatePrice(); }));
+document.querySelectorAll('.option-card[data-frame]').forEach(c => c.addEventListener('click', () => { c.parentElement.querySelectorAll('.option-card').forEach(x => x.classList.remove('selected')); c.classList.add('selected'); selFrame=+c.dataset.framePrice; updatePrice(); }));
+document.getElementById('addToCart').addEventListener('click', () => { alert('Print added to cart! (Print fulfillment integration coming soon)'); printModal.classList.remove('visible'); });
+</script>
+</body>
+</html>

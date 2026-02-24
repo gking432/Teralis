@@ -1,0 +1,73 @@
+# Terralis — Cursor Rules
+
+## Project Context
+Terralis is a premium custom map print shop built with Next.js, MapLibre GL JS, and OpenFreeMap tiles. Users design greyscale maps by toggling layers, selecting regions, and ordering physical prints via Prodigi.
+
+## Reference Implementation
+The working prototype is in `/reference/prototype.html`. It contains all the core map logic (greyscale conversion, layer classification, isolation masking, terrain hillshade) that needs to be ported to React components. Always consult this file when implementing map features.
+
+## Key Technical Patterns
+
+### Map Style
+- We load OpenFreeMap's "liberty" style and convert to greyscale AFTER load
+- Never build a custom MapLibre style from scratch — use liberty as the base
+- Greyscale conversion: parse each color property, convert to luminance, apply
+- Liberty style uses OpenMapTiles schema for source layers
+
+### Layer Classification
+- Each of the ~100+ layers in the liberty style is classified into toggle groups
+- Classification is done by regex matching on the layer ID
+- Groups: countries, states, placelabels, roads, water, terrain, landcover
+- See `src/lib/map/layers.ts` for the canonical classification
+
+### Isolation Masking
+- Uses an inverted polygon: world-bounds rectangle with the selection polygon cut out as a hole
+- The mask is a GeoJSON fill layer positioned on top of everything
+- Selection outlines remain visible on top of the mask
+- Polygon data comes from Nominatim's `polygon_geojson=1` parameter
+
+### Terrain
+- AWS free elevation tiles as `raster-dem` source
+- MapLibre native `hillshade` layer type (renders in greyscale naturally)
+- Insert hillshade layer below water layers in the stack
+
+## Code Style
+- TypeScript strict mode
+- Functional React components with hooks
+- Zustand for state management (mapStore, orderStore)
+- Tailwind CSS for styling (custom theme matching the prototype aesthetic)
+- Named exports for components, default exports for pages
+
+## Fonts
+- Display: Cormorant Garamond (300, 400, 500, 600)
+- Body: DM Sans (300, 400, 500)
+- Load via next/font/google
+
+## Color Palette (UI, not map)
+- Background: #fafaf8
+- Panel: #ffffff
+- Text: #1a1a1a
+- Text muted: #6b6b6b
+- Text light: #999999
+- Border: #e8e8e6
+- Toggle on: #1a1a1a
+- Toggle off: #d4d4d0
+
+## API Rate Limits
+- Nominatim: 1 request/second — ALWAYS proxy through /api/geocode
+- Prodigi: No documented limits but batch appropriately
+- Stripe: Standard rate limits apply
+
+## File Naming
+- Components: PascalCase (MapView.tsx)
+- Utilities: camelCase (mapStyle.ts)
+- Types: PascalCase files with PascalCase types (MapTypes.ts → MapConfig)
+- API routes: route.ts in descriptive directories
+
+## Important Notes
+- The OpenFreeMap tile source URL is `https://tiles.openfreemap.org/planet`
+- The font glyphs URL is `https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf`
+- AWS terrain tiles: `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png` with `terrarium` encoding
+- Water fill color should be #d0d0ce (slightly darker grey than default) so lakes are visible
+- State borders should be visible from zoom 2 with width 0.8–2.5px
+- Country borders should be visible from zoom 0 with width 1–3px
