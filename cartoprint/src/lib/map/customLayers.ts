@@ -7,10 +7,9 @@ export const STATE_CAPITALS_LABEL_ID = 'us-state-capitals-label';
 export const COUNTY_LINES_ID = 'us-county-lines';
 export const US_PLACES_LABEL_ID = 'us-places-label';
 
-// Natural Earth 1:10m populated places (~7,000 global, ~2,000 US)
-// Served from jsDelivr CDN (mirrors GitHub, no rate limits)
-const NE_PLACES_URL =
-  'https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@v5.1.2/geojson/ne_10m_populated_places.geojson';
+// Local static file served from /public/data — 29,880 US places with full coverage
+// Source: US Cities Database (kelvins/US-Cities-Database), all incorporated places
+const US_PLACES_URL = '/data/us-places.geojson';
 
 /** Helper: read the first text-font found in the current style */
 function getStyleFonts(map: MaplibreMap): string[] {
@@ -125,36 +124,32 @@ export function initCountyLayer(map: MaplibreMap): void {
 }
 
 /**
- * Adds US populated places from Natural Earth 1:10m (~2,000 US cities/towns).
+ * Adds all 29,880 US populated places from a locally-bundled GeoJSON file
+ * (served from /public/data/us-places.geojson — no external CDN dependency).
  *
- * The OpenFreeMap tile source only includes town/village point data in tiles at
- * zoom 7+, so they cannot be shown at state-level zoom (5–6) from the tile source
- * alone. This layer bypasses that constraint by loading a static GeoJSON dataset
- * via CDN — the data is available at any zoom level once loaded.
+ * Source: kelvins/US-Cities-Database — every incorporated US city, town, and
+ * village with coordinates. Wisconsin has 756 places; most states have 200–800.
  *
- * Coverage: all US cities and most towns with population > ~1,000. Very small
- * hamlets (<500 pop) are not in Natural Earth 1:10m; those appear automatically
- * from the tile source when the user zooms in past zoom 7–8.
+ * Because this is a GeoJSON source (not a vector tile source), all features are
+ * available at every zoom level the moment the file loads. This bypasses the
+ * OpenFreeMap tile source constraint where town data only enters tiles at zoom 7+.
  *
- * Collision detection is left on (text-allow-overlap: false) so that at low zoom
- * (full-US view) only the most important places are shown. At state-level zoom
- * (~5.5–6.5) there is enough space for all places in a typical state to render.
- * symbol-sort-key = SCALERANK gives collision priority to larger cities.
+ * text-allow-overlap and text-ignore-placement are set to true so that ALL
+ * places render when the toggle is on — the user explicitly chose to see them.
  */
 export function initUsPlacesLayer(map: MaplibreMap): void {
   const fonts = getStyleFonts(map);
 
   map.addSource('us-places', {
     type: 'geojson',
-    data: NE_PLACES_URL,
+    data: US_PLACES_URL,
   });
 
-  // Tiny dot marker — distinguishes place point from surrounding text
+  // Tiny dot at each place location
   map.addLayer({
     id: 'us-places-dot',
     type: 'circle',
     source: 'us-places',
-    filter: ['==', ['get', 'ADM0NAME'], 'United States of America'],
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 1, 7, 2, 12, 3],
       'circle-color': '#555',
@@ -162,30 +157,20 @@ export function initUsPlacesLayer(map: MaplibreMap): void {
     layout: { visibility: 'none' },
   });
 
-  // Text label
+  // Text label — allow-overlap is true so every place renders when the toggle is on
   map.addLayer({
     id: US_PLACES_LABEL_ID,
     type: 'symbol',
     source: 'us-places',
-    filter: ['==', ['get', 'ADM0NAME'], 'United States of America'],
     layout: {
       'text-field': ['get', 'NAME'],
       'text-font': fonts,
-      // Vary size by importance: major cities slightly larger, small towns tiny
-      'text-size': [
-        'interpolate', ['linear'], ['zoom'],
-        3,  ['case', ['<', ['get', 'SCALERANK'], 4], 8, 6],
-        6,  ['case', ['<', ['get', 'SCALERANK'], 4], 10, 8],
-        9,  ['case', ['<', ['get', 'SCALERANK'], 4], 13, 10],
-        13, ['case', ['<', ['get', 'SCALERANK'], 4], 16, 13],
-      ],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 3, 7, 5, 8, 8, 10, 12, 13],
       'text-anchor': 'top',
       'text-offset': [0, 0.3],
-      // Let collision detection handle density — lower SCALERANK (more important)
-      // wins when labels compete for space at low zoom
-      'symbol-sort-key': ['get', 'SCALERANK'],
-      'text-allow-overlap': false,
-      'text-ignore-placement': false,
+      // Force ALL labels to render — no collision culling
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
       visibility: 'none',
     },
     paint: {
