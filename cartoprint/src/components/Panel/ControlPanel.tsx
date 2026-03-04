@@ -138,7 +138,7 @@ export function ControlPanel({
         </LayerGroup>
 
         <LayerGroup title="Places">
-          <LayerToggle label="State Capitals" icon={CapitalIcon} active={layers.capitals} onToggle={() => onToggleLayer('capitals')} />
+          <LayerToggle label="Capital Cities" icon={CapitalIcon} active={layers.capitals} onToggle={() => onToggleLayer('capitals')} />
           <LayerToggle label="Major Cities" icon={CityIcon} active={layers.cities} onToggle={() => onToggleLayer('cities')} />
           <LayerToggle label="Towns & Villages" icon={TownIcon} active={layers.towns} onToggle={() => onToggleLayer('towns')} />
           <LayerToggle label="State Labels" icon={LabelIcon} active={layers.statelabels} onToggle={() => onToggleLayer('statelabels')} />

@@ -13,6 +13,7 @@ import {
   clearIsolationMask,
   clearSelectionLayers,
 } from '@/lib/map/isolation';
+import { initStateCapitalsLayer, initCountyLayer, initUsPlacesLayer } from '@/lib/map/customLayers';
 import type { MapSelection } from '@/types/map';
 
 export interface MapViewHandle {
@@ -67,31 +68,16 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       const map = mapRef.current;
       if (!map) return;
 
-      const features = map.queryRenderedFeatures(e.point);
-      let placeName: string | null = null;
-      let bestBoundary: maplibregl.MapGeoJSONFeature | null = null;
-
-      for (const f of features) {
-        if (f.sourceLayer === 'boundary' && f.properties?.admin_level) {
-          if (!bestBoundary || f.properties.admin_level > bestBoundary.properties!.admin_level) {
-            bestBoundary = f;
-          }
-        }
-      }
-
-      for (const f of features) {
-        if (f.sourceLayer === 'place' && f.properties?.name) {
-          placeName = (f.properties['name:latin'] as string) || (f.properties.name as string);
-          break;
-        }
-      }
-
-      if (!placeName && !bestBoundary) return;
-
       const lat = e.lngLat.lat;
       const lng = e.lngLat.lng;
       const zoom = map.getZoom();
-      const nominatimZoom = zoom > 8 ? 14 : zoom > 5 ? 8 : 5;
+
+      // Map current MapLibre zoom to Nominatim detail level:
+      //   0–4  → zoom 5  (state/province)
+      //   5–7  → zoom 8  (county/district)
+      //   8–11 → zoom 12 (city/town)
+      //   12+  → zoom 16 (neighbourhood/street)
+      const nominatimZoom = zoom >= 12 ? 16 : zoom >= 8 ? 12 : zoom >= 5 ? 8 : 5;
 
       try {
         const resp = await fetch(`/api/geocode?lat=${lat}&lng=${lng}&z=${nominatimZoom}`);
@@ -146,6 +132,9 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       applyStyleOverrides(map);
       addTerrain(map);
       initIsolationLayers(map);
+      initCountyLayer(map);
+      initStateCapitalsLayer(map);
+      initUsPlacesLayer(map);
       applyLayerVisibility(map, layersRef.current);
     });
 
@@ -186,14 +175,14 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
   // Sync layer visibility
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !map.getStyle()) return;
     applyLayerVisibility(map, layers);
   }, [layers]);
 
   // Sync isolation
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !map.getStyle()) return;
 
     if (isIsolated && selection) {
       applyIsolationMask(map, selection);
@@ -205,7 +194,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
   // Sync selection outline
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !map.getStyle()) return;
 
     if (selection) {
       showSelectionOutline(map, selection);
