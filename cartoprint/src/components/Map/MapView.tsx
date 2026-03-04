@@ -171,14 +171,14 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
   // Sync layer visibility
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !map.getStyle()) return;
     applyLayerVisibility(map, layers);
   }, [layers]);
 
   // Sync isolation
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !map.getStyle()) return;
 
     if (isIsolated && selection) {
       applyIsolationMask(map, selection);
@@ -190,7 +190,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
   // Sync selection outline
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !map.getStyle()) return;
 
     if (selection) {
       showSelectionOutline(map, selection);
