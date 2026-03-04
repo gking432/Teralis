@@ -60,10 +60,23 @@ export function applyLayerVisibility(map: MaplibreMap, layers: LayerState): void
       const visible = layers[group];
       try {
         map.setLayoutProperty(layer.id, 'visibility', visible ? 'visible' : 'none');
-        // When toggled on, override any built-in minzoom so the layer shows at the
-        // current zoom regardless of what the base style specifies.
         if (visible) {
-          map.setLayerZoomRange(layer.id, 0, 24);
+          // Per-group zoom rules:
+          // State labels should yield to city labels when zoomed in
+          if (group === 'statelabels') {
+            map.setLayerZoomRange(layer.id, 0, 6.3);
+          // County lines only make sense when you can see individual counties
+          } else if (group === 'counties') {
+            map.setLayerZoomRange(layer.id, 6.5, 24);
+          } else {
+            map.setLayerZoomRange(layer.id, 0, 24);
+          }
+          // For towns/villages: disable collision detection so ALL labels render
+          // at every zoom — user explicitly opted in to see them, even if tiny
+          if (group === 'towns' && layer.type === 'symbol') {
+            map.setLayoutProperty(layer.id, 'text-allow-overlap', true);
+            map.setLayoutProperty(layer.id, 'text-ignore-placement', true);
+          }
         }
       } catch {}
     }

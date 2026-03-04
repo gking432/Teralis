@@ -85,7 +85,8 @@ export function applyIsolationMask(map: MaplibreMap, selection: MapSelection): v
 
   map.setLayoutProperty('mask-layer', 'visibility', 'visible');
   try { map.moveLayer('mask-layer'); } catch {}
-  try { map.moveLayer('selection-outline-layer'); } catch {}
+  // Hide the selection outline when isolated — clean print output, no dashed border
+  try { map.setLayoutProperty('selection-outline-layer', 'visibility', 'none'); } catch {}
 }
 
 export function clearIsolationMask(map: MaplibreMap): void {
@@ -94,6 +95,8 @@ export function clearIsolationMask(map: MaplibreMap): void {
     source.setData({ type: 'FeatureCollection', features: [] });
   }
   try { map.setLayoutProperty('mask-layer', 'visibility', 'none'); } catch {}
+  // Restore the selection outline when leaving isolation mode
+  try { map.setLayoutProperty('selection-outline-layer', 'visibility', 'visible'); } catch {}
 }
 
 export function clearSelectionLayers(map: MaplibreMap): void {
