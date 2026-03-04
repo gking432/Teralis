@@ -83,6 +83,7 @@ export function applyStyleOverrides(map: MaplibreMap): void {
       try {
         map.setPaintProperty(id, 'line-color', COUNTRY_BORDER_COLOR);
         map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 0, 1, 4, 2, 8, 3]);
+        map.setLayoutProperty(id, 'visibility', 'visible');
         map.setLayerZoomRange(id, 0, 24);
       } catch {}
     }
@@ -91,6 +92,7 @@ export function applyStyleOverrides(map: MaplibreMap): void {
       try {
         map.setPaintProperty(id, 'line-color', STATE_BORDER_COLOR);
         map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 2, 0.8, 5, 1.5, 8, 2.5]);
+        map.setLayoutProperty(id, 'visibility', 'visible');
         map.setLayerZoomRange(id, 2, 24);
       } catch {}
     }
@@ -106,8 +108,20 @@ export function applyStyleOverrides(map: MaplibreMap): void {
       try { map.setLayerZoomRange(id, 3, 24); } catch {}
     }
 
-    if (/place.*(city|capital)/.test(id) && layer.type === 'symbol') {
-      try { map.setLayerZoomRange(id, 3, 24); } catch {}
+    // For all place/label symbol layers: guarantee a minimum readable text size at
+    // any zoom level (base style often uses tiny sizes below zoom 5), and extend the
+    // zoom range to 0–24 so the layer can actually render when toggled on.
+    if (/place/.test(id) && layer.type === 'symbol') {
+      try {
+        map.setLayoutProperty(id, 'text-size', [
+          'interpolate', ['linear'], ['zoom'],
+          0, 11,
+          5, 12,
+          8, 13,
+          12, 16,
+        ]);
+        map.setLayerZoomRange(id, 0, 24);
+      } catch {}
     }
 
     if (id === 'natural_earth') {
