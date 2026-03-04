@@ -13,7 +13,7 @@ import {
   clearIsolationMask,
   clearSelectionLayers,
 } from '@/lib/map/isolation';
-import { initStateCapitalsLayer, initCountyLayer } from '@/lib/map/customLayers';
+import { initStateCapitalsLayer, initCountyLayer, initUsPlacesLayer } from '@/lib/map/customLayers';
 import type { MapSelection } from '@/types/map';
 
 export interface MapViewHandle {
@@ -134,6 +134,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       initIsolationLayers(map);
       initCountyLayer(map);
       initStateCapitalsLayer(map);
+      initUsPlacesLayer(map);
       applyLayerVisibility(map, layersRef.current);
     });
 

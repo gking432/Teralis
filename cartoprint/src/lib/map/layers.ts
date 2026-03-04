@@ -4,6 +4,7 @@ import {
   STATE_CAPITALS_DOT_ID,
   STATE_CAPITALS_LABEL_ID,
   COUNTY_LINES_ID,
+  US_PLACES_LABEL_ID,
 } from '@/lib/map/customLayers';
 
 // OpenFreeMap Liberty actual layer IDs (fetched from style JSON):
@@ -13,9 +14,10 @@ import {
 // Custom layers added at runtime: us-state-capitals-dot/label, us-county-lines
 
 export function classifyLayer(id: string): LayerGroup | null {
-  // Custom layers added by initStateCapitalsLayer / initCountyLayer
+  // Custom layers added by initStateCapitalsLayer / initCountyLayer / initUsPlacesLayer
   if (id === STATE_CAPITALS_DOT_ID || id === STATE_CAPITALS_LABEL_ID) return 'capitals';
   if (id === COUNTY_LINES_ID) return 'counties';
+  if (id === US_PLACES_LABEL_ID || id === 'us-places-dot') return 'towns';
 
   // Boundaries
   if (/^boundary_2$|admin.*country|admin.*2|boundary.*country/.test(id)) return 'countries';

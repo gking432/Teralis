@@ -5,6 +5,24 @@ import { STATE_CAPITALS_GEOJSON } from '@/lib/geo/usStateCapitals';
 export const STATE_CAPITALS_DOT_ID = 'us-state-capitals-dot';
 export const STATE_CAPITALS_LABEL_ID = 'us-state-capitals-label';
 export const COUNTY_LINES_ID = 'us-county-lines';
+export const US_PLACES_LABEL_ID = 'us-places-label';
+
+// Natural Earth 1:10m populated places (~7,000 global, ~2,000 US)
+// Served from jsDelivr CDN (mirrors GitHub, no rate limits)
+const NE_PLACES_URL =
+  'https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@v5.1.2/geojson/ne_10m_populated_places.geojson';
+
+/** Helper: read the first text-font found in the current style */
+function getStyleFonts(map: MaplibreMap): string[] {
+  const style = map.getStyle();
+  if (style?.layers) {
+    for (const l of style.layers) {
+      const font = (l as any).layout?.['text-font'];
+      if (Array.isArray(font) && font.length > 0) return font as string[];
+    }
+  }
+  return ['Noto Sans Regular', 'Open Sans Regular'];
+}
 
 /**
  * Adds a static GeoJSON layer for all 50 US state capitals.
@@ -12,18 +30,7 @@ export const COUNTY_LINES_ID = 'us-county-lines';
  * at any zoom when the toggle is on.
  */
 export function initStateCapitalsLayer(map: MaplibreMap): void {
-  // Grab a font name that already exists in this style
-  const style = map.getStyle();
-  let fonts: string[] = ['Noto Sans Regular', 'Open Sans Regular'];
-  if (style?.layers) {
-    for (const l of style.layers) {
-      const font = (l as any).layout?.['text-font'];
-      if (Array.isArray(font) && font.length > 0) {
-        fonts = font;
-        break;
-      }
-    }
-  }
+  const fonts = getStyleFonts(map);
 
   map.addSource('us-state-capitals', {
     type: 'geojson',
@@ -116,3 +123,76 @@ export function initCountyLayer(map: MaplibreMap): void {
     // Source or source-layer not available — silently skip
   }
 }
+
+/**
+ * Adds US populated places from Natural Earth 1:10m (~2,000 US cities/towns).
+ *
+ * The OpenFreeMap tile source only includes town/village point data in tiles at
+ * zoom 7+, so they cannot be shown at state-level zoom (5–6) from the tile source
+ * alone. This layer bypasses that constraint by loading a static GeoJSON dataset
+ * via CDN — the data is available at any zoom level once loaded.
+ *
+ * Coverage: all US cities and most towns with population > ~1,000. Very small
+ * hamlets (<500 pop) are not in Natural Earth 1:10m; those appear automatically
+ * from the tile source when the user zooms in past zoom 7–8.
+ *
+ * Collision detection is left on (text-allow-overlap: false) so that at low zoom
+ * (full-US view) only the most important places are shown. At state-level zoom
+ * (~5.5–6.5) there is enough space for all places in a typical state to render.
+ * symbol-sort-key = SCALERANK gives collision priority to larger cities.
+ */
+export function initUsPlacesLayer(map: MaplibreMap): void {
+  const fonts = getStyleFonts(map);
+
+  map.addSource('us-places', {
+    type: 'geojson',
+    data: NE_PLACES_URL,
+  });
+
+  // Tiny dot marker — distinguishes place point from surrounding text
+  map.addLayer({
+    id: 'us-places-dot',
+    type: 'circle',
+    source: 'us-places',
+    filter: ['==', ['get', 'ADM0NAME'], 'United States of America'],
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 1, 7, 2, 12, 3],
+      'circle-color': '#555',
+    },
+    layout: { visibility: 'none' },
+  });
+
+  // Text label
+  map.addLayer({
+    id: US_PLACES_LABEL_ID,
+    type: 'symbol',
+    source: 'us-places',
+    filter: ['==', ['get', 'ADM0NAME'], 'United States of America'],
+    layout: {
+      'text-field': ['get', 'NAME'],
+      'text-font': fonts,
+      // Vary size by importance: major cities slightly larger, small towns tiny
+      'text-size': [
+        'interpolate', ['linear'], ['zoom'],
+        3,  ['case', ['<', ['get', 'SCALERANK'], 4], 8, 6],
+        6,  ['case', ['<', ['get', 'SCALERANK'], 4], 10, 8],
+        9,  ['case', ['<', ['get', 'SCALERANK'], 4], 13, 10],
+        13, ['case', ['<', ['get', 'SCALERANK'], 4], 16, 13],
+      ],
+      'text-anchor': 'top',
+      'text-offset': [0, 0.3],
+      // Let collision detection handle density — lower SCALERANK (more important)
+      // wins when labels compete for space at low zoom
+      'symbol-sort-key': ['get', 'SCALERANK'],
+      'text-allow-overlap': false,
+      'text-ignore-placement': false,
+      visibility: 'none',
+    },
+    paint: {
+      'text-color': '#222',
+      'text-halo-color': '#fafaf8',
+      'text-halo-width': 1.2,
+    },
+  });
+}
+
