@@ -1,25 +1,31 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { LayerGroup, LayerState } from '@/types/map';
+import {
+  STATE_CAPITALS_DOT_ID,
+  STATE_CAPITALS_LABEL_ID,
+  COUNTY_LINES_ID,
+} from '@/lib/map/customLayers';
 
 // OpenFreeMap Liberty actual layer IDs (fetched from style JSON):
 // Boundaries: boundary_2 (country), boundary_3 (state), boundary_disputed
 // Labels: label_city_capital, label_city, label_town, label_village, label_other,
 //         label_state, label_country_1/2/3
-// Roads: road_motorway, road_trunk_primary, road_secondary_tertiary, road_minor,
-//        road_service_track, road_link, road_path_pedestrian, road_one_way_arrow*
-//        plus tunnel_ and bridge_ prefixed variants, and casing variants
-// Shields/names: highway-shield-*, road_shield_us, highway-name-major/minor/path
-// POI: poi_r20, poi_r7, poi_r1, poi_transit, airport
+// Custom layers added at runtime: us-state-capitals-dot/label, us-county-lines
 
 export function classifyLayer(id: string): LayerGroup | null {
+  // Custom layers added by initStateCapitalsLayer / initCountyLayer
+  if (id === STATE_CAPITALS_DOT_ID || id === STATE_CAPITALS_LABEL_ID) return 'capitals';
+  if (id === COUNTY_LINES_ID) return 'counties';
+
   // Boundaries
   if (/^boundary_2$|admin.*country|admin.*2|boundary.*country/.test(id)) return 'countries';
   if (/^(boundary_3|boundary_disputed)$|admin.*(state|3|4)|boundary.*(state|3|4)/.test(id)) return 'states';
   if (/admin.*(5|6|7|8)|boundary.*(county|5|6|7|8)/.test(id)) return 'counties';
 
   // Places — Liberty uses label_* IDs; other styles use place_*
-  // Check specific label_ IDs before generic place_ patterns
-  if (/^label_city_capital$|place.*capital|capital.*dot|capital.*city/.test(id)) return 'capitals';
+  // label_city_capital = international/national capitals; mapped to countrylabels
+  // so the "Capital Cities" toggle controls only our custom US state capitals layer
+  if (/^label_city_capital$|place.*capital|capital.*dot|capital.*city/.test(id)) return 'countrylabels';
   if (/^label_state$|place.*(state|province)/.test(id)) return 'statelabels';
   if (/^label_country|place.*(country|continent)/.test(id)) return 'countrylabels';
   if (/^label_city$|place.*(city|metropolis|large_city)/.test(id)) return 'cities';
