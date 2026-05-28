@@ -45,6 +45,8 @@ export function MapBuilder({ catalogPrint = null, catalogSlug = null }: MapBuild
     setActiveScope,
   } = useOrderStore();
 
+  const autoOpenedForRef = useRef<string | null>(null);
+
   const catalogStatusLabel = useMemo(() => {
     if (!catalogPrint) return null;
     if (catalogLoadState === 'fallback') return 'Boundary lookup unavailable. Using saved print bounds.';
@@ -61,11 +63,11 @@ export function MapBuilder({ catalogPrint = null, catalogSlug = null }: MapBuild
       clearSelections();
       setFocusMode('none');
       setCatalogLoadState(catalogSlug ? 'fallback' : 'idle');
+      autoOpenedForRef.current = null;
       return;
     }
 
     const staticSelection = catalogPrintToSelection(catalogPrint);
-    closeModal();
     clearSelections();
     setActiveScope(catalogPrint.kind === 'country' ? 'state' : 'county');
     setFocusMode('none');
@@ -73,6 +75,16 @@ export function MapBuilder({ catalogPrint = null, catalogSlug = null }: MapBuild
     requestFitBounds(catalogPrint.bbox);
     mapViewRef.current?.flyTo(catalogPrint.center, catalogPrint.defaultZoom);
     setCatalogLoadState('loading');
+
+    if (autoOpenedForRef.current !== catalogPrint.slug) {
+      autoOpenedForRef.current = catalogPrint.slug;
+      openModal({
+        scope: catalogPrint.kind === 'country' ? 'state' : 'county',
+        printSnapshot: staticSelection,
+        defaultStep: 'colors',
+        defaultTitleEnabled: true,
+      });
+    }
 
     searchLocation(catalogPrint.searchQuery)
       .then((results) => {
@@ -85,7 +97,8 @@ export function MapBuilder({ catalogPrint = null, catalogSlug = null }: MapBuild
           return;
         }
 
-        setSelection(catalogPrintToSelection(catalogPrint, picked.geojson));
+        const liveSelection = catalogPrintToSelection(catalogPrint, picked.geojson);
+        setSelection(liveSelection);
         setFocusMode('crop');
         setCatalogLoadState('ready');
       })
@@ -102,6 +115,7 @@ export function MapBuilder({ catalogPrint = null, catalogSlug = null }: MapBuild
     clearSelection,
     clearSelections,
     closeModal,
+    openModal,
     requestFitBounds,
     setActiveScope,
     setFocusMode,

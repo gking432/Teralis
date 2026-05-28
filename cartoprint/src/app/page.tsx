@@ -1,12 +1,18 @@
 'use client';
 
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useMemo, useState } from 'react';
 import {
   getFeaturedCatalogPrint,
   getStateCatalogPrints,
   type CatalogPrint,
 } from '@/lib/catalog/prints';
+
+const ThumbnailMap = dynamic(
+  () => import('@/components/Storefront/ThumbnailMap').then((m) => m.ThumbnailMap),
+  { ssr: false, loading: () => <div className="h-full w-full bg-[#f6efe1]" /> }
+);
 
 export default function StorefrontPage() {
   const featuredPrint = getFeaturedCatalogPrint();
@@ -189,9 +195,11 @@ function PrintCard({ print, featured = false }: { print: CatalogPrint; featured?
         featured ? 'min-h-[220px]' : ''
       }`}
     >
-      <div className="mb-5 flex h-24 items-center justify-center overflow-hidden bg-[#f6efe1]">
-        <div className="h-12 w-20 rotate-[-8deg] rounded-[45%] border border-[#07122a] bg-white shadow-[inset_0_0_0_8px_#07122a]" />
-      </div>
+      <ThumbnailMap
+        slug={print.slug}
+        bbox={print.bbox}
+        className="mb-5 h-32 w-full overflow-hidden bg-[#f6efe1]"
+      />
       <div className="mb-2 text-[10px] uppercase tracking-[1.4px] text-text-muted">
         {print.kind === 'country' ? 'National Print' : 'State Print'}
       </div>

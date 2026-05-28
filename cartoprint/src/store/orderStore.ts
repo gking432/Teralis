@@ -4,6 +4,8 @@ import { calculatePrice } from '@/lib/pricing';
 import type { PrintRegionScope, PrintSelectedRegion } from '@/types/order';
 import type { MapSelection } from '@/types/map';
 
+export type PrintEditorStep = 'labels' | 'colors' | 'design';
+
 interface OrderStore {
   size: PrintSize;
   paper: PaperType;
@@ -14,6 +16,8 @@ interface OrderStore {
   activeScope: PrintRegionScope;
   drilldownSelections: PrintSelectedRegion[];
   skipIsolationStep: boolean;
+  defaultStep: PrintEditorStep;
+  defaultTitleEnabled: boolean;
 
   setSize: (size: PrintSize) => void;
   setPaper: (paper: PaperType) => void;
@@ -22,6 +26,8 @@ interface OrderStore {
     scope?: PrintRegionScope;
     skipIsolationStep?: boolean;
     printSnapshot?: MapSelection | null;
+    defaultStep?: PrintEditorStep;
+    defaultTitleEnabled?: boolean;
   }) => void;
   closeModal: () => void;
   setActiveScope: (scope: PrintRegionScope) => void;
@@ -46,6 +52,8 @@ export const useOrderStore = create<OrderStore>((set, get) => ({
   activeScope: 'state',
   drilldownSelections: [],
   skipIsolationStep: false,
+  defaultStep: 'labels',
+  defaultTitleEnabled: false,
 
   setSize: (size) => {
     const { paper, frame } = get();
@@ -65,6 +73,8 @@ export const useOrderStore = create<OrderStore>((set, get) => ({
       activeScope: config?.scope || 'state',
       skipIsolationStep: config?.skipIsolationStep || false,
       printSnapshot: config?.printSnapshot || null,
+      defaultStep: config?.defaultStep || 'labels',
+      defaultTitleEnabled: config?.defaultTitleEnabled || false,
     }),
   closeModal: () =>
     set({

@@ -373,7 +373,15 @@ function getBestTitleFeature(
 }
 
 export function PrintModal() {
-  const { size, frame, modalOpen, printSnapshot, closeModal } = useOrderStore();
+  const {
+    size,
+    frame,
+    modalOpen,
+    printSnapshot,
+    defaultStep,
+    defaultTitleEnabled,
+    closeModal,
+  } = useOrderStore();
   const { view, selection } = useMapStore();
   const [step, setStep] = useState<PreviewEditorStep>('labels');
   const [compositionMode, setCompositionMode] = useState<PreviewCompositionMode>('landscape-print');
@@ -396,17 +404,18 @@ export function PrintModal() {
 
   useEffect(() => {
     if (!modalOpen) return;
+    setStep(defaultStep);
     setColorSettings(MAP_DEFAULT_COLORS);
     setLabelSettings(DEFAULT_LABEL_SETTINGS);
     setRecommendedTitleText(fallbackTitleText);
     setTitleSettings({
-      enabled: false,
+      enabled: defaultTitleEnabled,
       title: fallbackTitleText.title,
       subtitle: fallbackTitleText.subtitle,
       detail: fallbackTitleText.detail,
       layout: 'classic-bottom',
     });
-  }, [fallbackTitleText, modalOpen]);
+  }, [defaultStep, defaultTitleEnabled, fallbackTitleText, modalOpen]);
 
   useEffect(() => {
     if (!modalOpen) return;
