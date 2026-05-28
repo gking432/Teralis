@@ -196,6 +196,9 @@ function PrintCard({ print, featured = false }: { print: CatalogPrint; featured?
         {print.kind === 'country' ? 'National Print' : 'State Print'}
       </div>
       <h3 className="font-display text-2xl font-light">{print.name}</h3>
+      {print.slogan && (
+        <p className="mt-1 text-[11px] leading-5 text-text-muted">{print.slogan}</p>
+      )}
       <div className="mt-4 flex items-center justify-between text-[11px] uppercase tracking-[1.4px] text-text-muted">
         <span>{print.establishedYear ? `EST. ${print.establishedYear}` : 'Customizable'}</span>
         <span className="text-text transition-transform group-hover:translate-x-1">Open</span>
