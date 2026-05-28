@@ -19,7 +19,8 @@
 body {
   background: var(--bg);
   color: var(--text);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .maplibregl-ctrl-attrib {
@@ -35,6 +36,11 @@ body {
 
 .maplibregl-ctrl-group button {
   border-radius: 0 !important;
+}
+
+.maplibregl-canvas,
+.maplibregl-canvas:focus {
+  outline: none;
 }
 
 .panel-scroll::-webkit-scrollbar {

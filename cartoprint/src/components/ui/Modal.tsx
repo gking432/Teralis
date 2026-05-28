@@ -6,9 +6,10 @@ interface ModalProps {
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  className?: string;
 }
 
-export function Modal({ open, onClose, children }: ModalProps) {
+export function Modal({ open, onClose, children, className = '' }: ModalProps) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -32,7 +33,7 @@ export function Modal({ open, onClose, children }: ModalProps) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-panel w-[520px] max-h-[80vh] overflow-y-auto p-12">
+      <div className={`bg-panel w-[520px] max-h-[80vh] overflow-y-auto p-12 ${className}`}>
         {children}
       </div>
     </div>

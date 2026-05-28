@@ -1,7 +1,5 @@
 import type { Map as MaplibreMap, GeoJSONSource } from 'maplibre-gl';
 import type { MapSelection } from '@/types/map';
-import { BACKGROUND_COLOR } from './style';
-
 const WORLD_RING: [number, number][] = [
   [-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90],
 ];
@@ -16,7 +14,7 @@ export function initIsolationLayers(map: MaplibreMap): void {
     id: 'mask-layer',
     type: 'fill',
     source: 'selection-mask',
-    paint: { 'fill-color': BACKGROUND_COLOR, 'fill-opacity': 1 },
+    paint: { 'fill-color': '#ffffff', 'fill-opacity': 1 },
     layout: { visibility: 'none' },
   });
 
@@ -29,8 +27,29 @@ export function initIsolationLayers(map: MaplibreMap): void {
     id: 'selection-outline-layer',
     type: 'line',
     source: 'selection-outline',
-    paint: { 'line-color': '#333', 'line-width': 2, 'line-dasharray': [4, 3] },
-    layout: { visibility: 'visible' },
+    paint: { 'line-color': '#333', 'line-width': 0, 'line-opacity': 0 },
+    layout: { visibility: 'none' },
+  });
+
+  map.addSource('print-exclusions', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  });
+
+  map.addLayer({
+    id: 'print-exclusions-fill-layer',
+    type: 'fill',
+    source: 'print-exclusions',
+    paint: { 'fill-color': '#ffffff', 'fill-opacity': 1 },
+    layout: { visibility: 'none' },
+  });
+
+  map.addLayer({
+    id: 'print-exclusions-line-layer',
+    type: 'line',
+    source: 'print-exclusions',
+    paint: { 'line-color': '#ffffff', 'line-width': 2 },
+    layout: { visibility: 'none' },
   });
 }
 
@@ -44,9 +63,75 @@ export function showSelectionOutline(map: MaplibreMap, selection: MapSelection):
       geometry: selection.geojson as any,
     });
   }
+  try { map.setLayoutProperty('selection-outline-layer', 'visibility', 'none'); } catch {}
 }
 
-export function applyIsolationMask(map: MaplibreMap, selection: MapSelection): void {
+function collectHoleRings(geometry: GeoJSON.Geometry): number[][][] {
+  if (geometry.type === 'Polygon') {
+    return geometry.coordinates.map((ring) => ring.slice().reverse() as number[][]);
+  }
+
+  if (geometry.type === 'MultiPolygon') {
+    const holes: number[][][] = [];
+    geometry.coordinates.forEach((polygon) => {
+      polygon.forEach((ring) => {
+        holes.push(ring.slice().reverse() as number[][]);
+      });
+    });
+    return holes;
+  }
+
+  return [];
+}
+
+export function showSelectionSet(
+  map: MaplibreMap,
+  geometries: GeoJSON.Geometry[],
+  opacity = 1
+): void {
+  const validGeometries = geometries.filter((geometry): geometry is GeoJSON.Geometry => Boolean(geometry));
+  if (validGeometries.length === 0) {
+    clearSelectionLayers(map);
+    return;
+  }
+
+  const holes = validGeometries.flatMap((geometry) => collectHoleRings(geometry));
+  const maskSource = map.getSource('selection-mask') as GeoJSONSource;
+  const outlineSource = map.getSource('selection-outline') as GeoJSONSource;
+
+  if (maskSource) {
+    maskSource.setData({
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'Polygon',
+        coordinates: [WORLD_RING, ...holes],
+      },
+    } as GeoJSON.Feature);
+  }
+
+  if (outlineSource) {
+    outlineSource.setData({
+      type: 'FeatureCollection',
+      features: validGeometries.map((geometry) => ({
+        type: 'Feature',
+        properties: {},
+        geometry,
+      })),
+    });
+  }
+
+  map.setLayoutProperty('mask-layer', 'visibility', 'visible');
+  map.setPaintProperty('mask-layer', 'fill-opacity', opacity);
+  try { map.setLayoutProperty('selection-outline-layer', 'visibility', 'none'); } catch {}
+  try { map.moveLayer('mask-layer'); } catch {}
+}
+
+export function applyIsolationMask(
+  map: MaplibreMap,
+  selection: MapSelection,
+  opacity = 1
+): void {
   if (!selection.geojson) return;
 
   const geo = selection.geojson as any;
@@ -84,8 +169,9 @@ export function applyIsolationMask(map: MaplibreMap, selection: MapSelection): v
   }
 
   map.setLayoutProperty('mask-layer', 'visibility', 'visible');
+  map.setPaintProperty('mask-layer', 'fill-opacity', opacity);
+  try { map.setLayoutProperty('selection-outline-layer', 'visibility', 'none'); } catch {}
   try { map.moveLayer('mask-layer'); } catch {}
-  try { map.moveLayer('selection-outline-layer'); } catch {}
 }
 
 export function clearIsolationMask(map: MaplibreMap): void {
@@ -101,5 +187,37 @@ export function clearSelectionLayers(map: MaplibreMap): void {
   if (outlineSource) {
     outlineSource.setData({ type: 'FeatureCollection', features: [] });
   }
+  try { map.setLayoutProperty('selection-outline-layer', 'visibility', 'none'); } catch {}
   clearIsolationMask(map);
+}
+
+export function showPrintExclusions(map: MaplibreMap, geometries: GeoJSON.Geometry[]): void {
+  const source = map.getSource('print-exclusions') as GeoJSONSource;
+  if (!source) return;
+
+  source.setData({
+    type: 'FeatureCollection',
+    features: geometries
+      .filter((geometry): geometry is GeoJSON.Geometry => Boolean(geometry))
+      .map((geometry) => ({
+        type: 'Feature',
+        properties: {},
+        geometry,
+      })),
+  });
+
+  const visibility = geometries.length > 0 ? 'visible' : 'none';
+  try { map.setLayoutProperty('print-exclusions-fill-layer', 'visibility', visibility); } catch {}
+  try { map.setLayoutProperty('print-exclusions-line-layer', 'visibility', visibility); } catch {}
+  try { map.moveLayer('print-exclusions-fill-layer'); } catch {}
+  try { map.moveLayer('print-exclusions-line-layer'); } catch {}
+}
+
+export function clearPrintExclusions(map: MaplibreMap): void {
+  const source = map.getSource('print-exclusions') as GeoJSONSource;
+  if (source) {
+    source.setData({ type: 'FeatureCollection', features: [] });
+  }
+  try { map.setLayoutProperty('print-exclusions-fill-layer', 'visibility', 'none'); } catch {}
+  try { map.setLayoutProperty('print-exclusions-line-layer', 'visibility', 'none'); } catch {}
 }

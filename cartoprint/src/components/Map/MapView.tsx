@@ -4,8 +4,10 @@ import { useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useMapStore } from '@/store/mapStore';
+import { useOrderStore } from '@/store/orderStore';
 import { STYLE_URL, applyGreyscale, applyStyleOverrides, addTerrain } from '@/lib/map/style';
 import { applyLayerVisibility } from '@/lib/map/layers';
+import { getReverseZoomForTarget } from '@/lib/map/builder';
 import {
   initIsolationLayers,
   showSelectionOutline,
@@ -14,38 +16,73 @@ import {
   clearSelectionLayers,
 } from '@/lib/map/isolation';
 import type { MapSelection } from '@/types/map';
+import type { PrintRegionScope } from '@/types/order';
 
 export interface MapViewHandle {
   flyTo: (center: [number, number], zoom: number) => void;
   fitBounds: (bbox: [string, string, string, string]) => void;
+  snapshotView: () => MapSelection | null;
   resize: () => void;
 }
 
 interface MapViewProps {
   panelOpen: boolean;
+  printMode: boolean;
+}
+
+interface BoundaryResolveResponse {
+  id: string;
+  level: PrintRegionScope;
+  name: string;
+  fullName: string;
+  bbox: [string, string, string, string] | null;
+  geometry: GeoJSON.Geometry;
+}
+
+function getNextScope(scope: PrintRegionScope): PrintRegionScope {
+  if (scope === 'country') return 'state';
+  if (scope === 'state') return 'county';
+  return 'city';
+}
+
+function getClickScopeForZoom(zoom: number): PrintRegionScope {
+  if (zoom < 5.5) return 'country';
+  if (zoom < 7.5) return 'state';
+  if (zoom < 10.5) return 'county';
+  return 'city';
 }
 
 export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
-  { panelOpen },
+  { panelOpen, printMode },
   ref
 ) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const mapClickHandlerRef = useRef<(e: maplibregl.MapMouseEvent) => void>(() => {});
   const tooltipRef = useRef<HTMLDivElement>(null);
 
   const {
     layers,
     selection,
-    isIsolated,
+    builder,
+    fitBoundsRequest,
     setView,
     setSelection,
+    setPrintMetrics,
+    setFocusMode,
   } = useMapStore();
+  const {
+    selectRegion,
+    setActiveScope,
+  } = useOrderStore();
 
   const layersRef = useRef(layers);
-  const isIsolatedRef = useRef(isIsolated);
+  const focusModeRef = useRef(builder.focusMode);
+  const selectionTargetRef = useRef(builder.selectionTarget);
 
   useEffect(() => { layersRef.current = layers; }, [layers]);
-  useEffect(() => { isIsolatedRef.current = isIsolated; }, [isIsolated]);
+  useEffect(() => { focusModeRef.current = builder.focusMode; }, [builder.focusMode]);
+  useEffect(() => { selectionTargetRef.current = builder.selectionTarget; }, [builder.selectionTarget]);
 
   useImperativeHandle(ref, () => ({
     flyTo: (center, zoom) => {
@@ -57,6 +94,37 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
         { padding: 60, duration: 1200 }
       );
     },
+    snapshotView: () => {
+      const map = mapRef.current;
+      if (!map) return null;
+      const bounds = map.getBounds();
+      const west = bounds.getWest();
+      const south = bounds.getSouth();
+      const east = bounds.getEast();
+      const north = bounds.getNorth();
+      const rect = map.getContainer().getBoundingClientRect();
+
+      return {
+        name: 'Snapshot View',
+        type: 'viewport',
+        fullName: 'Current map view',
+        bbox: [south.toString(), north.toString(), west.toString(), east.toString()],
+        viewport: {
+          width: rect.width,
+          height: rect.height,
+        },
+        geojson: {
+          type: 'Polygon',
+          coordinates: [[
+            [west, south],
+            [east, south],
+            [east, north],
+            [west, north],
+            [west, south],
+          ]],
+        },
+      };
+    },
     resize: () => {
       setTimeout(() => mapRef.current?.resize(), 320);
     },
@@ -67,31 +135,60 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       const map = mapRef.current;
       if (!map) return;
 
-      const features = map.queryRenderedFeatures(e.point);
-      let placeName: string | null = null;
-      let bestBoundary: maplibregl.MapGeoJSONFeature | null = null;
-
-      for (const f of features) {
-        if (f.sourceLayer === 'boundary' && f.properties?.admin_level) {
-          if (!bestBoundary || f.properties.admin_level > bestBoundary.properties!.admin_level) {
-            bestBoundary = f;
-          }
-        }
-      }
-
-      for (const f of features) {
-        if (f.sourceLayer === 'place' && f.properties?.name) {
-          placeName = (f.properties['name:latin'] as string) || (f.properties.name as string);
-          break;
-        }
-      }
-
-      if (!placeName && !bestBoundary) return;
-
       const lat = e.lngLat.lat;
       const lng = e.lngLat.lng;
-      const zoom = map.getZoom();
-      const nominatimZoom = zoom > 8 ? 14 : zoom > 5 ? 8 : 5;
+      const nominatimZoom = getReverseZoomForTarget(selectionTargetRef.current);
+
+      if (printMode) {
+        try {
+          const clickScope = getClickScopeForZoom(map.getZoom());
+          const params = new URLSearchParams({
+            lat: lat.toString(),
+            lng: lng.toString(),
+            level: clickScope,
+          });
+          const resp = await fetch(`/api/boundary/resolve?${params}`);
+          if (!resp.ok) return;
+
+          const boundary = (await resp.json()) as BoundaryResolveResponse;
+          const nextSelection: MapSelection = {
+            name: boundary.name,
+            type: boundary.level,
+            fullName: boundary.fullName,
+            geojson: boundary.geometry,
+            bbox: boundary.bbox,
+          };
+
+          selectRegion({
+            id: boundary.id,
+            name: boundary.name,
+            scope: boundary.level,
+            fullName: boundary.fullName,
+            geojson: boundary.geometry,
+            bbox: boundary.bbox,
+          });
+
+          setSelection(nextSelection);
+          setFocusMode('crop');
+          showSelectionOutline(map, nextSelection);
+          applyIsolationMask(map, nextSelection, 1);
+
+          if (clickScope !== 'country' && boundary.bbox) {
+            map.fitBounds(
+              [
+                [+boundary.bbox[2], +boundary.bbox[0]],
+                [+boundary.bbox[3], +boundary.bbox[1]],
+              ],
+              { padding: 52, duration: 900 }
+            );
+          }
+
+          setActiveScope(getNextScope(clickScope));
+        } catch (err) {
+          console.error('Customize click error:', err);
+        }
+        return;
+      }
 
       try {
         const resp = await fetch(`/api/geocode?lat=${lat}&lng=${lng}&z=${nominatimZoom}`);
@@ -114,16 +211,32 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
           setSelection(newSelection);
           showSelectionOutline(map, newSelection);
 
-          if (isIsolatedRef.current) {
-            applyIsolationMask(map, newSelection);
+          if (focusModeRef.current === 'crop') {
+            applyIsolationMask(map, newSelection, 1);
+          } else if (focusModeRef.current === 'fade') {
+            applyIsolationMask(map, newSelection, 0.7);
           }
         }
       } catch (err) {
         console.error('Reverse geocode error:', err);
       }
     },
-    [setSelection]
+    [
+      printMode,
+      selectRegion,
+      setActiveScope,
+      setFocusMode,
+      setSelection,
+    ]
   );
+
+  const updatePrintMetrics = useCallback(() => {
+    setPrintMetrics(null);
+  }, [setPrintMetrics]);
+
+  useEffect(() => {
+    mapClickHandlerRef.current = handleMapClick;
+  }, [handleMapClick]);
 
   // Initialize map
   useEffect(() => {
@@ -155,9 +268,11 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
         center: [center.lng, center.lat],
         zoom: map.getZoom(),
       });
+      updatePrintMetrics();
     });
 
-    map.on('click', (e) => handleMapClick(e));
+    map.on('click', (e) => mapClickHandlerRef.current(e));
+    map.on('idle', () => updatePrintMetrics());
 
     map.on('mousemove', (e) => {
       const tooltip = tooltipRef.current;
@@ -188,39 +303,83 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
     applyLayerVisibility(map, layers);
-  }, [layers]);
+    updatePrintMetrics();
+  }, [layers, updatePrintMetrics]);
 
   // Sync isolation
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
-    if (isIsolated && selection) {
-      applyIsolationMask(map, selection);
+    if (printMode && selection?.geojson) {
+      showSelectionOutline(map, selection);
+      applyIsolationMask(map, selection, 1);
+    } else if (printMode) {
+      clearSelectionLayers(map);
+    } else if (builder.focusMode === 'crop' && selection) {
+      applyIsolationMask(map, selection, 1);
+    } else if (builder.focusMode === 'fade' && selection) {
+      applyIsolationMask(map, selection, 0.7);
     } else {
       clearIsolationMask(map);
     }
-  }, [isIsolated, selection]);
+  }, [builder.focusMode, printMode, selection]);
 
   // Sync selection outline
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
+    if (printMode) return;
 
     if (selection) {
       showSelectionOutline(map, selection);
     } else {
       clearSelectionLayers(map);
     }
-  }, [selection]);
+    updatePrintMetrics();
+  }, [printMode, selection, updatePrintMetrics]);
 
   // Resize map when panel toggles
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const timer = setTimeout(() => map.resize(), 320);
-    return () => clearTimeout(timer);
-  }, [panelOpen]);
+    const metricTimer = setTimeout(() => updatePrintMetrics(), 360);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(metricTimer);
+    };
+  }, [panelOpen, updatePrintMetrics]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (fitBoundsRequest?.bbox) {
+      map.fitBounds(
+        [
+          [+fitBoundsRequest.bbox[2], +fitBoundsRequest.bbox[0]],
+          [+fitBoundsRequest.bbox[3], +fitBoundsRequest.bbox[1]],
+        ],
+        { padding: 52, duration: 900 }
+      );
+    }
+  }, [fitBoundsRequest]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const canvas = map.getCanvas();
+    canvas.style.cursor = printMode ? 'pointer' : '';
+
+    map.dragPan.enable();
+    map.scrollZoom.enable();
+    map.boxZoom.enable();
+    map.doubleClickZoom.enable();
+    map.keyboard.enable();
+    map.touchZoomRotate.enable();
+  }, [printMode]);
 
   return (
     <>

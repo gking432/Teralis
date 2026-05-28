@@ -3,8 +3,8 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 export const STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
 export const TERRAIN_TILES_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 export const BACKGROUND_COLOR = '#fafaf8';
-export const WATER_COLOR = '#d0d0ce';
-export const WATERWAY_COLOR = '#bbbbb8';
+export const WATER_COLOR = '#ffffff';
+export const WATERWAY_COLOR = '#b7b7b1';
 export const COUNTRY_BORDER_COLOR = '#333';
 export const STATE_BORDER_COLOR = '#555';
 
@@ -78,6 +78,11 @@ export function applyStyleOverrides(map: MaplibreMap): void {
 
   style.layers.forEach((layer) => {
     const id = layer.id;
+
+    if (layer.type === 'symbol' && /airport|aerodrome|aeroway|airfield|runway|iata|icao/.test(id)) {
+      try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
+      return;
+    }
 
     if (/admin.*country|admin.*2|boundary.*country/.test(id) && layer.type === 'line') {
       try {

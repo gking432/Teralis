@@ -15,6 +15,46 @@ export interface PriceBreakdown {
   total: number;
 }
 
+export type PrintReadinessStatus = 'ready' | 'needs-adjustment' | 'blocked';
+
+export interface PrintReadinessReport {
+  status: PrintReadinessStatus;
+  warnings: string[];
+  suggestions: string[];
+}
+
+export interface ScreenRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface PrintMetrics {
+  frame: ScreenRect | null;
+  safeFrame: ScreenRect | null;
+  visibleLabelCount: number;
+  safeLabelCount: number;
+  edgeLabelCount: number;
+  edgeLabelNames: string[];
+  subjectCoverage: number | null;
+  subjectTouchesSafeMargin: boolean;
+}
+
+export type PrintRegionScope = 'country' | 'state' | 'county' | 'city';
+
+export interface PrintVisibleRegion {
+  id: string;
+  name: string;
+  scope: PrintRegionScope;
+  fullName?: string;
+}
+
+export interface PrintSelectedRegion extends PrintVisibleRegion {
+  geojson: GeoJSON.Geometry | null;
+  bbox?: [string, string, string, string] | null;
+}
+
 export type OrderStatus =
   | 'pending'
   | 'paid'

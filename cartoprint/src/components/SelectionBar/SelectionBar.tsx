@@ -6,11 +6,11 @@ import type { MapSelection } from '@/types/map';
 interface SelectionBarProps {
   selection: MapSelection;
   onZoomTo: () => void;
-  onIsolate: () => void;
+  onBackUp?: () => void;
   onClear: () => void;
 }
 
-export function SelectionBar({ selection, onZoomTo, onIsolate, onClear }: SelectionBarProps) {
+export function SelectionBar({ selection, onZoomTo, onBackUp, onClear }: SelectionBarProps) {
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel border border-border px-6 py-3 z-[998] flex items-center gap-4 shadow-[0_4px_20px_rgba(0,0,0,0.1)] text-[13px]">
       <div>
@@ -21,12 +21,18 @@ export function SelectionBar({ selection, onZoomTo, onIsolate, onClear }: Select
         </span>
       </div>
       <div className="w-px h-6 bg-border" />
+      <div className="max-w-[190px] text-[11px] leading-snug text-text-muted">
+        Screen preview only. Preview shows final label detail.
+      </div>
+      <div className="w-px h-6 bg-border" />
       <Button variant="outline" size="sm" onClick={onZoomTo}>
         Zoom To
       </Button>
-      <Button variant="outline" size="sm" onClick={onIsolate}>
-        Isolate
-      </Button>
+      {onBackUp && (
+        <Button variant="outline" size="sm" onClick={onBackUp}>
+          Back Up
+        </Button>
+      )}
       <Button variant="ghost" size="sm" onClick={onClear}>
         Clear
       </Button>

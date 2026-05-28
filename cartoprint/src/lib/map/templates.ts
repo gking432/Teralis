@@ -12,7 +12,11 @@ export const DEFAULT_LAYERS: LayerState = {
   highways: false,
   mainroads: false,
   allroads: false,
+  roadlabels: true,
   water: true,
+  rivers: true,
+  riverlabels: true,
+  waterlabels: true,
   terrain: false,
   landcover: false,
 };
@@ -40,6 +44,6 @@ export const TEMPLATES: MapTemplate[] = [
     id: 'usa-roads',
     name: 'United States — Highway Network',
     icon: '═',
-    layers: { ...DEFAULT_LAYERS, statelabels: false, countrylabels: false, water: false, highways: true, mainroads: true },
+    layers: { ...DEFAULT_LAYERS, statelabels: false, countrylabels: false, rivers: false, highways: true, mainroads: true },
   },
 ];

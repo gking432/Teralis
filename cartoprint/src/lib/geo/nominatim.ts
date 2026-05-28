@@ -20,6 +20,33 @@ export interface NominatimReverseResult {
   geojson?: GeoJSON.Geometry;
 }
 
+function scoreResultForTarget(
+  result: Pick<NominatimSearchResult, 'type' | 'class' | 'display_name'>,
+  target: 'country' | 'state' | 'county' | 'city'
+): number {
+  const type = `${result.type} ${result.class} ${result.display_name}`.toLowerCase();
+
+  switch (target) {
+    case 'country':
+      return /country|nation/.test(type) ? 3 : /state|province/.test(type) ? 1 : 0;
+    case 'state':
+      return /state|province|region/.test(type) ? 3 : /county/.test(type) ? 1 : 0;
+    case 'county':
+      return /county|administrative/.test(type) ? 3 : /state|province/.test(type) ? 1 : 0;
+    case 'city':
+      return /city|town|village|hamlet|municipality/.test(type) ? 3 : /county/.test(type) ? 1 : 0;
+  }
+}
+
+export function pickSearchResult(
+  results: NominatimSearchResult[],
+  target: 'country' | 'state' | 'county' | 'city'
+): NominatimSearchResult | null {
+  if (results.length === 0) return null;
+
+  return [...results].sort((a, b) => scoreResultForTarget(b, target) - scoreResultForTarget(a, target))[0];
+}
+
 export async function searchLocation(query: string): Promise<NominatimSearchResult[]> {
   const params = new URLSearchParams({
     q: query,
