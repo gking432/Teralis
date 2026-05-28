@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { STYLE_URL, applyGreyscale, applyStyleOverrides } from '@/lib/map/style';
+import { STYLE_URL, applyStyleOverrides } from '@/lib/map/style';
+import { applyPreviewColorSettings, DEFAULT_COLOR_SCHEME } from '@/lib/print/colorSchemes';
 
 interface ThumbnailMapProps {
   slug: string;
@@ -82,8 +83,8 @@ export function ThumbnailMap({ slug, bbox, className }: ThumbnailMapProps) {
     }
 
     map.on('load', () => {
-      applyGreyscale(map);
       applyStyleOverrides(map);
+      applyPreviewColorSettings(map, DEFAULT_COLOR_SCHEME.colors);
     });
 
     map.on('idle', () => snapshot(false));

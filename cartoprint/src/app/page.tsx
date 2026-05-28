@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   getFeaturedCatalogPrint,
   getStateCatalogPrints,
@@ -11,13 +11,21 @@ import {
 
 const ThumbnailMap = dynamic(
   () => import('@/components/Storefront/ThumbnailMap').then((m) => m.ThumbnailMap),
-  { ssr: false, loading: () => <div className="h-full w-full bg-[#f6efe1]" /> }
+  { ssr: false, loading: () => <div className="h-full w-full bg-[#07122a]/10" /> }
+);
+
+const PrintQuickShop = dynamic(
+  () => import('@/components/Storefront/PrintQuickShop').then((m) => m.PrintQuickShop),
+  { ssr: false }
 );
 
 export default function StorefrontPage() {
   const featuredPrint = getFeaturedCatalogPrint();
   const statePrints = getStateCatalogPrints();
   const [query, setQuery] = useState('');
+  const [quickShopPrint, setQuickShopPrint] = useState<CatalogPrint | null>(null);
+  const openQuickShop = useCallback((print: CatalogPrint) => setQuickShopPrint(print), []);
+  const closeQuickShop = useCallback(() => setQuickShopPrint(null), []);
 
   const filteredPrints = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -112,7 +120,7 @@ export default function StorefrontPage() {
         </div>
 
         <div className="mb-8 grid gap-4 md:grid-cols-2">
-          <PrintCard print={featuredPrint} featured />
+          <PrintCard print={featuredPrint} featured onOpen={() => openQuickShop(featuredPrint)} />
           <div className="border border-[#d7ccba] bg-white/60 p-6">
             <div className="mb-3 text-[11px] uppercase tracking-[1.5px] text-text-muted">
               Full Custom
@@ -137,7 +145,7 @@ export default function StorefrontPage() {
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredPrints.map((print) => (
-            <PrintCard key={print.slug} print={print} />
+            <PrintCard key={print.slug} print={print} onOpen={() => openQuickShop(print)} />
           ))}
         </div>
 
@@ -147,6 +155,9 @@ export default function StorefrontPage() {
           </div>
         )}
       </section>
+      {quickShopPrint && (
+        <PrintQuickShop print={quickShopPrint} onClose={closeQuickShop} />
+      )}
     </main>
   );
 }
@@ -187,18 +198,18 @@ function FeaturedPrintCard({ print }: { print: CatalogPrint }) {
   );
 }
 
-function PrintCard({ print, featured = false }: { print: CatalogPrint; featured?: boolean }) {
+function PrintCard({ print, featured = false, onOpen }: { print: CatalogPrint; featured?: boolean; onOpen: () => void }) {
   return (
-    <Link
-      href={`/customize?print=${print.slug}`}
-      className={`group border border-[#d7ccba] bg-white p-5 transition-all hover:-translate-y-0.5 hover:border-text hover:shadow-[0_18px_50px_rgba(67,48,29,0.1)] ${
+    <button
+      onClick={onOpen}
+      className={`group w-full border border-[#d7ccba] bg-white p-5 text-left transition-all hover:-translate-y-0.5 hover:border-text hover:shadow-[0_18px_50px_rgba(67,48,29,0.1)] ${
         featured ? 'min-h-[220px]' : ''
       }`}
     >
       <ThumbnailMap
         slug={print.slug}
         bbox={print.bbox}
-        className="mb-5 h-32 w-full overflow-hidden bg-[#f6efe1]"
+        className="mb-5 aspect-[4/3] w-full overflow-hidden bg-[#07122a]/10"
       />
       <div className="mb-2 text-[10px] uppercase tracking-[1.4px] text-text-muted">
         {print.kind === 'country' ? 'National Print' : 'State Print'}
@@ -209,8 +220,8 @@ function PrintCard({ print, featured = false }: { print: CatalogPrint; featured?
       )}
       <div className="mt-4 flex items-center justify-between text-[11px] uppercase tracking-[1.4px] text-text-muted">
         <span>{print.establishedYear ? `EST. ${print.establishedYear}` : 'Customizable'}</span>
-        <span className="text-text transition-transform group-hover:translate-x-1">Open</span>
+        <span className="text-text transition-transform group-hover:translate-x-1">View Print →</span>
       </div>
-    </Link>
+    </button>
   );
 }

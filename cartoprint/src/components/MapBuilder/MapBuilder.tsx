@@ -76,15 +76,7 @@ export function MapBuilder({ catalogPrint = null, catalogSlug = null }: MapBuild
     mapViewRef.current?.flyTo(catalogPrint.center, catalogPrint.defaultZoom);
     setCatalogLoadState('loading');
 
-    if (autoOpenedForRef.current !== catalogPrint.slug) {
-      autoOpenedForRef.current = catalogPrint.slug;
-      openModal({
-        scope: catalogPrint.kind === 'country' ? 'state' : 'county',
-        printSnapshot: staticSelection,
-        defaultStep: 'colors',
-        defaultTitleEnabled: true,
-      });
-    }
+    autoOpenedForRef.current = catalogPrint.slug;
 
     searchLocation(catalogPrint.searchQuery)
       .then((results) => {
@@ -115,7 +107,6 @@ export function MapBuilder({ catalogPrint = null, catalogSlug = null }: MapBuild
     clearSelection,
     clearSelections,
     closeModal,
-    openModal,
     requestFitBounds,
     setActiveScope,
     setFocusMode,
