@@ -16,16 +16,17 @@ interface PrintArtworkProps {
   colorSettings: PreviewColorSettings;
   titleSettings: PreviewTitleSettings;
   geometry?: GeoJSON.Geometry | null;
+  renderWidth?: number;
   className?: string;
 }
 
 // Render the map into a large fixed buffer, then CSS-scale it down to fit the
 // frame. This matches the customizable editor: high zoom (more cities/roads
 // visible) + crisp downscaled text.
-const RENDER_WIDTH = 1200;
 const PORTRAIT_RATIO = 4 / 3; // height / width
 
-export function PrintArtwork({ slug, bbox, colorSettings, titleSettings, geometry = null, className }: PrintArtworkProps) {
+export function PrintArtwork({ slug, bbox, colorSettings, titleSettings, geometry = null, renderWidth = 1200, className }: PrintArtworkProps) {
+  const RENDER_WIDTH = renderWidth;
   const frameRef = useRef<HTMLDivElement>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -68,7 +69,8 @@ export function PrintArtwork({ slug, bbox, colorSettings, titleSettings, geometr
         [Number(bbox[2]), Number(bbox[0])],
         [Number(bbox[3]), Number(bbox[1])],
       ],
-      fitBoundsOptions: { padding: 48, animate: false },
+      // Generous padding so the state silhouette floats with ink space around it
+      fitBoundsOptions: { padding: Math.round(Math.min(RENDER_WIDTH, renderMapHeight) * 0.12), animate: false },
     });
 
     map.on('load', () => {

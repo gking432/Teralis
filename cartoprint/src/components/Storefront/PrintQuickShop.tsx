@@ -22,6 +22,7 @@ interface PrintQuickShopProps {
 export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
   const [selectedScheme, setSelectedScheme] = useState(DEFAULT_COLOR_SCHEME.value);
   const [selectedLayout, setSelectedLayout] = useState<PreviewTitleLayout>(DEFAULT_TITLE_LAYOUT);
+  const [fullscreen, setFullscreen] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
   const [geometry, setGeometry] = useState<GeoJSON.Geometry | null>(
     () => getCachedBoundary(print.slug)?.geometry ?? null
@@ -52,10 +53,14 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
   };
 
   useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return;
+      if (fullscreen) setFullscreen(false);
+      else onClose();
+    }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, fullscreen]);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -82,7 +87,7 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
         </button>
 
         {/* Left: print preview — portrait 3:4 */}
-        <div className="flex flex-shrink-0 items-center justify-center bg-[#f4f0e8] p-6 lg:w-[46%]">
+        <div className="flex flex-shrink-0 flex-col items-center justify-center gap-4 bg-[#f4f0e8] p-6 lg:w-[46%]">
           <div className="relative w-full max-w-[320px]">
             {/* Show cached thumbnail instantly while live map renders */}
             {cachedThumb && (
@@ -103,6 +108,15 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
               className="relative shadow-[0_20px_60px_rgba(0,0,0,0.22)]"
             />
           </div>
+          <button
+            onClick={() => setFullscreen(true)}
+            className="flex items-center gap-2 text-[10px] uppercase tracking-[1.6px] text-[#555] transition-colors hover:text-[#111]"
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <path d="M1 6V1h5M15 6V1h-5M1 10v5h5M15 10v5h-5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            View Full Screen
+          </button>
         </div>
 
         {/* Right: options */}
@@ -179,6 +193,36 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
           </div>
         </div>
       </div>
+
+      {/* Fullscreen high-def preview */}
+      {fullscreen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-[#0a0a0a]/95 p-6"
+          onClick={(e) => { if (e.currentTarget === e.target) setFullscreen(false); }}
+        >
+          <button
+            onClick={() => setFullscreen(false)}
+            className="absolute right-6 top-6 z-10 flex items-center gap-2 text-[11px] uppercase tracking-[1.6px] text-white/70 transition-colors hover:text-white"
+            aria-label="Close full screen"
+          >
+            Close
+            <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
+              <path d="M1 1l16 16M17 1L1 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+          <div style={{ height: '90vh', width: 'calc(90vh * 3 / 4)', maxWidth: '92vw' }}>
+            <PrintArtwork
+              slug={print.slug}
+              bbox={print.bbox}
+              colorSettings={colorSettings}
+              titleSettings={titleSettings}
+              geometry={geometry}
+              renderWidth={2000}
+              className="shadow-[0_40px_120px_rgba(0,0,0,0.6)]"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

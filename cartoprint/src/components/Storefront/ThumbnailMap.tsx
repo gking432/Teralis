@@ -148,7 +148,7 @@ export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail
         [Number(bbox[2]), Number(bbox[0])],
         [Number(bbox[3]), Number(bbox[1])],
       ],
-      fitBoundsOptions: { padding: 16 * RENDER_SCALE, animate: false },
+      fitBoundsOptions: { padding: Math.round(Math.min(totalWidth, mapHeight) * 0.12), animate: false },
     });
 
     let snapshotted = false;
