@@ -138,15 +138,34 @@ export function applyPreviewColorSettings(map: maplibregl.Map, colors: PreviewCo
         map.setPaintProperty(id, 'fill-opacity', 1);
         return;
       }
-      // Waterway lines (rivers, streams) = ink, visible
+      // Waterway lines (rivers, streams) = ink
       if (layer.type === 'line' && /water/.test(id)) {
         map.setPaintProperty(id, 'line-color', ink);
         map.setLayoutProperty(id, 'visibility', 'visible');
         return;
       }
-      // Hide all other lines (roads, highways, admin borders)
+      // Major highways (motorway + trunk) = thin ink lines; skip casing/shield layers
+      if (layer.type === 'line' && /motorway|trunk/.test(id) && !/casing|shield|label/.test(id)) {
+        map.setPaintProperty(id, 'line-color', ink);
+        map.setPaintProperty(id, 'line-opacity', 0.55);
+        map.setLayoutProperty(id, 'visibility', 'visible');
+        return;
+      }
+      // Hide all other lines (secondary roads, admin borders, etc.)
       if (layer.type === 'line') {
         map.setLayoutProperty(id, 'visibility', 'none');
+        return;
+      }
+      // City + capital labels = ink text on land background; hide all other symbols
+      if (layer.type === 'symbol') {
+        if (/label_city|label.*capital|place.*(city|capital)/.test(id)) {
+          map.setLayoutProperty(id, 'visibility', 'visible');
+          try { map.setPaintProperty(id, 'text-color', ink); } catch {}
+          try { map.setPaintProperty(id, 'text-halo-color', land); } catch {}
+          try { map.setPaintProperty(id, 'text-halo-width', 1.5); } catch {}
+        } else {
+          map.setLayoutProperty(id, 'visibility', 'none');
+        }
         return;
       }
     } catch {}
