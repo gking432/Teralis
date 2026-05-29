@@ -4,7 +4,7 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { STYLE_URL } from '@/lib/map/style';
 import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSchemes';
-import { applyPrintMapStyle, applyPrintMaskColor, type PrintDetailSettings, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
+import { applyPrintMapStyle, applyPrintMaskColor, wantsEveryTown, type PrintDetailSettings, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
 import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
 import { fetchBoundary } from '@/lib/print/boundaryCache';
 import type { PreviewTitleSettings } from '@/lib/print/titleLayouts';
@@ -236,6 +236,57 @@ export const PRINT_SIZES: Record<string, { width: number; height: number; label:
 export type { PrintDetailSettings };
 export { DEFAULT_DETAIL_SETTINGS };
 
+// Adds a dense "every town" label layer from the place dataset, used when the
+// Places detail is set to More. Mirrors the full builder's print-place layer.
+function addEveryTownLayer(
+  map: maplibregl.Map,
+  fc: GeoJSON.FeatureCollection,
+  ink: string,
+  land: string,
+): void {
+  if (!fc?.features?.length) return;
+  try {
+    if (map.getLayer('print-every-town-labels')) map.removeLayer('print-every-town-labels');
+    if (map.getLayer('print-every-town-dots')) map.removeLayer('print-every-town-dots');
+    if (map.getSource('print-every-town')) map.removeSource('print-every-town');
+  } catch {}
+  try {
+    map.addSource('print-every-town', { type: 'geojson', data: fc });
+    map.addLayer({
+      id: 'print-every-town-dots',
+      type: 'circle',
+      source: 'print-every-town',
+      paint: {
+        'circle-color': ink,
+        'circle-radius': ['match', ['get', 'place'], 'city', 2.4, 'town', 1.9, 'village', 1.5, 1.2],
+        'circle-opacity': 0.6,
+      },
+    });
+    map.addLayer({
+      id: 'print-every-town-labels',
+      type: 'symbol',
+      source: 'print-every-town',
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': ['match', ['get', 'place'], 'city', 13, 'town', 11, 'village', 10, 9.5],
+        'text-variable-anchor': ['top', 'bottom', 'left', 'right'],
+        'text-radial-offset': 0.4,
+        'text-justify': 'auto',
+        'text-allow-overlap': false,
+        'text-optional': true,
+        'text-padding': 1,
+        'symbol-sort-key': ['get', 'rank'],
+      },
+      paint: {
+        'text-color': ink,
+        'text-halo-color': land,
+        'text-halo-width': 1.4,
+      },
+    });
+  } catch {}
+}
+
 export async function renderPrintSnapshot(
   slug: string,
   bbox: [string, string, string, string],
@@ -266,8 +317,29 @@ export async function renderPrintSnapshot(
     let styleLoaded = false;
     let geom: GeoJSON.Geometry | null = geometry;
     let geometryReady = false;
+    // Gate the snapshot on the "every town" dataset when Places = More.
+    let placesReady = !(detail && wantsEveryTown(detail));
+    let placesFetchStarted = false;
 
     const fallback = window.setTimeout(() => { void doSnapshot(true); }, 15000);
+
+    function loadEveryTownIfNeeded() {
+      if (placesFetchStarted) return;
+      if (!detail || !wantsEveryTown(detail)) { placesReady = true; return; }
+      placesFetchStarted = true;
+      fetch('/api/print/features', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bbox, geometry: geom, towns: true }),
+      })
+        .then((r) => r.json())
+        .then((fc: GeoJSON.FeatureCollection) => {
+          if (snapshotted) return;
+          addEveryTownLayer(map, fc, getPrintInkColor(colorSettings), colorSettings.land || '#ffffff');
+        })
+        .catch(() => {})
+        .finally(() => { placesReady = true; void doSnapshot(false); });
+    }
 
     function cleanup() {
       window.clearTimeout(fallback);
@@ -277,7 +349,7 @@ export async function renderPrintSnapshot(
 
     async function doSnapshot(force: boolean) {
       if (snapshotted) return;
-      if (!force && (!geometryReady || !map.areTilesLoaded())) return;
+      if (!force && (!geometryReady || !placesReady || !map.areTilesLoaded())) return;
       snapshotted = true;
 
       try {
@@ -338,6 +410,7 @@ export async function renderPrintSnapshot(
         });
       }
       geometryReady = true;
+      loadEveryTownIfNeeded();
     }
 
     if (signal) {
@@ -375,7 +448,7 @@ export async function renderPrintSnapshot(
         fetchBoundary(slug, center, kind).then((record) => {
           if (snapshotted) return;
           if (record?.geometry) { geom = record.geometry; tryApplyMask(); }
-          else { geometryReady = true; }
+          else { geometryReady = true; loadEveryTownIfNeeded(); }
         });
       }
     });

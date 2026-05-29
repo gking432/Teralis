@@ -4,8 +4,9 @@ import { applyGreyscale, applyStyleOverrides } from '@/lib/map/style';
 import { applyLayerVisibility } from '@/lib/map/layers';
 import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSchemes';
 
-// Three-level density used by the "Customize this view" detail controls.
-export type Density = 'none' | 'less' | 'more';
+// Four-level density used by the "Customize this view" detail controls.
+// Neutral is the default; Less/More step down/up from there.
+export type Density = 'none' | 'less' | 'neutral' | 'more';
 
 export interface PrintDetailSettings {
   places: Density;   // cities & towns
@@ -14,8 +15,8 @@ export interface PrintDetailSettings {
 }
 
 export const DEFAULT_DETAIL_SETTINGS: PrintDetailSettings = {
-  places: 'more',
-  roads: 'more',
+  places: 'neutral',
+  roads: 'neutral',
   counties: false,
 };
 
@@ -70,28 +71,64 @@ const COUNTRY_PRINT_LAYER_STATE: LayerState = {
 // Legacy export (kept for any code that imported the old name).
 export const PRINT_LAYER_STATE = STATE_PRINT_LAYER_STATE;
 
+// True when the "more" level should pull every town from the place dataset.
+export function wantsEveryTown(detail: PrintDetailSettings): boolean {
+  return detail.places === 'more';
+}
+
 /** Build the LayerState for a storefront print given kind + user detail prefs. */
 export function buildPrintLayerState(
   kind: 'country' | 'state' | 'city',
   detail: PrintDetailSettings = DEFAULT_DETAIL_SETTINGS,
 ): LayerState {
-  if (kind === 'country') return COUNTRY_PRINT_LAYER_STATE;
+  const p = detail.places;
+  const r = detail.roads;
+
+  // Places: none < less (major cities) < neutral (+towns) < more (every town).
+  // The base style ranks city/town labels by importance, so "less" naturally
+  // surfaces only the largest cities.
+  const cities = p !== 'none';
+  const towns = p === 'neutral' || p === 'more';
+
+  // Roads: none < less (highways) < neutral (+main roads) < more (+streets).
+  const highways = r !== 'none';
+  const mainroads = r === 'neutral' || r === 'more';
+  const allroads = r === 'more';
+
+  if (kind === 'country') {
+    // National prints always keep state outlines + state capitals; the
+    // toggles layer cities/towns/roads on top of that base.
+    return {
+      ...COUNTRY_PRINT_LAYER_STATE,
+      capitals: true,
+      cities,
+      towns,
+      highways,
+      mainroads,
+      allroads,
+      counties: detail.counties,
+    };
+  }
 
   return {
     ...STATE_PRINT_LAYER_STATE,
-    capitals: detail.places !== 'none',
-    cities:   detail.places !== 'none',
-    towns:    detail.places === 'more',
-    highways: detail.roads !== 'none',
-    mainroads: detail.roads === 'more',
-    allroads: false,
+    capitals: cities,
+    cities,
+    towns,
+    highways,
+    mainroads,
+    allroads,
     counties: detail.counties,
   };
 }
 
 // Extends zoom ranges + styles roads/labels so they render at state-level zoom.
 // Honors layers.states (country prints) and layers.counties (county lines).
-function applyPrintPreviewOverrides(map: maplibregl.Map, layers: LayerState): void {
+function applyPrintPreviewOverrides(
+  map: maplibregl.Map,
+  layers: LayerState,
+  denseTowns: boolean,
+): void {
   const style = map.getStyle();
   if (!style) return;
 
@@ -178,12 +215,17 @@ function applyPrintPreviewOverrides(map: maplibregl.Map, layers: LayerState): vo
       } catch {}
     }
 
-    // Town/village labels: show major towns from low zoom.
+    // Town/village labels: show major towns from low zoom. When denseTowns
+    // (places = More) push the zoom range lower and tighten padding so far
+    // more places fit — matching the full builder's "every town" look.
     if (layers.towns && /label_(town|village|other)/.test(id) && layer.type === 'symbol') {
       try {
-        map.setLayerZoomRange(id, id === 'label_other' ? 6 : 4, 24);
-        map.setLayoutProperty(id, 'text-size', ['interpolate', ['linear'], ['zoom'], 4, 9, 7, 11, 10, 12]);
-        map.setLayoutProperty(id, 'text-padding', 1);
+        const minZoom = denseTowns ? 3 : (id === 'label_other' ? 6 : 4);
+        map.setLayerZoomRange(id, minZoom, 24);
+        map.setLayoutProperty(id, 'text-size', denseTowns
+          ? ['interpolate', ['linear'], ['zoom'], 3, 8, 7, 10, 10, 11]
+          : ['interpolate', ['linear'], ['zoom'], 4, 9, 7, 11, 10, 12]);
+        map.setLayoutProperty(id, 'text-padding', denseTowns ? 1 : 1);
       } catch {}
     }
 
@@ -193,6 +235,16 @@ function applyPrintPreviewOverrides(map: maplibregl.Map, layers: LayerState): vo
         map.setLayerZoomRange(id, 4, 24);
         map.setPaintProperty(id, 'line-opacity', 0.95);
         map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 5, 0.65, 9, 1.05, 13, 1.55]);
+      } catch {}
+    }
+
+    // Minor roads / streets (roads = More): bring them in at state zoom.
+    if (layers.allroads && /road_(minor|service_track|link|street)/.test(id) && layer.type === 'line') {
+      try {
+        map.setLayoutProperty(id, 'visibility', 'visible');
+        map.setLayerZoomRange(id, 4, 24);
+        map.setPaintProperty(id, 'line-opacity', 0.8);
+        map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 4, 0.12, 7, 0.26, 10, 0.6, 13, 1.0]);
       } catch {}
     }
 
@@ -253,8 +305,10 @@ function recolor(map: maplibregl.Map, colors: PreviewColorSettings): void {
   const style = map.getStyle();
   if (!style) return;
 
-  const ink = getPrintInkColor(colors);
-  const land = colors.land || '#ffffff';
+  const ink = getPrintInkColor(colors);          // labels / title / mask ink (water-derived)
+  const water = colors.water || ink;             // water bodies — any color
+  const land = colors.land || '#ffffff';         // land background — any color
+  const roads = colors.roads || ink;             // road lines & borders — any color
 
   style.layers.forEach((layer) => {
     const id = layer.id;
@@ -264,8 +318,8 @@ function recolor(map: maplibregl.Map, colors: PreviewColorSettings): void {
         return;
       }
       if (layer.type === 'fill' && /water/.test(id)) {
-        map.setPaintProperty(id, 'fill-color', ink);
-        map.setPaintProperty(id, 'fill-outline-color', ink);
+        map.setPaintProperty(id, 'fill-color', water);
+        map.setPaintProperty(id, 'fill-outline-color', water);
         map.setPaintProperty(id, 'fill-opacity', 1);
         return;
       }
@@ -275,15 +329,15 @@ function recolor(map: maplibregl.Map, colors: PreviewColorSettings): void {
         return;
       }
       if (layer.type === 'line' && /^waterway|water/.test(id)) {
-        map.setPaintProperty(id, 'line-color', ink);
+        map.setPaintProperty(id, 'line-color', water);
         return;
       }
       if (layer.type === 'line' && /road|bridge|tunnel|highway|motorway|trunk|street/.test(id)) {
-        map.setPaintProperty(id, 'line-color', ink);
+        map.setPaintProperty(id, 'line-color', roads);
         return;
       }
       if (layer.type === 'line' && /admin|boundary/.test(id)) {
-        map.setPaintProperty(id, 'line-color', ink);
+        map.setPaintProperty(id, 'line-color', roads);
         return;
       }
       if (layer.type === 'symbol') {
@@ -307,7 +361,7 @@ export function applyPrintMapStyle(
   applyGreyscale(map);
   applyStyleOverrides(map);
   applyLayerVisibility(map, layers);
-  applyPrintPreviewOverrides(map, layers);
+  applyPrintPreviewOverrides(map, layers, detail.places === 'more');
   recolor(map, colors);
   if (layers.counties) addPrintCountyLines(map, getPrintInkColor(colors));
 }

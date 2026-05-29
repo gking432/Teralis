@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { CatalogPrint } from '@/lib/catalog/prints';
-import { COLOR_SCHEMES, DEFAULT_COLOR_SCHEME, type PreviewColorSettings } from '@/lib/print/colorSchemes';
+import {
+  COLOR_SCHEMES,
+  DEFAULT_COLOR_SCHEME,
+  sameColorSettings,
+  type PreviewColorSettings,
+} from '@/lib/print/colorSchemes';
 import { TITLE_LAYOUTS, DEFAULT_TITLE_LAYOUT, type PreviewTitleLayout, type PreviewTitleSettings } from '@/lib/print/titleLayouts';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey } from '@/lib/print/printSnapshot';
@@ -17,11 +22,16 @@ interface PrintCustomizerProps {
 const DENSITY_OPTIONS: { value: Density; label: string }[] = [
   { value: 'none', label: 'None' },
   { value: 'less', label: 'Less' },
+  { value: 'neutral', label: 'Neutral' },
   { value: 'more', label: 'More' },
 ];
 
+function colorKey(c: PreviewColorSettings): string {
+  return `${c.land}_${c.water}_${c.roads}_${c.useMapDefault ? 'd' : ''}`;
+}
+
 export function PrintCustomizer({ print }: PrintCustomizerProps) {
-  const [scheme, setScheme] = useState(DEFAULT_COLOR_SCHEME.value);
+  const [colors, setColors] = useState<PreviewColorSettings>(DEFAULT_COLOR_SCHEME.colors);
   const [layout, setLayout] = useState<PreviewTitleLayout>(DEFAULT_TITLE_LAYOUT);
   const [detail, setDetail] = useState<PrintDetailSettings>(DEFAULT_DETAIL_SETTINGS);
   const [downloading, setDownloading] = useState(false);
@@ -35,9 +45,8 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
   const kind = print.kind === 'country' ? 'country' : print.kind === 'state' ? 'state' : 'city';
   const isCountry = kind === 'country';
-  const activeDetail = isCountry ? undefined : detail;
+  const activePreset = COLOR_SCHEMES.find((s) => sameColorSettings(s.colors, colors))?.value ?? 'custom';
 
-  // Fetch boundary geometry
   useEffect(() => {
     if (geometry) return;
     let cancelled = false;
@@ -47,10 +56,9 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
     return () => { cancelled = true; };
   }, [print.slug, print.center, kind, geometry]);
 
-  // Render (or serve from cache) the snapshot on any settings change
   useEffect(() => {
     if (!geometry) return;
-    const cacheKey = getPreviewCacheKey(print.slug, scheme, layout, activeDetail);
+    const cacheKey = getPreviewCacheKey(print.slug, colorKey(colors), layout, detail);
     const cached = PREVIEW_SNAPSHOT_CACHE.get(cacheKey);
     if (cached) { setPreviewUrl(cached); setLoading(false); return; }
 
@@ -61,9 +69,9 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
     renderPrintSnapshot(
       print.slug, print.bbox, print.center, kind,
-      colorsFor(scheme), titleFor(print, layout), geometry,
+      colors, titleFor(print, layout), geometry,
       controller.signal,
-      activeDetail,
+      detail,
     ).then((url) => {
       if (controller.signal.aborted) return;
       PREVIEW_SNAPSHOT_CACHE.set(cacheKey, url);
@@ -75,7 +83,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
     return () => { controller.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [print.slug, scheme, layout, detail, geometry]);
+  }, [print.slug, colors, layout, detail, geometry]);
 
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
@@ -85,8 +93,8 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
     try {
       const url = await renderPrintSnapshot(
         print.slug, print.bbox, print.center, kind,
-        colorsFor(scheme), titleFor(print, layout), geometry,
-        undefined, activeDetail, 3600,
+        colors, titleFor(print, layout), geometry,
+        undefined, detail, 3600,
       );
       const a = document.createElement('a');
       a.href = url;
@@ -99,9 +107,12 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
     }
   }
 
+  function setColor(channel: 'land' | 'water' | 'roads', value: string) {
+    setColors((c) => ({ land: c.land, water: c.water, roads: c.roads, [channel]: value }));
+  }
+
   return (
     <div className="min-h-screen bg-[#ece7dd]">
-      {/* Top bar */}
       <div className="flex items-center justify-between border-b border-[#ddd6c8] bg-[#f4f0e8] px-6 py-4">
         <Link href="/" className="text-[11px] uppercase tracking-[1.8px] text-[#555] transition-colors hover:text-[#111]">
           ← Back to Catalog
@@ -150,51 +161,47 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
           <div className="mt-8 flex flex-col gap-7">
 
-            {/* Map detail — state/city only */}
-            {!isCountry ? (
-              <Section title="Map Detail">
-                <SegRow
-                  label="Cities & Towns"
-                  hint="Capitals, cities, then towns"
-                  options={DENSITY_OPTIONS}
-                  value={detail.places}
-                  onChange={(v) => setDetail((d) => ({ ...d, places: v }))}
-                />
-                <SegRow
-                  label="Roads"
-                  hint="Highways, then main roads"
-                  options={DENSITY_OPTIONS}
-                  value={detail.roads}
-                  onChange={(v) => setDetail((d) => ({ ...d, roads: v }))}
-                />
-                <SegRow
-                  label="County Lines"
-                  options={[
-                    { value: 'none' as Density, label: 'Off' },
-                    { value: 'more' as Density, label: 'On' },
-                  ]}
-                  value={detail.counties ? 'more' : 'none'}
-                  onChange={(v) => setDetail((d) => ({ ...d, counties: v === 'more' }))}
-                />
-              </Section>
-            ) : (
-              <Section title="Map Detail">
-                <p className="text-[11px] leading-relaxed text-[#888]">
-                  National prints show <strong className="font-medium text-[#555]">state outlines</strong> and{' '}
-                  <strong className="font-medium text-[#555]">state capitals</strong> for a clean whole-country map.
+            {/* Map detail */}
+            <Section title="Map Detail">
+              {isCountry && (
+                <p className="mb-3 text-[10px] leading-relaxed text-[#999]">
+                  Always includes state outlines + state capitals. Toggles add more on top.
                 </p>
-              </Section>
-            )}
+              )}
+              <SegRow
+                label={isCountry ? 'Cities & Towns' : 'Cities & Towns'}
+                hint="Less = major cities · More = every town"
+                options={DENSITY_OPTIONS}
+                value={detail.places}
+                onChange={(v) => setDetail((d) => ({ ...d, places: v }))}
+              />
+              <SegRow
+                label="Roads"
+                hint="Less = highways · More = streets"
+                options={DENSITY_OPTIONS}
+                value={detail.roads}
+                onChange={(v) => setDetail((d) => ({ ...d, roads: v }))}
+              />
+              <SegRow
+                label="County Lines"
+                options={[
+                  { value: 'none' as Density, label: 'Off' },
+                  { value: 'more' as Density, label: 'On' },
+                ]}
+                value={detail.counties ? 'more' : 'none'}
+                onChange={(v) => setDetail((d) => ({ ...d, counties: v === 'more' }))}
+              />
+            </Section>
 
-            {/* Color scheme */}
+            {/* Color scheme presets */}
             <Section title="Color Scheme">
               <div className="grid grid-cols-3 gap-2">
                 {COLOR_SCHEMES.map((s) => (
                   <button
                     key={s.value}
-                    onClick={() => setScheme(s.value)}
+                    onClick={() => setColors(s.colors)}
                     className={`flex flex-col items-start gap-2 border p-2.5 text-left transition-all ${
-                      scheme === s.value ? 'border-[#111] shadow-[inset_0_0_0_1px_#111]' : 'border-[#d8d1c4] hover:border-[#aaa]'
+                      activePreset === s.value ? 'border-[#111] shadow-[inset_0_0_0_1px_#111]' : 'border-[#d8d1c4] hover:border-[#aaa]'
                     }`}
                   >
                     <ColorSwatch colors={s.colors} />
@@ -202,6 +209,18 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
                   </button>
                 ))}
               </div>
+            </Section>
+
+            {/* Custom colors — any color for land + water (+ roads) */}
+            <Section title="Custom Colors">
+              <div className="flex flex-col gap-2">
+                <ColorField label="Land" value={colors.land} onChange={(v) => setColor('land', v)} />
+                <ColorField label="Water" value={colors.water} onChange={(v) => setColor('water', v)} />
+                <ColorField label="Roads & Labels" value={colors.roads} onChange={(v) => setColor('roads', v)} />
+              </div>
+              <p className="mt-2 text-[10px] leading-relaxed text-[#999]">
+                Pick any color for land and water. {activePreset === 'custom' && 'Custom palette active.'}
+              </p>
             </Section>
 
             {/* Title layout */}
@@ -249,10 +268,6 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
   );
 }
 
-function colorsFor(scheme: string): PreviewColorSettings {
-  return COLOR_SCHEMES.find((s) => s.value === scheme)?.colors ?? DEFAULT_COLOR_SCHEME.colors;
-}
-
 function titleFor(print: CatalogPrint, layout: PreviewTitleLayout): PreviewTitleSettings {
   return {
     enabled: true,
@@ -287,16 +302,16 @@ function SegRow({
 }) {
   return (
     <div className="mb-4 last:mb-0">
-      <div className="mb-2 flex items-baseline justify-between">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
         <span className="text-[11px] font-medium uppercase tracking-[1.2px] text-[#444]">{label}</span>
-        {hint && <span className="text-[9px] text-[#aaa]">{hint}</span>}
+        {hint && <span className="text-right text-[9px] text-[#aaa]">{hint}</span>}
       </div>
       <div className="flex w-full overflow-hidden rounded border border-[#d8d1c4]">
         {options.map((opt, i) => (
           <button
             key={opt.value}
             onClick={() => onChange(opt.value)}
-            className={`flex-1 py-2 text-[10px] uppercase tracking-[1.4px] transition-all ${i > 0 ? 'border-l border-[#d8d1c4]' : ''} ${
+            className={`flex-1 py-2 text-[10px] uppercase tracking-[1.2px] transition-all ${i > 0 ? 'border-l border-[#d8d1c4]' : ''} ${
               value === opt.value ? 'bg-[#111] text-white' : 'bg-white text-[#777] hover:bg-[#f4f0e8]'
             }`}
           >
@@ -305,6 +320,23 @@ function SegRow({
         ))}
       </div>
     </div>
+  );
+}
+
+function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="flex items-center justify-between gap-3 border border-[#d8d1c4] bg-white px-3 py-2">
+      <span>
+        <span className="block text-[11px] text-[#444]">{label}</span>
+        <span className="mt-0.5 block font-mono text-[10px] uppercase text-[#aaa]">{value}</span>
+      </span>
+      <input
+        type="color"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-9 w-12 cursor-pointer border border-[#d8d1c4] bg-white p-0.5"
+      />
+    </label>
   );
 }
 
