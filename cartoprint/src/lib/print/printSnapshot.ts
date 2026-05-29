@@ -1,0 +1,345 @@
+'use client';
+
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import { STYLE_URL } from '@/lib/map/style';
+import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSchemes';
+import { applyPrintMapStyle, applyPrintMaskColor } from '@/lib/print/printRender';
+import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
+import { fetchBoundary } from '@/lib/print/boundaryCache';
+import type { PreviewTitleSettings } from '@/lib/print/titleLayouts';
+
+// Shared cache for all popup/fullscreen previews keyed by slug:colorScheme:layout
+export const PREVIEW_SNAPSHOT_CACHE = new Map<string, string>();
+
+// 8" wide at 300 dpi — matches the smallest print size. Portrait 3:4.
+const RENDER_WIDTH = 2400;
+const RENDER_TOTAL_HEIGHT = Math.round(RENDER_WIDTH * (4 / 3)); // 3200
+
+export function getPreviewCacheKey(slug: string, colorScheme: string, layout: string): string {
+  return `${slug}:${colorScheme}:${layout}`;
+}
+
+function getFooterHeight(layout: string, totalHeight: number): number {
+  if (layout === 'classic-bottom') return Math.round(totalHeight * 0.135);
+  if (layout === 'compact-bottom') return Math.round(totalHeight * 0.095);
+  return 0; // overlay layouts have no footer strip
+}
+
+function setLetterSpacing(ctx: CanvasRenderingContext2D, em: number) {
+  (ctx as any).letterSpacing = `${em}em`;
+}
+
+function drawTitleBand(
+  ctx: CanvasRenderingContext2D,
+  title: string,
+  subtitle: string,
+  detail: string,
+  ink: string,
+  land: string,
+  layout: string,
+  width: number,
+  totalHeight: number,
+  mapHeight: number,
+  footerHeight: number,
+): void {
+  const hasSubtitle = subtitle.length > 0;
+  const hasDetail = detail.length > 0;
+  const isLong = title.length > 10;
+  const isVeryLong = title.length > 16;
+  const isExtreme = title.length > 24;
+  const fitRatio = Math.min(1, 11 / Math.max(title.length, 1));
+
+  if (layout === 'classic-bottom' || layout === 'compact-bottom') {
+    const isClassic = layout === 'classic-bottom';
+    const fh = footerHeight;
+
+    ctx.fillStyle = land;
+    ctx.fillRect(0, mapHeight, width, fh);
+
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = isClassic ? Math.max(3, width * 0.0012) : Math.max(2, width * 0.0008);
+    ctx.beginPath();
+    ctx.moveTo(0, mapHeight);
+    ctx.lineTo(width, mapHeight);
+    ctx.stroke();
+
+    const baseSize = isClassic
+      ? Math.max(48, Math.min(fh * (hasSubtitle || hasDetail ? 0.33 : 0.44), 160))
+      : Math.max(32, Math.min(fh * (hasSubtitle || hasDetail ? 0.31 : 0.42), 110));
+    const titleSize = Math.round(baseSize * fitRatio);
+    const letterSpacing = isExtreme ? 0.08 : isVeryLong ? 0.12 : isLong ? 0.18 : 0.28;
+    const subSize = isClassic ? Math.round(fh * 0.18) : Math.round(fh * 0.16);
+    const detSize = isClassic ? Math.round(fh * 0.14) : Math.round(fh * 0.12);
+
+    const totalTextHeight =
+      titleSize +
+      (hasSubtitle ? fh * 0.06 + subSize : 0) +
+      (hasDetail ? fh * 0.04 + detSize : 0);
+    let textY = mapHeight + (fh - totalTextHeight) / 2 + titleSize * 0.88;
+
+    ctx.fillStyle = ink;
+    ctx.textAlign = 'center';
+    ctx.font = `300 ${titleSize}px "Cormorant Garamond", serif`;
+    setLetterSpacing(ctx, letterSpacing);
+    ctx.fillText(title, width / 2, textY);
+
+    if (hasSubtitle) {
+      textY += titleSize * 0.22 + subSize;
+      ctx.font = `400 ${subSize}px "DM Sans", sans-serif`;
+      setLetterSpacing(ctx, 0.26);
+      ctx.fillText(subtitle, width / 2, textY);
+    }
+    if (hasDetail) {
+      textY += subSize * 0.18 + detSize;
+      ctx.font = `400 ${detSize}px "DM Sans", sans-serif`;
+      setLetterSpacing(ctx, 0.14);
+      ctx.fillText(detail, width / 2, textY);
+    }
+    return;
+  }
+
+  // Overlay layouts: text drawn on top of the full-height map canvas
+  const W = width;
+  const MH = totalHeight;
+  const titleSize = Math.round(W * (isExtreme ? 0.0083 : isVeryLong ? 0.01 : isLong ? 0.013 : 0.017));
+  const subSize = Math.round(W * 0.0075);
+  const detSize = Math.round(W * 0.006);
+  const letterSpacing = isExtreme ? 0.04 : isVeryLong ? 0.07 : isLong ? 0.1 : 0.14;
+  const pad = Math.round(W * 0.012);
+
+  if (layout === 'top-left') {
+    const panelW = Math.round(W * 0.28);
+    const panelX = Math.round(W * 0.04);
+    const panelY = Math.round(MH * 0.04);
+    const panelH = Math.round(
+      pad * 2 + titleSize +
+      (hasSubtitle ? pad * 0.6 + subSize : 0) +
+      (hasDetail ? pad * 0.4 + detSize : 0)
+    );
+    const borderW = Math.max(2, Math.round(W * 0.0008));
+
+    ctx.fillStyle = land;
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.fillStyle = ink;
+    ctx.fillRect(panelX, panelY, borderW, panelH);
+
+    ctx.fillStyle = ink;
+    ctx.textAlign = 'left';
+    let textY = panelY + pad + titleSize * 0.88;
+    ctx.font = `300 ${titleSize}px "Cormorant Garamond", serif`;
+    setLetterSpacing(ctx, letterSpacing);
+    ctx.fillText(title, panelX + borderW + pad, textY, panelW - borderW - pad * 2);
+    if (hasSubtitle) {
+      textY += titleSize * 0.22 + subSize;
+      ctx.font = `400 ${subSize}px "DM Sans", sans-serif`;
+      setLetterSpacing(ctx, 0.16);
+      ctx.fillText(subtitle, panelX + borderW + pad, textY, panelW - borderW - pad * 2);
+    }
+    if (hasDetail) {
+      textY += subSize * 0.18 + detSize;
+      ctx.font = `400 ${detSize}px "DM Sans", sans-serif`;
+      setLetterSpacing(ctx, 0.08);
+      ctx.fillText(detail, panelX + borderW + pad, textY, panelW - borderW - pad * 2);
+    }
+    return;
+  }
+
+  if (layout === 'minimal-corner') {
+    const panelW = Math.round(W * 0.28);
+    const panelH = Math.round(
+      pad * 2 + titleSize +
+      (hasSubtitle ? pad * 0.6 + subSize : 0) +
+      (hasDetail ? pad * 0.4 + detSize : 0)
+    );
+    const panelX = W - Math.round(W * 0.04) - panelW;
+    const panelY = MH - Math.round(MH * 0.04) - panelH;
+    const borderH = Math.max(1, Math.round(W * 0.0004));
+
+    ctx.fillStyle = land;
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.fillStyle = ink;
+    ctx.fillRect(panelX, panelY, panelW, borderH);
+
+    ctx.fillStyle = ink;
+    ctx.textAlign = 'right';
+    let textY = panelY + borderH + pad + titleSize * 0.88;
+    ctx.font = `300 ${titleSize}px "Cormorant Garamond", serif`;
+    setLetterSpacing(ctx, letterSpacing);
+    ctx.fillText(title, panelX + panelW - pad, textY);
+    if (hasSubtitle) {
+      textY += titleSize * 0.22 + subSize;
+      ctx.font = `400 ${subSize}px "DM Sans", sans-serif`;
+      setLetterSpacing(ctx, 0.12);
+      ctx.fillText(subtitle, panelX + panelW - pad, textY);
+    }
+    if (hasDetail) {
+      textY += subSize * 0.18 + detSize;
+      ctx.font = `400 ${detSize}px "DM Sans", sans-serif`;
+      setLetterSpacing(ctx, 0.08);
+      ctx.fillText(detail, panelX + panelW - pad, textY);
+    }
+    return;
+  }
+
+  if (layout === 'side-rail') {
+    const railW = Math.round(W * 0.08);
+    const railX = Math.round(W * 0.03);
+    const railTop = Math.round(MH * 0.04);
+    const railH = MH - 2 * railTop;
+    const railTitleSize = Math.round(railW * 0.55);
+    const borderW = Math.max(1, Math.round(W * 0.0004));
+
+    ctx.fillStyle = land;
+    ctx.fillRect(railX, railTop, railW, railH);
+    ctx.fillStyle = ink;
+    ctx.fillRect(railX + railW - borderW, railTop, borderW, railH);
+
+    ctx.save();
+    ctx.translate(railX + railW / 2, railTop + railH);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillStyle = ink;
+    ctx.textAlign = 'left';
+    ctx.font = `300 ${railTitleSize}px "Cormorant Garamond", serif`;
+    setLetterSpacing(ctx, letterSpacing);
+    ctx.fillText(title, 0, railTitleSize * 0.88, railH);
+    ctx.restore();
+
+    if (hasSubtitle) {
+      ctx.save();
+      ctx.translate(railX + railW * 0.5, railTop + Math.round(subSize * 1.5));
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillStyle = ink;
+      ctx.textAlign = 'right';
+      ctx.font = `400 ${subSize}px "DM Sans", sans-serif`;
+      setLetterSpacing(ctx, 0.12);
+      ctx.fillText(subtitle, 0, subSize * 0.88);
+      ctx.restore();
+    }
+  }
+}
+
+export async function renderPrintSnapshot(
+  slug: string,
+  bbox: [string, string, string, string],
+  center: [number, number],
+  kind: 'country' | 'state' | 'city',
+  colorSettings: PreviewColorSettings,
+  titleSettings: PreviewTitleSettings,
+  geometry: GeoJSON.Geometry | null,
+  signal?: AbortSignal,
+): Promise<string> {
+  if (signal?.aborted) return Promise.reject(new Error('aborted'));
+
+  const footerHeight = getFooterHeight(titleSettings.layout, RENDER_TOTAL_HEIGHT);
+  const mapHeight = RENDER_TOTAL_HEIGHT - footerHeight;
+
+  return new Promise<string>((resolve, reject) => {
+    if (signal?.aborted) { reject(new Error('aborted')); return; }
+
+    const mapDiv = document.createElement('div');
+    mapDiv.style.cssText = `position:fixed;left:-9999px;top:0;width:${RENDER_WIDTH}px;height:${mapHeight}px;`;
+    document.body.appendChild(mapDiv);
+
+    let snapshotted = false;
+    let styleLoaded = false;
+    let geom: GeoJSON.Geometry | null = geometry;
+    let geometryReady = false;
+
+    const fallback = window.setTimeout(() => { void doSnapshot(true); }, 15000);
+
+    function cleanup() {
+      window.clearTimeout(fallback);
+      try { map.remove(); } catch {}
+      if (document.body.contains(mapDiv)) document.body.removeChild(mapDiv);
+    }
+
+    async function doSnapshot(force: boolean) {
+      if (snapshotted) return;
+      if (!force && (!geometryReady || !map.areTilesLoaded())) return;
+      snapshotted = true;
+
+      try {
+        // Ensure fonts (Cormorant Garamond, DM Sans) are ready before drawing text
+        await document.fonts.ready;
+
+        const ink = getPrintInkColor(colorSettings);
+        const land = colorSettings.land || '#ffffff';
+        const title = titleSettings.title.trim().toUpperCase();
+        const subtitle = titleSettings.subtitle.trim().toUpperCase();
+        const detail = titleSettings.detail.trim().toUpperCase();
+
+        const c = document.createElement('canvas');
+        c.width = RENDER_WIDTH;
+        c.height = RENDER_TOTAL_HEIGHT;
+        const ctx = c.getContext('2d')!;
+
+        // Fill background with land color before drawing map (handles alpha edges)
+        ctx.fillStyle = land;
+        ctx.fillRect(0, 0, RENDER_WIDTH, RENDER_TOTAL_HEIGHT);
+
+        ctx.drawImage(map.getCanvas(), 0, 0, RENDER_WIDTH, mapHeight);
+
+        if (titleSettings.enabled && title) {
+          drawTitleBand(ctx, title, subtitle, detail, ink, land, titleSettings.layout, RENDER_WIDTH, RENDER_TOTAL_HEIGHT, mapHeight, footerHeight);
+        }
+
+        const url = c.toDataURL('image/png');
+        cleanup();
+        resolve(url);
+      } catch (err) {
+        cleanup();
+        reject(err);
+      }
+    }
+
+    function tryApplyMask() {
+      if (!geom || !styleLoaded) return;
+      applyIsolationMask(map, { name: slug, type: kind, fullName: slug, bbox, geojson: geom }, 1);
+      applyPrintMaskColor(map, colorSettings);
+      geometryReady = true;
+    }
+
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        if (!snapshotted) { snapshotted = true; cleanup(); reject(new Error('aborted')); }
+      });
+    }
+
+    const map = new maplibregl.Map({
+      container: mapDiv,
+      style: STYLE_URL,
+      interactive: false,
+      attributionControl: false,
+      preserveDrawingBuffer: true,
+      fadeDuration: 0,
+      bounds: [
+        [Number(bbox[2]), Number(bbox[0])],
+        [Number(bbox[3]), Number(bbox[1])],
+      ],
+      fitBoundsOptions: {
+        padding: Math.round(Math.min(RENDER_WIDTH, mapHeight) * 0.12),
+        animate: false,
+      },
+    });
+
+    map.on('load', () => {
+      applyPrintMapStyle(map, colorSettings);
+      initIsolationLayers(map);
+      applyPrintMaskColor(map, colorSettings);
+      styleLoaded = true;
+
+      if (geom) {
+        tryApplyMask();
+      } else {
+        fetchBoundary(slug, center, kind).then((record) => {
+          if (snapshotted) return;
+          if (record?.geometry) { geom = record.geometry; tryApplyMask(); }
+          else { geometryReady = true; }
+        });
+      }
+    });
+
+    map.on('idle', () => { void doSnapshot(false); });
+  });
+}

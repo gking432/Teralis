@@ -2,17 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import dynamic from 'next/dynamic';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import { COLOR_SCHEMES, DEFAULT_COLOR_SCHEME, type PreviewColorSettings } from '@/lib/print/colorSchemes';
 import { TITLE_LAYOUTS, DEFAULT_TITLE_LAYOUT, type PreviewTitleLayout, type PreviewTitleSettings } from '@/lib/print/titleLayouts';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 import { SNAPSHOT_CACHE } from '@/components/Storefront/ThumbnailMap';
-
-const PrintArtwork = dynamic(
-  () => import('@/components/Print/PrintArtwork').then((m) => m.PrintArtwork),
-  { ssr: false }
-);
+import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey } from '@/lib/print/printSnapshot';
 
 interface PrintQuickShopProps {
   print: CatalogPrint;
@@ -24,13 +19,20 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
   const [selectedLayout, setSelectedLayout] = useState<PreviewTitleLayout>(DEFAULT_TITLE_LAYOUT);
   const [fullscreen, setFullscreen] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
+
   const [geometry, setGeometry] = useState<GeoJSON.Geometry | null>(
     () => getCachedBoundary(print.slug)?.geometry ?? null
   );
 
-  // Use cached thumbnail as instant placeholder while live map loads
+  // High-res preview snapshot state
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(true);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Cached thumbnail as instant placeholder while high-res snapshot renders
   const cachedThumb = SNAPSHOT_CACHE.get(print.slug) ?? null;
 
+  // Fetch boundary geometry if not already cached
   useEffect(() => {
     if (geometry) return;
     let cancelled = false;
@@ -41,16 +43,60 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
     return () => { cancelled = true; };
   }, [print.slug, print.center, print.kind, geometry]);
 
-  const colorSettings: PreviewColorSettings =
-    COLOR_SCHEMES.find((s) => s.value === selectedScheme)?.colors ?? DEFAULT_COLOR_SCHEME.colors;
+  // Render (or serve from cache) the high-res snapshot whenever scheme/layout/geometry changes.
+  // We wait for geometry so the isolation mask is applied before snapshotting.
+  useEffect(() => {
+    if (!geometry) return;
 
-  const titleSettings: PreviewTitleSettings = {
-    enabled: true,
-    title: print.defaultTitle,
-    subtitle: print.defaultSubtitle,
-    detail: print.establishedYear ? `EST. ${print.establishedYear}` : '',
-    layout: selectedLayout,
-  };
+    const cacheKey = getPreviewCacheKey(print.slug, selectedScheme, selectedLayout);
+    const cached = PREVIEW_SNAPSHOT_CACHE.get(cacheKey);
+    if (cached) {
+      setPreviewUrl(cached);
+      setPreviewLoading(false);
+      return;
+    }
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setPreviewLoading(true);
+
+    const colorSettings: PreviewColorSettings =
+      COLOR_SCHEMES.find((s) => s.value === selectedScheme)?.colors ?? DEFAULT_COLOR_SCHEME.colors;
+
+    const titleSettings: PreviewTitleSettings = {
+      enabled: true,
+      title: print.defaultTitle,
+      subtitle: print.defaultSubtitle,
+      detail: print.establishedYear ? `EST. ${print.establishedYear}` : '',
+      layout: selectedLayout,
+    };
+
+    const kind = print.kind === 'country' ? 'country' : print.kind === 'state' ? 'state' : 'city';
+
+    renderPrintSnapshot(
+      print.slug, print.bbox, print.center, kind,
+      colorSettings, titleSettings, geometry,
+      controller.signal,
+    ).then((url) => {
+      // Guard against a superseded render completing after a new one started
+      if (controller.signal.aborted) return;
+      PREVIEW_SNAPSHOT_CACHE.set(cacheKey, url);
+      setPreviewUrl(url);
+      setPreviewLoading(false);
+    }).catch((err) => {
+      if (err?.message !== 'aborted') {
+        console.warn('Preview snapshot failed', err);
+        setPreviewLoading(false);
+      }
+    });
+
+    return () => { controller.abort(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [print.slug, selectedScheme, selectedLayout, geometry]);
+
+  // Cancel any in-flight render on unmount
+  useEffect(() => () => { abortRef.current?.abort(); }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -66,6 +112,9 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
   }, []);
+
+  // Show high-res snapshot when ready; fall back to thumbnail while loading
+  const displayUrl = previewUrl ?? cachedThumb;
 
   return (
     <div
@@ -88,29 +137,35 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
 
         {/* Left: print preview — portrait 3:4 */}
         <div className="flex flex-shrink-0 flex-col items-center justify-center gap-4 bg-[#f4f0e8] p-6 lg:w-[46%]">
-          <div className="relative w-full max-w-[320px]">
-            {/* Show cached thumbnail instantly while live map renders */}
-            {cachedThumb && (
+          <div className="relative w-full max-w-[320px]" style={{ aspectRatio: '3/4' }}>
+            {displayUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={cachedThumb}
-                alt=""
+                src={displayUrl}
+                alt={`${print.name} map print preview`}
                 className="absolute inset-0 h-full w-full object-cover shadow-[0_20px_60px_rgba(0,0,0,0.22)]"
-                style={{ aspectRatio: '3/4' }}
               />
+            ) : (
+              <div className="absolute inset-0 bg-[#07122a]/8 shadow-[0_20px_60px_rgba(0,0,0,0.22)]" />
             )}
-            <PrintArtwork
-              slug={print.slug}
-              bbox={print.bbox}
-              colorSettings={colorSettings}
-              titleSettings={titleSettings}
-              geometry={geometry}
-              className="relative shadow-[0_20px_60px_rgba(0,0,0,0.22)]"
-            />
+
+            {/* Shimmer overlay while re-rendering a new scheme/layout */}
+            {previewLoading && displayUrl && (
+              <div className="absolute inset-0 animate-pulse bg-white/20" />
+            )}
+
+            {/* Spinner when no image exists yet */}
+            {previewLoading && !displayUrl && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#07122a]/20 border-t-[#07122a]" />
+              </div>
+            )}
           </div>
+
           <button
             onClick={() => setFullscreen(true)}
-            className="flex items-center gap-2 text-[10px] uppercase tracking-[1.6px] text-[#555] transition-colors hover:text-[#111]"
+            disabled={!previewUrl}
+            className="flex items-center gap-2 text-[10px] uppercase tracking-[1.6px] text-[#555] transition-colors hover:text-[#111] disabled:opacity-40"
           >
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
               <path d="M1 6V1h5M15 6V1h-5M1 10v5h5M15 10v5h-5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
@@ -194,8 +249,8 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
         </div>
       </div>
 
-      {/* Fullscreen high-def preview */}
-      {fullscreen && (
+      {/* Fullscreen — instant: shows the same cached high-res snapshot, no re-render */}
+      {fullscreen && previewUrl && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-[#0a0a0a]/95 p-6"
           onClick={(e) => { if (e.currentTarget === e.target) setFullscreen(false); }}
@@ -210,17 +265,13 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
               <path d="M1 1l16 16M17 1L1 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           </button>
-          <div style={{ height: '90vh', width: 'calc(90vh * 3 / 4)', maxWidth: '92vw' }}>
-            <PrintArtwork
-              slug={print.slug}
-              bbox={print.bbox}
-              colorSettings={colorSettings}
-              titleSettings={titleSettings}
-              geometry={geometry}
-              renderWidth={2000}
-              className="shadow-[0_40px_120px_rgba(0,0,0,0.6)]"
-            />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={previewUrl}
+            alt={`${print.name} map print — full screen`}
+            className="shadow-[0_40px_120px_rgba(0,0,0,0.6)]"
+            style={{ height: '90vh', width: 'auto', maxWidth: '92vw', objectFit: 'contain' }}
+          />
         </div>
       )}
     </div>
