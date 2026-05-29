@@ -209,6 +209,8 @@ function PrintCard({ print, featured = false, onOpen }: { print: CatalogPrint; f
       <ThumbnailMap
         slug={print.slug}
         bbox={print.bbox}
+        center={print.center}
+        kind={print.kind}
         className="mb-5 aspect-[4/3] w-full overflow-hidden bg-[#07122a]/10"
       />
       <div className="mb-2 text-[10px] uppercase tracking-[1.4px] text-text-muted">

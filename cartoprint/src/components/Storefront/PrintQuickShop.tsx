@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import { COLOR_SCHEMES, DEFAULT_COLOR_SCHEME, type PreviewColorSettings } from '@/lib/print/colorSchemes';
 import { TITLE_LAYOUTS, DEFAULT_TITLE_LAYOUT, type PreviewTitleLayout, type PreviewTitleSettings } from '@/lib/print/titleLayouts';
+import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 
 const PrintArtwork = dynamic(
   () => import('@/components/Print/PrintArtwork').then((m) => m.PrintArtwork),
@@ -21,6 +22,21 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
   const [selectedScheme, setSelectedScheme] = useState(DEFAULT_COLOR_SCHEME.value);
   const [selectedLayout, setSelectedLayout] = useState<PreviewTitleLayout>(DEFAULT_TITLE_LAYOUT);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const [geometry, setGeometry] = useState<GeoJSON.Geometry | null>(() => {
+    return getCachedBoundary(print.slug)?.geometry ?? null;
+  });
+
+  useEffect(() => {
+    if (geometry) return;
+    let cancelled = false;
+    const level = print.kind === 'country' ? 'country' : print.kind === 'state' ? 'state' : 'city';
+    fetchBoundary(print.slug, print.center, level).then((record) => {
+      if (!cancelled && record?.geometry) setGeometry(record.geometry);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [print.slug, print.center, print.kind, geometry]);
 
   const colorSettings: PreviewColorSettings =
     COLOR_SCHEMES.find((s) => s.value === selectedScheme)?.colors ?? DEFAULT_COLOR_SCHEME.colors;
@@ -74,6 +90,7 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
               bbox={print.bbox}
               colorSettings={colorSettings}
               titleSettings={titleSettings}
+              geometry={geometry}
               className="shadow-[0_20px_60px_rgba(0,0,0,0.22)]"
             />
           </div>

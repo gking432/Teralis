@@ -4,52 +4,68 @@ import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { STYLE_URL, applyStyleOverrides, applyGreyscale } from '@/lib/map/style';
-import { applyPreviewColorSettings, type PreviewColorSettings } from '@/lib/print/colorSchemes';
+import {
+  applyPreviewColorSettings,
+  type PreviewColorSettings,
+} from '@/lib/print/colorSchemes';
 import { TitleOverlay, getTitleBandHeight } from '@/components/Print/TitleOverlay';
-import { isFooterTitleLayout, type PreviewTitleSettings } from '@/lib/print/titleLayouts';
+import {
+  isFooterTitleLayout,
+  type PreviewTitleSettings,
+} from '@/lib/print/titleLayouts';
+import { applyIsolationMask, initIsolationLayers, clearIsolationMask } from '@/lib/map/isolation';
 
 interface PrintArtworkProps {
   slug: string;
   bbox: [string, string, string, string];
   colorSettings: PreviewColorSettings;
   titleSettings: PreviewTitleSettings;
+  geometry?: GeoJSON.Geometry | null;
   className?: string;
 }
 
-export function PrintArtwork({ slug, bbox, colorSettings, titleSettings, className }: PrintArtworkProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapDivRef = useRef<HTMLDivElement>(null);
+export function PrintArtwork({
+  slug,
+  bbox,
+  colorSettings,
+  titleSettings,
+  geometry = null,
+  className,
+}: PrintArtworkProps) {
+  const frameRef = useRef<HTMLDivElement>(null);
+  const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const colorSettingsRef = useRef(colorSettings);
-  const [containerHeight, setContainerHeight] = useState(300);
+  const [frameHeight, setFrameHeight] = useState(0);
+  const [styleReady, setStyleReady] = useState(false);
 
   const isFooter = isFooterTitleLayout(titleSettings.layout);
-  const footerHeight = titleSettings.enabled && isFooter
-    ? getTitleBandHeight(titleSettings.layout, true, containerHeight, true)
-    : 0;
+  const titleBandHeight =
+    titleSettings.enabled && isFooter
+      ? getTitleBandHeight(titleSettings.layout, true, frameHeight, true)
+      : 0;
+  const mapHeight = Math.max(0, frameHeight - titleBandHeight);
 
+  // Track frame size
   useEffect(() => {
-    const node = containerRef.current;
+    const node = frameRef.current;
     if (!node) return;
-    const ro = new ResizeObserver((entries) => {
-      const h = entries[0]?.contentRect.height;
-      if (h && h > 0) setContainerHeight(h);
-    });
+    const update = () => setFrameHeight(node.clientHeight);
+    update();
+    const ro = new ResizeObserver(update);
     ro.observe(node);
-    const h = node.offsetHeight;
-    if (h > 0) setContainerHeight(h);
     return () => ro.disconnect();
   }, []);
 
+  // Initialize map (once per slug)
   useEffect(() => {
-    if (!mapDivRef.current) return;
+    if (!mapContainer.current) return;
 
     const map = new maplibregl.Map({
-      container: mapDivRef.current,
+      container: mapContainer.current,
       style: STYLE_URL,
       interactive: false,
       attributionControl: false,
-      preserveDrawingBuffer: false,
+      preserveDrawingBuffer: true,
       fadeDuration: 0,
       bounds: [
         [Number(bbox[2]), Number(bbox[0])],
@@ -60,75 +76,62 @@ export function PrintArtwork({ slug, bbox, colorSettings, titleSettings, classNa
 
     map.on('load', () => {
       applyStyleOverrides(map);
-      if (colorSettingsRef.current.useMapDefault) {
-        applyGreyscale(map);
-      } else {
-        applyPreviewColorSettings(map, colorSettingsRef.current);
-      }
+      initIsolationLayers(map);
+      setStyleReady(true);
     });
 
     mapRef.current = map;
     return () => {
+      setStyleReady(false);
       map.remove();
       mapRef.current = null;
     };
-  // bbox coords are stable per slug; re-init only if slug changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
+  // Apply color settings whenever they change
   useEffect(() => {
-    colorSettingsRef.current = colorSettings;
     const map = mapRef.current;
-    if (!map) return;
-
-    const apply = () => {
-      if (colorSettings.useMapDefault) {
-        applyGreyscale(map);
-      } else {
-        applyPreviewColorSettings(map, colorSettings);
-      }
-    };
-
-    if (map.isStyleLoaded()) {
-      apply();
+    if (!map || !styleReady) return;
+    if (colorSettings.useMapDefault) {
+      applyGreyscale(map);
     } else {
-      map.once('load', apply);
+      applyPreviewColorSettings(map, colorSettings);
     }
-  }, [colorSettings]);
+  }, [colorSettings, styleReady]);
 
+  // Apply isolation mask when geometry arrives
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady) return;
+    if (geometry) {
+      applyIsolationMask(map, { name: slug, type: 'state', fullName: slug, bbox, geojson: geometry }, 1);
+    } else {
+      clearIsolationMask(map);
+    }
+  }, [geometry, styleReady, slug, bbox]);
+
+  // Resize map when frame dimensions change
   useEffect(() => {
     mapRef.current?.resize();
-  }, [footerHeight]);
+  }, [mapHeight]);
 
   return (
     <div
-      ref={containerRef}
-      className={`relative overflow-hidden ${className ?? ''}`}
-      style={{ aspectRatio: '4/3' }}
+      ref={frameRef}
+      className={`relative w-full overflow-hidden bg-white ${className ?? ''}`}
+      style={{ aspectRatio: '4 / 3' }}
     >
       <div
-        ref={mapDivRef}
-        className="absolute inset-x-0 top-0"
-        style={{ bottom: footerHeight }}
+        ref={mapContainer}
+        className="w-full"
+        style={{ height: mapHeight }}
       />
-      {isFooter && titleSettings.enabled ? (
-        <div
-          className="absolute bottom-0 left-0 right-0 z-10"
-          style={{ height: footerHeight }}
-        >
-          <TitleOverlay
-            titleSettings={titleSettings}
-            colorSettings={colorSettings}
-            footerHeight={footerHeight}
-          />
-        </div>
-      ) : (
-        <TitleOverlay
-          titleSettings={titleSettings}
-          colorSettings={colorSettings}
-          footerHeight={0}
-        />
-      )}
+      <TitleOverlay
+        titleSettings={titleSettings}
+        colorSettings={colorSettings}
+        footerHeight={titleBandHeight}
+      />
     </div>
   );
 }
