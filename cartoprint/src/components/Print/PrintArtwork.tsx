@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { STYLE_URL, applyStyleOverrides } from '@/lib/map/style';
-import { applyPreviewColorSettings, hidePrintLabels, type PreviewColorSettings } from '@/lib/print/colorSchemes';
+import { STYLE_URL } from '@/lib/map/style';
+import { applyPreviewColorSettings, hidePrintLabels, applyMaskColor, type PreviewColorSettings } from '@/lib/print/colorSchemes';
 import { TitleOverlay, getTitleBandHeight } from '@/components/Print/TitleOverlay';
 import { isFooterTitleLayout, type PreviewTitleSettings } from '@/lib/print/titleLayouts';
 import { applyIsolationMask, initIsolationLayers, clearIsolationMask } from '@/lib/map/isolation';
@@ -61,10 +61,10 @@ export function PrintArtwork({ slug, bbox, colorSettings, titleSettings, geometr
     });
 
     map.on('load', () => {
-      applyStyleOverrides(map);
       hidePrintLabels(map);
       applyPreviewColorSettings(map, colorSettings);
       initIsolationLayers(map);
+      applyMaskColor(map, colorSettings);
       setStyleReady(true);
     });
 
@@ -84,6 +84,7 @@ export function PrintArtwork({ slug, bbox, colorSettings, titleSettings, geometr
     if (!map || !styleReady) return;
     hidePrintLabels(map);
     applyPreviewColorSettings(map, colorSettings);
+    applyMaskColor(map, colorSettings);
   }, [colorSettings, styleReady]);
 
   // Apply / clear isolation mask
@@ -92,10 +93,11 @@ export function PrintArtwork({ slug, bbox, colorSettings, titleSettings, geometr
     if (!map || !styleReady) return;
     if (geometry) {
       applyIsolationMask(map, { name: slug, type: 'state', fullName: slug, bbox, geojson: geometry }, 1);
+      applyMaskColor(map, colorSettings);
     } else {
       clearIsolationMask(map);
     }
-  }, [geometry, styleReady, slug, bbox]);
+  }, [geometry, styleReady, slug, bbox, colorSettings]);
 
   // Resize map when map area changes
   useEffect(() => {

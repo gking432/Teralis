@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { STYLE_URL, applyStyleOverrides } from '@/lib/map/style';
-import { applyPreviewColorSettings, hidePrintLabels, DEFAULT_COLOR_SCHEME } from '@/lib/print/colorSchemes';
+import { STYLE_URL } from '@/lib/map/style';
+import { applyPreviewColorSettings, hidePrintLabels, applyMaskColor, getPrintInkColor, DEFAULT_COLOR_SCHEME } from '@/lib/print/colorSchemes';
 import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 
@@ -131,7 +131,7 @@ export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail
 
     let cancelled = false;
     const colors = DEFAULT_COLOR_SCHEME.colors;
-    const ink = colors.water;
+    const ink = getPrintInkColor(colors);
     const land = colors.land;
 
     const map = new maplibregl.Map({
@@ -175,23 +175,24 @@ export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail
     function tryApplyMask() {
       if (!geometry || !styleLoaded) return;
       applyIsolationMask(map, { name: slug, type: kind, fullName: slug, bbox, geojson: geometry }, 1);
+      applyMaskColor(map, colors);
       geometryReady = true;
     }
 
     map.on('load', () => {
-      applyStyleOverrides(map);
       hidePrintLabels(map);
       applyPreviewColorSettings(map, colors);
       initIsolationLayers(map);
+      // Default mask to ink color so exterior shows correctly before geometry arrives
+      applyMaskColor(map, colors);
       styleLoaded = true;
       if (geometry) {
         tryApplyMask();
       } else {
-        // no geometry yet — fetch it
         fetchBoundary(slug, center, kind).then((record) => {
           if (cancelled) return;
           if (record?.geometry) { geometry = record.geometry; tryApplyMask(); }
-          else { geometryReady = true; } // fall back to unmasked
+          else { geometryReady = true; }
         });
       }
     });
