@@ -308,12 +308,22 @@ export async function renderPrintSnapshot(
       applyIsolationMask(map, { name: slug, type: kind, fullName: slug, bbox, geojson: geom }, 1);
       applyPrintMaskColor(map, colorSettings);
       // Move city/town/capital symbol layers above the mask so labels that
-      // straddle the state border aren't clipped by the ink fill.
+      // straddle the state border aren't clipped by the ink fill — but filter
+      // each one to features that fall WITHIN the boundary, so labels from
+      // neighbouring states don't appear in the masked-out white space.
+      const within: maplibregl.ExpressionSpecification = ['within', geom as GeoJSON.Polygon | GeoJSON.MultiPolygon];
       const style = map.getStyle();
       if (style) {
         style.layers.forEach((layer) => {
           if (layer.type === 'symbol' && /label_(city|city_capital|town|village)/.test(layer.id)) {
-            try { map.moveLayer(layer.id); } catch {}
+            try {
+              const existing = map.getFilter(layer.id) as maplibregl.FilterSpecification | undefined;
+              const combined = existing
+                ? (['all', existing, within] as maplibregl.FilterSpecification)
+                : (within as maplibregl.FilterSpecification);
+              map.setFilter(layer.id, combined);
+              map.moveLayer(layer.id);
+            } catch {}
           }
         });
       }
