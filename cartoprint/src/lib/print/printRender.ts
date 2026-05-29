@@ -4,26 +4,25 @@ import { applyGreyscale, applyStyleOverrides } from '@/lib/map/style';
 import { applyLayerVisibility } from '@/lib/map/layers';
 import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSchemes';
 
-// Quick-settings values surfaced in PrintQuickShop (state / city prints only).
-export type PlaceDensity = 'none' | 'cities' | 'towns';
-export type RoadDetail   = 'none' | 'highways' | 'roads';
+// Three-level density used by the "Customize this view" detail controls.
+export type Density = 'none' | 'less' | 'more';
 
 export interface PrintDetailSettings {
-  places:   PlaceDensity;
-  roads:    RoadDetail;
-  counties: boolean;
+  places: Density;   // cities & towns
+  roads: Density;    // highways & main roads
+  counties: boolean; // county lines
 }
 
 export const DEFAULT_DETAIL_SETTINGS: PrintDetailSettings = {
-  places:   'towns',
-  roads:    'roads',
+  places: 'more',
+  roads: 'more',
   counties: false,
 };
 
 // --- per-kind base layer states ---
 
 // State / city prints: cities + towns, highways + main roads, water + rivers.
-// No borders (the isolation mask defines the region edge).
+// No borders — the isolation mask defines the region edge.
 const STATE_PRINT_LAYER_STATE: LayerState = {
   countries: false,
   states: false,
@@ -45,8 +44,8 @@ const STATE_PRINT_LAYER_STATE: LayerState = {
   landcover: false,
 };
 
-// Country prints: state outlines + state capitals only. Roads are noise
-// at national scale; major rivers provide geographic orientation.
+// Country prints: state outlines + state capitals only. Roads are noise at
+// national scale; major rivers provide geographic orientation.
 const COUNTRY_PRINT_LAYER_STATE: LayerState = {
   countries: false,
   states: true,
@@ -80,18 +79,18 @@ export function buildPrintLayerState(
 
   return {
     ...STATE_PRINT_LAYER_STATE,
-    capitals: true,
+    capitals: detail.places !== 'none',
     cities:   detail.places !== 'none',
-    towns:    detail.places === 'towns',
-    counties: detail.counties,
+    towns:    detail.places === 'more',
     highways: detail.roads !== 'none',
-    mainroads: detail.roads === 'roads',
+    mainroads: detail.roads === 'more',
     allroads: false,
+    counties: detail.counties,
   };
 }
 
 // Extends zoom ranges + styles roads/labels so they render at state-level zoom.
-// Respects layers.states and layers.counties so borders can be shown for print.
+// Honors layers.states (country prints) and layers.counties (county lines).
 function applyPrintPreviewOverrides(map: maplibregl.Map, layers: LayerState): void {
   const style = map.getStyle();
   if (!style) return;
@@ -99,38 +98,46 @@ function applyPrintPreviewOverrides(map: maplibregl.Map, layers: LayerState): vo
   style.layers.forEach((layer) => {
     const id = layer.id;
 
-    // Admin/boundary borders — always hide country-level borders (the mask
-    // defines the outer edge). State borders are kept when layers.states is true.
+    // Country-level borders: always hidden (mask defines the outer edge).
     if (/admin.*(country|2)|boundary.*(country|2)/.test(id)) {
       try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
       return;
     }
 
+    // State borders: hidden unless layers.states (country prints). When shown,
+    // give them a clear, print-weight line (recolor sets the color to ink).
     if (/admin.*(state|3|4)|boundary.*(state|3|4)/.test(id)) {
       if (!layers.states) {
         try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
       } else if (layer.type === 'line') {
-        // Style state borders for print: thin, subtle lines.
         try {
+          map.setLayoutProperty(id, 'visibility', 'visible');
           map.setLayerZoomRange(id, 1, 24);
-          map.setPaintProperty(id, 'line-opacity', 0.4);
-          map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 2, 0.3, 5, 0.65, 9, 1.1]);
-          map.setPaintProperty(id, 'line-dasharray', []);
+          map.setPaintProperty(id, 'line-opacity', 0.55);
+          map.setPaintProperty(id, 'line-width', [
+            'interpolate', ['linear'], ['zoom'],
+            2, 1.0, 4, 1.7, 6, 2.6, 9, 3.4,
+          ]);
         } catch {}
       }
       return;
     }
 
-    // County borders — driven entirely by layers.counties. Override zoom ranges
-    // so they appear at state-level zoom (base style shows them only at z8+).
+    // County borders from the base style (if present): driven by layers.counties.
+    // We also add a dedicated county-line layer in addPrintCountyLines() because
+    // many base styles don't render admin_level 6 at all.
     if (/admin.*(5|6|7|8)|boundary.*(county|5|6|7|8)/.test(id)) {
       if (!layers.counties) {
         try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
       } else if (layer.type === 'line') {
         try {
+          map.setLayoutProperty(id, 'visibility', 'visible');
           map.setLayerZoomRange(id, 3, 24);
-          map.setPaintProperty(id, 'line-opacity', 0.22);
-          map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 4, 0.18, 7, 0.45, 10, 0.8]);
+          map.setPaintProperty(id, 'line-opacity', 0.32);
+          map.setPaintProperty(id, 'line-width', [
+            'interpolate', ['linear'], ['zoom'],
+            4, 0.5, 7, 0.9, 10, 1.4,
+          ]);
         } catch {}
       }
       return;
@@ -199,6 +206,46 @@ function applyPrintPreviewOverrides(map: maplibregl.Map, layers: LayerState): vo
   });
 }
 
+// Find the vector source + source-layer used for admin boundaries, by scanning
+// the existing boundary/admin layers. Returns null if none can be identified.
+function findBoundarySource(map: maplibregl.Map): { source: string; sourceLayer: string } | null {
+  const style = map.getStyle();
+  if (!style) return null;
+  for (const layer of style.layers) {
+    if ('source' in layer && (layer as any)['source-layer'] && /admin|boundary/.test(layer.id)) {
+      const src = (layer as any).source as string;
+      const srcLayer = (layer as any)['source-layer'] as string;
+      if (src && srcLayer) return { source: src, sourceLayer: srcLayer };
+    }
+  }
+  return null;
+}
+
+// Adds a dedicated county-line layer (admin_level 6) from the boundary vector
+// source. Needed because most base styles don't draw county boundaries.
+function addPrintCountyLines(map: maplibregl.Map, ink: string): void {
+  const boundary = findBoundarySource(map);
+  if (!boundary) return;
+  if (map.getLayer('print-county-lines')) {
+    try { map.removeLayer('print-county-lines'); } catch {}
+  }
+  try {
+    map.addLayer({
+      id: 'print-county-lines',
+      type: 'line',
+      source: boundary.source,
+      'source-layer': boundary.sourceLayer,
+      filter: ['==', ['get', 'admin_level'], 6],
+      minzoom: 3,
+      paint: {
+        'line-color': ink,
+        'line-opacity': 0.3,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.45, 7, 0.85, 10, 1.35],
+      },
+    });
+  } catch {}
+}
+
 // Recolors visible layers to the selected scheme.
 function recolor(map: maplibregl.Map, colors: PreviewColorSettings): void {
   if (colors.useMapDefault) return;
@@ -262,6 +309,7 @@ export function applyPrintMapStyle(
   applyLayerVisibility(map, layers);
   applyPrintPreviewOverrides(map, layers);
   recolor(map, colors);
+  if (layers.counties) addPrintCountyLines(map, getPrintInkColor(colors));
 }
 
 /** Sets the isolation mask (area outside the region) to the ink color. */
