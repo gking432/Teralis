@@ -114,9 +114,14 @@ export function applyPreviewColorSettings(map: maplibregl.Map, colors: PreviewCo
   style.layers.forEach((layer) => {
     const id = layer.id;
     try {
-      // Background = ink (so the exterior of the state blends with the mask)
+      // Background = land (white). The ink exterior comes from the mask layer, not the background.
       if (layer.type === 'background') {
-        map.setPaintProperty(id, 'background-color', ink);
+        map.setPaintProperty(id, 'background-color', land);
+        return;
+      }
+      // Hide natural_earth (satellite/terrain raster base layer in liberty style)
+      if (id === 'natural_earth' || layer.type === 'raster') {
+        map.setLayoutProperty(id, 'visibility', 'none');
         return;
       }
       // Water areas (lakes, ocean) = ink
@@ -131,13 +136,13 @@ export function applyPreviewColorSettings(map: maplibregl.Map, colors: PreviewCo
         map.setPaintProperty(id, 'fill-opacity', 1);
         return;
       }
-      // Waterway lines (rivers, streams) = ink, keep visible
+      // Waterway lines (rivers, streams) = ink, visible
       if (layer.type === 'line' && /water/.test(id)) {
         map.setPaintProperty(id, 'line-color', ink);
         map.setLayoutProperty(id, 'visibility', 'visible');
         return;
       }
-      // HIDE everything else — roads, highways, admin borders, etc.
+      // Hide all other lines (roads, highways, admin borders)
       if (layer.type === 'line') {
         map.setLayoutProperty(id, 'visibility', 'none');
         return;
