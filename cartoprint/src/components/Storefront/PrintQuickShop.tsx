@@ -7,7 +7,13 @@ import { COLOR_SCHEMES, DEFAULT_COLOR_SCHEME, type PreviewColorSettings } from '
 import { TITLE_LAYOUTS, DEFAULT_TITLE_LAYOUT, type PreviewTitleLayout, type PreviewTitleSettings } from '@/lib/print/titleLayouts';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 import { SNAPSHOT_CACHE } from '@/components/Storefront/ThumbnailMap';
-import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey } from '@/lib/print/printSnapshot';
+import {
+  renderPrintSnapshot,
+  PREVIEW_SNAPSHOT_CACHE,
+  getPreviewCacheKey,
+  type PrintDetailSettings,
+  DEFAULT_DETAIL_SETTINGS,
+} from '@/lib/print/printSnapshot';
 import { ImageMagnifier } from '@/components/ui/ImageMagnifier';
 
 interface PrintQuickShopProps {
@@ -18,6 +24,7 @@ interface PrintQuickShopProps {
 export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
   const [selectedScheme, setSelectedScheme] = useState(DEFAULT_COLOR_SCHEME.value);
   const [selectedLayout, setSelectedLayout] = useState<PreviewTitleLayout>(DEFAULT_TITLE_LAYOUT);
+  const [detail, setDetail] = useState<PrintDetailSettings>(DEFAULT_DETAIL_SETTINGS);
   const [fullscreen, setFullscreen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -25,33 +32,28 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
   const [geometry, setGeometry] = useState<GeoJSON.Geometry | null>(
     () => getCachedBoundary(print.slug)?.geometry ?? null
   );
-
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
-
   const cachedThumb = SNAPSHOT_CACHE.get(print.slug) ?? null;
+
+  const kind = print.kind === 'country' ? 'country' : print.kind === 'state' ? 'state' : 'city';
+  const isCountry = kind === 'country';
 
   useEffect(() => {
     if (geometry) return;
     let cancelled = false;
-    const level = print.kind === 'country' ? 'country' : print.kind === 'state' ? 'state' : 'city';
-    fetchBoundary(print.slug, print.center, level).then((record) => {
+    fetchBoundary(print.slug, print.center, kind).then((record) => {
       if (!cancelled && record?.geometry) setGeometry(record.geometry);
     });
     return () => { cancelled = true; };
-  }, [print.slug, print.center, print.kind, geometry]);
+  }, [print.slug, print.center, kind, geometry]);
 
   useEffect(() => {
     if (!geometry) return;
-
-    const cacheKey = getPreviewCacheKey(print.slug, selectedScheme, selectedLayout);
+    const cacheKey = getPreviewCacheKey(print.slug, selectedScheme, selectedLayout, isCountry ? undefined : detail);
     const cached = PREVIEW_SNAPSHOT_CACHE.get(cacheKey);
-    if (cached) {
-      setPreviewUrl(cached);
-      setPreviewLoading(false);
-      return;
-    }
+    if (cached) { setPreviewUrl(cached); setPreviewLoading(false); return; }
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -67,33 +69,30 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
       detail: print.establishedYear ? `EST. ${print.establishedYear}` : '',
       layout: selectedLayout,
     };
-    const kind = print.kind === 'country' ? 'country' : print.kind === 'state' ? 'state' : 'city';
 
     renderPrintSnapshot(
       print.slug, print.bbox, print.center, kind,
       colorSettings, titleSettings, geometry,
       controller.signal,
+      isCountry ? undefined : detail,
     ).then((url) => {
       if (controller.signal.aborted) return;
       PREVIEW_SNAPSHOT_CACHE.set(cacheKey, url);
       setPreviewUrl(url);
       setPreviewLoading(false);
     }).catch((err) => {
-      if (err?.message !== 'aborted') {
-        console.warn('Preview snapshot failed', err);
-        setPreviewLoading(false);
-      }
+      if (err?.message !== 'aborted') { console.warn('Preview snapshot failed', err); setPreviewLoading(false); }
     });
 
     return () => { controller.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [print.slug, selectedScheme, selectedLayout, geometry]);
+  }, [print.slug, selectedScheme, selectedLayout, detail, geometry]);
 
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return;
+      if (e.key !== 'Escape') { return; }
       if (fullscreen) setFullscreen(false);
       else onClose();
     }
@@ -106,7 +105,6 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
     return () => { document.body.style.overflow = ''; };
   }, []);
 
-  // Download a 12×16 @ 300 DPI (3600 × 4800 px) print file
   async function handleDownload() {
     if (!geometry || downloading) return;
     setDownloading(true);
@@ -120,13 +118,12 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
         detail: print.establishedYear ? `EST. ${print.establishedYear}` : '',
         layout: selectedLayout,
       };
-      const kind = print.kind === 'country' ? 'country' : print.kind === 'state' ? 'state' : 'city';
-
       const url = await renderPrintSnapshot(
         print.slug, print.bbox, print.center, kind,
         colorSettings, titleSettings, geometry,
         undefined,
-        3600, // 12 × 16 in @ 300 DPI
+        isCountry ? undefined : detail,
+        3600,
       );
       const a = document.createElement('a');
       a.href = url;
@@ -147,7 +144,7 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6 backdrop-blur-sm"
       onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
     >
-      <div className="relative flex max-h-[92vh] w-full max-w-[860px] flex-col overflow-hidden bg-white shadow-[0_40px_120px_rgba(0,0,0,0.3)] lg:flex-row">
+      <div className="relative flex max-h-[92vh] w-full max-w-[880px] flex-col overflow-hidden bg-white shadow-[0_40px_120px_rgba(0,0,0,0.3)] lg:flex-row">
 
         {/* Close */}
         <button
@@ -161,8 +158,8 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
         </button>
 
         {/* Left: print preview */}
-        <div className="flex flex-shrink-0 flex-col items-center justify-center gap-4 bg-[#f4f0e8] p-6 lg:w-[46%]">
-          <div className="relative w-full max-w-[320px]" style={{ aspectRatio: '3/4' }}>
+        <div className="flex flex-shrink-0 flex-col items-center justify-center gap-4 bg-[#f4f0e8] p-6 lg:w-[44%]">
+          <div className="relative w-full max-w-[300px]" style={{ aspectRatio: '3/4' }}>
             {displayUrl ? (
               <ImageMagnifier
                 src={displayUrl}
@@ -211,9 +208,8 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
               {downloading ? 'Generating…' : 'Download 12×16'}
             </button>
           </div>
-
           <p className="text-center text-[9px] uppercase tracking-[1px] text-[#aaa]">
-            Hover preview to zoom · Download is 300 DPI
+            Hover to zoom · Download is 300 DPI
           </p>
         </div>
 
@@ -222,7 +218,7 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
 
           <div className="mb-6 border-b border-[#e8e2d8] pb-6">
             <div className="mb-1 text-[10px] uppercase tracking-[2px] text-[#999]">
-              {print.kind === 'country' ? 'National Print' : 'State Print'}
+              {isCountry ? 'National Print' : print.kind === 'state' ? 'State Print' : 'City Print'}
             </div>
             <h2 className="font-display text-3xl font-light leading-tight">{print.name}</h2>
             {print.defaultSubtitle && <p className="mt-1 text-sm text-[#777]">{print.defaultSubtitle}</p>}
@@ -231,6 +227,7 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
             )}
           </div>
 
+          {/* Color scheme */}
           <div className="mb-6">
             <div className="mb-3 text-[10px] uppercase tracking-[2px] text-[#777]">Color Scheme</div>
             <div className="grid grid-cols-3 gap-2">
@@ -251,6 +248,7 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
             </div>
           </div>
 
+          {/* Title layout */}
           <div className="mb-6">
             <div className="mb-3 text-[10px] uppercase tracking-[2px] text-[#777]">Title Layout</div>
             <div className="flex flex-col gap-1.5">
@@ -274,6 +272,64 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
             </div>
           </div>
 
+          {/* Map detail quick-settings — state / city prints only */}
+          {!isCountry && (
+            <div className="mb-6">
+              <div className="mb-3 text-[10px] uppercase tracking-[2px] text-[#777]">Map Detail</div>
+              <div className="flex flex-col gap-2.5">
+                <DetailRow
+                  label="Places"
+                  options={[
+                    { value: 'none',   label: 'None' },
+                    { value: 'cities', label: 'Cities' },
+                    { value: 'towns',  label: 'Towns' },
+                  ]}
+                  value={detail.places}
+                  onChange={(v) => setDetail((d) => ({ ...d, places: v as PrintDetailSettings['places'] }))}
+                />
+                <DetailRow
+                  label="Roads"
+                  options={[
+                    { value: 'none',     label: 'None' },
+                    { value: 'highways', label: 'Highways' },
+                    { value: 'roads',    label: 'Roads' },
+                  ]}
+                  value={detail.roads}
+                  onChange={(v) => setDetail((d) => ({ ...d, roads: v as PrintDetailSettings['roads'] }))}
+                />
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-[1.4px] text-[#555]">Counties</span>
+                  <div className="flex gap-1">
+                    {(['off', 'on'] as const).map((opt) => {
+                      const active = opt === 'on' ? detail.counties : !detail.counties;
+                      return (
+                        <button
+                          key={opt}
+                          onClick={() => setDetail((d) => ({ ...d, counties: opt === 'on' }))}
+                          className={`border px-3 py-1 text-[9px] uppercase tracking-[1.4px] transition-all ${
+                            active
+                              ? 'border-[#111] bg-[#111] text-white'
+                              : 'border-[#ddd] text-[#777] hover:border-[#999]'
+                          }`}
+                        >
+                          {opt}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Country note */}
+          {isCountry && (
+            <div className="mb-6 rounded border border-[#e8e2d8] bg-[#faf8f4] px-3 py-2.5 text-[10px] leading-relaxed text-[#888]">
+              National prints show state borders and capital cities. Open the customizer for advanced options.
+            </div>
+          )}
+
+          {/* Actions */}
           <div className="mt-auto flex flex-col gap-3 pt-4">
             <button className="w-full bg-[#07122a] py-4 text-[11px] font-medium uppercase tracking-[2px] text-white transition-opacity hover:opacity-85">
               Add to Cart — From $49
@@ -288,7 +344,7 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
         </div>
       </div>
 
-      {/* Fullscreen — same cached snapshot, instant, with magnifier */}
+      {/* Fullscreen */}
       {fullscreen && previewUrl && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-[#0a0a0a]/95 p-6"
@@ -314,6 +370,39 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
           />
         </div>
       )}
+    </div>
+  );
+}
+
+function DetailRow({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-[10px] uppercase tracking-[1.4px] text-[#555]">{label}</span>
+      <div className="flex gap-1">
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => onChange(opt.value)}
+            className={`border px-3 py-1 text-[9px] uppercase tracking-[1.4px] transition-all ${
+              value === opt.value
+                ? 'border-[#111] bg-[#111] text-white'
+                : 'border-[#ddd] text-[#777] hover:border-[#999]'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

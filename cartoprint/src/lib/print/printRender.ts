@@ -4,12 +4,27 @@ import { applyGreyscale, applyStyleOverrides } from '@/lib/map/style';
 import { applyLayerVisibility } from '@/lib/map/layers';
 import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSchemes';
 
-// Fixed layer configuration for storefront catalog prints.
-// Mirrors what the customizable view produces for a focused state print:
-// major cities + capitals + towns, highways + main roads, water + rivers.
-// No street labels, no admin borders (the region is isolated by the mask),
-// no landcover/terrain.
-export const PRINT_LAYER_STATE: LayerState = {
+// Quick-settings values surfaced in PrintQuickShop (state / city prints only).
+export type PlaceDensity = 'none' | 'cities' | 'towns';
+export type RoadDetail   = 'none' | 'highways' | 'roads';
+
+export interface PrintDetailSettings {
+  places:   PlaceDensity;
+  roads:    RoadDetail;
+  counties: boolean;
+}
+
+export const DEFAULT_DETAIL_SETTINGS: PrintDetailSettings = {
+  places:   'towns',
+  roads:    'roads',
+  counties: false,
+};
+
+// --- per-kind base layer states ---
+
+// State / city prints: cities + towns, highways + main roads, water + rivers.
+// No borders (the isolation mask defines the region edge).
+const STATE_PRINT_LAYER_STATE: LayerState = {
   countries: false,
   states: false,
   counties: false,
@@ -30,9 +45,53 @@ export const PRINT_LAYER_STATE: LayerState = {
   landcover: false,
 };
 
+// Country prints: state outlines + state capitals only. Roads are noise
+// at national scale; major rivers provide geographic orientation.
+const COUNTRY_PRINT_LAYER_STATE: LayerState = {
+  countries: false,
+  states: true,
+  counties: false,
+  capitals: true,
+  cities: false,
+  towns: false,
+  statelabels: false,
+  countrylabels: false,
+  highways: false,
+  mainroads: false,
+  allroads: false,
+  roadlabels: false,
+  water: true,
+  rivers: true,
+  riverlabels: false,
+  waterlabels: false,
+  terrain: false,
+  landcover: false,
+};
+
+// Legacy export (kept for any code that imported the old name).
+export const PRINT_LAYER_STATE = STATE_PRINT_LAYER_STATE;
+
+/** Build the LayerState for a storefront print given kind + user detail prefs. */
+export function buildPrintLayerState(
+  kind: 'country' | 'state' | 'city',
+  detail: PrintDetailSettings = DEFAULT_DETAIL_SETTINGS,
+): LayerState {
+  if (kind === 'country') return COUNTRY_PRINT_LAYER_STATE;
+
+  return {
+    ...STATE_PRINT_LAYER_STATE,
+    capitals: true,
+    cities:   detail.places !== 'none',
+    towns:    detail.places === 'towns',
+    counties: detail.counties,
+    highways: detail.roads !== 'none',
+    mainroads: detail.roads === 'roads',
+    allroads: false,
+  };
+}
+
 // Extends zoom ranges + styles roads/labels so they render at state-level zoom.
-// Copied from the customizable PrintPreviewMap pipeline so storefront prints
-// match the editor exactly.
+// Respects layers.states and layers.counties so borders can be shown for print.
 function applyPrintPreviewOverrides(map: maplibregl.Map, layers: LayerState): void {
   const style = map.getStyle();
   if (!style) return;
@@ -40,9 +99,40 @@ function applyPrintPreviewOverrides(map: maplibregl.Map, layers: LayerState): vo
   style.layers.forEach((layer) => {
     const id = layer.id;
 
-    // Hide all admin/boundary borders — the isolation mask defines the edge.
-    if (/admin.*(country|2|state|3|4)|boundary.*(country|state|2|3|4)/.test(id)) {
+    // Admin/boundary borders — always hide country-level borders (the mask
+    // defines the outer edge). State borders are kept when layers.states is true.
+    if (/admin.*(country|2)|boundary.*(country|2)/.test(id)) {
       try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
+      return;
+    }
+
+    if (/admin.*(state|3|4)|boundary.*(state|3|4)/.test(id)) {
+      if (!layers.states) {
+        try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
+      } else if (layer.type === 'line') {
+        // Style state borders for print: thin, subtle lines.
+        try {
+          map.setLayerZoomRange(id, 1, 24);
+          map.setPaintProperty(id, 'line-opacity', 0.4);
+          map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 2, 0.3, 5, 0.65, 9, 1.1]);
+          map.setPaintProperty(id, 'line-dasharray', []);
+        } catch {}
+      }
+      return;
+    }
+
+    // County borders — driven entirely by layers.counties. Override zoom ranges
+    // so they appear at state-level zoom (base style shows them only at z8+).
+    if (/admin.*(5|6|7|8)|boundary.*(county|5|6|7|8)/.test(id)) {
+      if (!layers.counties) {
+        try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
+      } else if (layer.type === 'line') {
+        try {
+          map.setLayerZoomRange(id, 3, 24);
+          map.setPaintProperty(id, 'line-opacity', 0.22);
+          map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 4, 0.18, 7, 0.45, 10, 0.8]);
+        } catch {}
+      }
       return;
     }
 
@@ -52,13 +142,13 @@ function applyPrintPreviewOverrides(map: maplibregl.Map, layers: LayerState): vo
       return;
     }
 
-    // Hide state/province point labels (we show the state name in the title band).
+    // Hide state/province point labels (state name goes in the title band).
     if (/label_state|place.*(state|province)/.test(id)) {
       try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
       return;
     }
 
-    // Hide water + river + road name labels (keep the print clean).
+    // Hide water + river + road name labels.
     if (/water_name_(point|line)_label/.test(id)) {
       try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
       return;
@@ -110,7 +200,6 @@ function applyPrintPreviewOverrides(map: maplibregl.Map, layers: LayerState): vo
 }
 
 // Recolors visible layers to the selected scheme.
-// Hidden layers (landcover, secondary roads, etc.) are left hidden.
 function recolor(map: maplibregl.Map, colors: PreviewColorSettings): void {
   if (colors.useMapDefault) return;
 
@@ -146,6 +235,10 @@ function recolor(map: maplibregl.Map, colors: PreviewColorSettings): void {
         map.setPaintProperty(id, 'line-color', ink);
         return;
       }
+      if (layer.type === 'line' && /admin|boundary/.test(id)) {
+        map.setPaintProperty(id, 'line-color', ink);
+        return;
+      }
       if (layer.type === 'symbol') {
         map.setPaintProperty(id, 'text-color', ink);
         map.setPaintProperty(id, 'text-halo-color', land);
@@ -156,17 +249,22 @@ function recolor(map: maplibregl.Map, colors: PreviewColorSettings): void {
   });
 }
 
-// Full storefront print rendering pipeline. Run inside map 'load'.
-// Replicates the customizable PrintPreviewMap pipeline for a focused state print.
-export function applyPrintMapStyle(map: maplibregl.Map, colors: PreviewColorSettings): void {
+/** Full storefront print rendering pipeline. Run inside map 'load'. */
+export function applyPrintMapStyle(
+  map: maplibregl.Map,
+  colors: PreviewColorSettings,
+  kind: 'country' | 'state' | 'city' = 'state',
+  detail: PrintDetailSettings = DEFAULT_DETAIL_SETTINGS,
+): void {
+  const layers = buildPrintLayerState(kind, detail);
   applyGreyscale(map);
   applyStyleOverrides(map);
-  applyLayerVisibility(map, PRINT_LAYER_STATE);
-  applyPrintPreviewOverrides(map, PRINT_LAYER_STATE);
+  applyLayerVisibility(map, layers);
+  applyPrintPreviewOverrides(map, layers);
   recolor(map, colors);
 }
 
-// Sets the isolation mask (area outside the state) to the ink color.
+/** Sets the isolation mask (area outside the region) to the ink color. */
 export function applyPrintMaskColor(map: maplibregl.Map, colors: PreviewColorSettings): void {
   const ink = getPrintInkColor(colors);
   try { map.setPaintProperty('mask-layer', 'fill-color', ink); } catch {}

@@ -4,7 +4,7 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { STYLE_URL } from '@/lib/map/style';
 import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSchemes';
-import { applyPrintMapStyle, applyPrintMaskColor } from '@/lib/print/printRender';
+import { applyPrintMapStyle, applyPrintMaskColor, type PrintDetailSettings, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
 import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
 import { fetchBoundary } from '@/lib/print/boundaryCache';
 import type { PreviewTitleSettings } from '@/lib/print/titleLayouts';
@@ -16,8 +16,14 @@ export const PREVIEW_SNAPSHOT_CACHE = new Map<string, string>();
 const RENDER_WIDTH = 2400;
 const RENDER_TOTAL_HEIGHT = Math.round(RENDER_WIDTH * (4 / 3)); // 3200
 
-export function getPreviewCacheKey(slug: string, colorScheme: string, layout: string): string {
-  return `${slug}:${colorScheme}:${layout}`;
+export function getPreviewCacheKey(
+  slug: string,
+  colorScheme: string,
+  layout: string,
+  detail?: PrintDetailSettings,
+): string {
+  const d = detail ?? DEFAULT_DETAIL_SETTINGS;
+  return `${slug}:${colorScheme}:${layout}:${d.places}:${d.roads}:${d.counties ? 'c' : ''}`;
 }
 
 function getFooterHeight(layout: string, totalHeight: number): number {
@@ -227,6 +233,9 @@ export const PRINT_SIZES: Record<string, { width: number; height: number; label:
   '24x36':    { width: 7200,  height: 10800, label: '24 × 36 in (300 DPI)' },
 };
 
+export type { PrintDetailSettings };
+export { DEFAULT_DETAIL_SETTINGS };
+
 export async function renderPrintSnapshot(
   slug: string,
   bbox: [string, string, string, string],
@@ -236,6 +245,7 @@ export async function renderPrintSnapshot(
   titleSettings: PreviewTitleSettings,
   geometry: GeoJSON.Geometry | null,
   signal?: AbortSignal,
+  detail?: PrintDetailSettings,
   renderWidthOverride?: number,
 ): Promise<string> {
   if (signal?.aborted) return Promise.reject(new Error('aborted'));
@@ -354,7 +364,7 @@ export async function renderPrintSnapshot(
     });
 
     map.on('load', () => {
-      applyPrintMapStyle(map, colorSettings);
+      applyPrintMapStyle(map, colorSettings, kind, detail);
       initIsolationLayers(map);
       applyPrintMaskColor(map, colorSettings);
       styleLoaded = true;
