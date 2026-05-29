@@ -3,16 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { STYLE_URL, applyStyleOverrides, applyGreyscale } from '@/lib/map/style';
-import {
-  applyPreviewColorSettings,
-  type PreviewColorSettings,
-} from '@/lib/print/colorSchemes';
+import { STYLE_URL, applyStyleOverrides } from '@/lib/map/style';
+import { applyPreviewColorSettings, hidePrintLabels, type PreviewColorSettings } from '@/lib/print/colorSchemes';
 import { TitleOverlay, getTitleBandHeight } from '@/components/Print/TitleOverlay';
-import {
-  isFooterTitleLayout,
-  type PreviewTitleSettings,
-} from '@/lib/print/titleLayouts';
+import { isFooterTitleLayout, type PreviewTitleSettings } from '@/lib/print/titleLayouts';
 import { applyIsolationMask, initIsolationLayers, clearIsolationMask } from '@/lib/map/isolation';
 
 interface PrintArtworkProps {
@@ -24,14 +18,7 @@ interface PrintArtworkProps {
   className?: string;
 }
 
-export function PrintArtwork({
-  slug,
-  bbox,
-  colorSettings,
-  titleSettings,
-  geometry = null,
-  className,
-}: PrintArtworkProps) {
+export function PrintArtwork({ slug, bbox, colorSettings, titleSettings, geometry = null, className }: PrintArtworkProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -39,13 +26,12 @@ export function PrintArtwork({
   const [styleReady, setStyleReady] = useState(false);
 
   const isFooter = isFooterTitleLayout(titleSettings.layout);
-  const titleBandHeight =
-    titleSettings.enabled && isFooter
-      ? getTitleBandHeight(titleSettings.layout, true, frameHeight, true)
-      : 0;
+  const titleBandHeight = titleSettings.enabled && isFooter
+    ? getTitleBandHeight(titleSettings.layout, true, frameHeight, true)
+    : 0;
   const mapHeight = Math.max(0, frameHeight - titleBandHeight);
 
-  // Track frame size
+  // Measure frame
   useEffect(() => {
     const node = frameRef.current;
     if (!node) return;
@@ -56,26 +42,28 @@ export function PrintArtwork({
     return () => ro.disconnect();
   }, []);
 
-  // Initialize map (once per slug)
+  // Init map — wait until we have real height
   useEffect(() => {
-    if (!mapContainer.current) return;
+    if (frameHeight === 0 || !mapContainer.current) return;
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
       style: STYLE_URL,
       interactive: false,
       attributionControl: false,
-      preserveDrawingBuffer: true,
+      preserveDrawingBuffer: false,
       fadeDuration: 0,
       bounds: [
         [Number(bbox[2]), Number(bbox[0])],
         [Number(bbox[3]), Number(bbox[1])],
       ],
-      fitBoundsOptions: { padding: 24, animate: false },
+      fitBoundsOptions: { padding: 32, animate: false },
     });
 
     map.on('load', () => {
       applyStyleOverrides(map);
+      hidePrintLabels(map);
+      applyPreviewColorSettings(map, colorSettings);
       initIsolationLayers(map);
       setStyleReady(true);
     });
@@ -86,21 +74,19 @@ export function PrintArtwork({
       map.remove();
       mapRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug]);
+  // Only re-init when slug changes; color changes handled separately
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, frameHeight > 0]);
 
-  // Apply color settings whenever they change
+  // Reapply colors when scheme changes
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !styleReady) return;
-    if (colorSettings.useMapDefault) {
-      applyGreyscale(map);
-    } else {
-      applyPreviewColorSettings(map, colorSettings);
-    }
+    hidePrintLabels(map);
+    applyPreviewColorSettings(map, colorSettings);
   }, [colorSettings, styleReady]);
 
-  // Apply isolation mask when geometry arrives
+  // Apply / clear isolation mask
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !styleReady) return;
@@ -111,27 +97,15 @@ export function PrintArtwork({
     }
   }, [geometry, styleReady, slug, bbox]);
 
-  // Resize map when frame dimensions change
+  // Resize map when map area changes
   useEffect(() => {
-    mapRef.current?.resize();
-  }, [mapHeight]);
+    if (mapRef.current && styleReady) mapRef.current.resize();
+  }, [mapHeight, styleReady]);
 
   return (
-    <div
-      ref={frameRef}
-      className={`relative w-full overflow-hidden bg-white ${className ?? ''}`}
-      style={{ aspectRatio: '4 / 3' }}
-    >
-      <div
-        ref={mapContainer}
-        className="w-full"
-        style={{ height: mapHeight }}
-      />
-      <TitleOverlay
-        titleSettings={titleSettings}
-        colorSettings={colorSettings}
-        footerHeight={titleBandHeight}
-      />
+    <div ref={frameRef} className={`relative w-full overflow-hidden bg-white ${className ?? ''}`} style={{ aspectRatio: '3/4' }}>
+      <div ref={mapContainer} className="w-full" style={{ height: mapHeight }} />
+      <TitleOverlay titleSettings={titleSettings} colorSettings={colorSettings} footerHeight={titleBandHeight} />
     </div>
   );
 }

@@ -7,10 +7,11 @@ import type { CatalogPrint } from '@/lib/catalog/prints';
 import { COLOR_SCHEMES, DEFAULT_COLOR_SCHEME, type PreviewColorSettings } from '@/lib/print/colorSchemes';
 import { TITLE_LAYOUTS, DEFAULT_TITLE_LAYOUT, type PreviewTitleLayout, type PreviewTitleSettings } from '@/lib/print/titleLayouts';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
+import { SNAPSHOT_CACHE } from '@/components/Storefront/ThumbnailMap';
 
 const PrintArtwork = dynamic(
   () => import('@/components/Print/PrintArtwork').then((m) => m.PrintArtwork),
-  { ssr: false, loading: () => <div className="w-full bg-[#07122a]" style={{ aspectRatio: '4/3' }} /> }
+  { ssr: false }
 );
 
 interface PrintQuickShopProps {
@@ -22,9 +23,12 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
   const [selectedScheme, setSelectedScheme] = useState(DEFAULT_COLOR_SCHEME.value);
   const [selectedLayout, setSelectedLayout] = useState<PreviewTitleLayout>(DEFAULT_TITLE_LAYOUT);
   const overlayRef = useRef<HTMLDivElement>(null);
-  const [geometry, setGeometry] = useState<GeoJSON.Geometry | null>(() => {
-    return getCachedBoundary(print.slug)?.geometry ?? null;
-  });
+  const [geometry, setGeometry] = useState<GeoJSON.Geometry | null>(
+    () => getCachedBoundary(print.slug)?.geometry ?? null
+  );
+
+  // Use cached thumbnail as instant placeholder while live map loads
+  const cachedThumb = SNAPSHOT_CACHE.get(print.slug) ?? null;
 
   useEffect(() => {
     if (geometry) return;
@@ -33,9 +37,7 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
     fetchBoundary(print.slug, print.center, level).then((record) => {
       if (!cancelled && record?.geometry) setGeometry(record.geometry);
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [print.slug, print.center, print.kind, geometry]);
 
   const colorSettings: PreviewColorSettings =
@@ -49,16 +51,12 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
     layout: selectedLayout,
   };
 
-  // Close on backdrop click
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // Prevent body scroll while open
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
@@ -70,7 +68,8 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6 backdrop-blur-sm"
       onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
     >
-      <div className="relative flex max-h-[90vh] w-full max-w-[960px] flex-col overflow-hidden bg-white shadow-[0_40px_120px_rgba(0,0,0,0.3)] lg:flex-row">
+      <div className="relative flex max-h-[92vh] w-full max-w-[860px] flex-col overflow-hidden bg-white shadow-[0_40px_120px_rgba(0,0,0,0.3)] lg:flex-row">
+
         {/* Close button */}
         <button
           onClick={onClose}
@@ -82,40 +81,47 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
           </svg>
         </button>
 
-        {/* Left: Print preview */}
-        <div className="flex flex-shrink-0 items-center justify-center bg-[#f4f0e8] p-6 lg:w-[55%]">
-          <div className="w-full max-w-[480px]">
+        {/* Left: print preview — portrait 3:4 */}
+        <div className="flex flex-shrink-0 items-center justify-center bg-[#f4f0e8] p-6 lg:w-[46%]">
+          <div className="relative w-full max-w-[320px]">
+            {/* Show cached thumbnail instantly while live map renders */}
+            {cachedThumb && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={cachedThumb}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover shadow-[0_20px_60px_rgba(0,0,0,0.22)]"
+                style={{ aspectRatio: '3/4' }}
+              />
+            )}
             <PrintArtwork
               slug={print.slug}
               bbox={print.bbox}
               colorSettings={colorSettings}
               titleSettings={titleSettings}
               geometry={geometry}
-              className="shadow-[0_20px_60px_rgba(0,0,0,0.22)]"
+              className="relative shadow-[0_20px_60px_rgba(0,0,0,0.22)]"
             />
           </div>
         </div>
 
-        {/* Right: Options panel */}
+        {/* Right: options */}
         <div className="flex flex-1 flex-col overflow-y-auto p-7 lg:p-8">
+
           {/* Print identity */}
-          <div className="mb-7 border-b border-[#e8e2d8] pb-6">
+          <div className="mb-6 border-b border-[#e8e2d8] pb-6">
             <div className="mb-1 text-[10px] uppercase tracking-[2px] text-[#999]">
               {print.kind === 'country' ? 'National Print' : 'State Print'}
             </div>
             <h2 className="font-display text-3xl font-light leading-tight">{print.name}</h2>
-            {print.defaultSubtitle && (
-              <p className="mt-1 text-sm text-[#777]">{print.defaultSubtitle}</p>
-            )}
+            {print.defaultSubtitle && <p className="mt-1 text-sm text-[#777]">{print.defaultSubtitle}</p>}
             {print.establishedYear && (
-              <p className="mt-0.5 text-[11px] uppercase tracking-[1.4px] text-[#aaa]">
-                EST. {print.establishedYear}
-              </p>
+              <p className="mt-0.5 text-[11px] uppercase tracking-[1.4px] text-[#aaa]">EST. {print.establishedYear}</p>
             )}
           </div>
 
           {/* Color scheme */}
-          <div className="mb-7">
+          <div className="mb-6">
             <div className="mb-3 text-[10px] uppercase tracking-[2px] text-[#777]">Color Scheme</div>
             <div className="grid grid-cols-3 gap-2">
               {COLOR_SCHEMES.map((scheme) => (
@@ -136,7 +142,7 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
           </div>
 
           {/* Title layout */}
-          <div className="mb-8">
+          <div className="mb-6">
             <div className="mb-3 text-[10px] uppercase tracking-[2px] text-[#777]">Title Layout</div>
             <div className="flex flex-col gap-1.5">
               {TITLE_LAYOUTS.map((layout) => (
@@ -149,11 +155,7 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
                       : 'border-[#e0dbd2] hover:border-[#bbb]'
                   }`}
                 >
-                  <span
-                    className={`h-2 w-2 flex-shrink-0 rounded-full border ${
-                      selectedLayout === layout.value ? 'border-[#111] bg-[#111]' : 'border-[#bbb]'
-                    }`}
-                  />
+                  <span className={`h-2 w-2 flex-shrink-0 rounded-full border ${selectedLayout === layout.value ? 'border-[#111] bg-[#111]' : 'border-[#bbb]'}`} />
                   <div>
                     <div className="text-[11px] font-medium uppercase tracking-[1.2px]">{layout.label}</div>
                     <div className="text-[10px] text-[#999]">{layout.desc}</div>
@@ -164,7 +166,7 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
           </div>
 
           {/* Actions */}
-          <div className="mt-auto flex flex-col gap-3">
+          <div className="mt-auto flex flex-col gap-3 pt-4">
             <button className="w-full bg-[#07122a] py-4 text-[11px] font-medium uppercase tracking-[2px] text-white transition-opacity hover:opacity-85">
               Add to Cart — From $49
             </button>
@@ -182,13 +184,9 @@ export function PrintQuickShop({ print, onClose }: PrintQuickShopProps) {
 }
 
 function ColorSwatch({ colors }: { colors: PreviewColorSettings }) {
-  const ink = colors.useMapDefault ? '#8a8a84' : colors.water || colors.roads || '#07122a';
-  const land = colors.land || '#ffffff';
+  const ink = colors.useMapDefault ? '#8a8a84' : (colors.water || colors.roads || '#07122a');
   return (
-    <div
-      className="h-7 w-full overflow-hidden"
-      style={{ backgroundColor: land }}
-    >
+    <div className="h-7 w-full overflow-hidden" style={{ backgroundColor: colors.land || '#fff' }}>
       <div className="h-[40%] w-full" style={{ backgroundColor: ink }} />
     </div>
   );

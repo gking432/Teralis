@@ -1,4 +1,5 @@
 import type maplibregl from 'maplibre-gl';
+import { applyGreyscale } from '@/lib/map/style';
 
 export interface PreviewColorSettings {
   land: string;
@@ -73,7 +74,21 @@ export function sameColorSettings(a: PreviewColorSettings, b: PreviewColorSettin
   );
 }
 
+// Hides every text/icon symbol layer — call before applying colors for clean prints
+export function hidePrintLabels(map: maplibregl.Map): void {
+  const style = map.getStyle();
+  if (!style) return;
+  style.layers.forEach((layer) => {
+    if (layer.type === 'symbol') {
+      try { map.setLayoutProperty(layer.id, 'visibility', 'none'); } catch {}
+    }
+  });
+}
+
 export function applyPreviewColorSettings(map: maplibregl.Map, colors: PreviewColorSettings): void {
+  // Greyscale everything first so no colored bleed-through (parks, forests, etc.)
+  applyGreyscale(map);
+
   if (colors.useMapDefault) return;
 
   const style = map.getStyle();
@@ -81,32 +96,34 @@ export function applyPreviewColorSettings(map: maplibregl.Map, colors: PreviewCo
 
   style.layers.forEach((layer) => {
     const id = layer.id;
-
     try {
       if (layer.type === 'background') {
         map.setPaintProperty(id, 'background-color', colors.land);
         return;
       }
-
-      if (layer.type === 'fill' && /water|lake|ocean|river/.test(id)) {
+      // Water fills → water ink color
+      if (layer.type === 'fill' && /water/.test(id)) {
         map.setPaintProperty(id, 'fill-color', colors.water);
         map.setPaintProperty(id, 'fill-opacity', 1);
         return;
       }
-
-      if (layer.type === 'line' && /^waterway|river|stream|canal/.test(id)) {
+      // All other fills (land, parks, buildings, etc.) → land color
+      if (layer.type === 'fill') {
+        map.setPaintProperty(id, 'fill-color', colors.land);
+        map.setPaintProperty(id, 'fill-opacity', 1);
+        return;
+      }
+      // Waterways → water ink color
+      if (layer.type === 'line' && /water/.test(id)) {
         map.setPaintProperty(id, 'line-color', colors.water);
         return;
       }
-
-      if (layer.type === 'fill' && /land|park|wood|grass|sand|aeroway|building/.test(id)) {
-        map.setPaintProperty(id, 'fill-color', colors.land);
-        return;
-      }
-
-      if (layer.type === 'line' && /road|bridge|tunnel|highway|street|path|track/.test(id)) {
+      // Admin/boundary borders — leave them to applyStyleOverrides (dark color)
+      if (layer.type === 'line' && /admin|boundary/.test(id)) return;
+      // All other lines (roads, paths, etc.) → road ink color
+      if (layer.type === 'line') {
         map.setPaintProperty(id, 'line-color', colors.roads);
-        map.setPaintProperty(id, 'line-opacity', 0.92);
+        map.setPaintProperty(id, 'line-opacity', 0.88);
       }
     } catch {
       // ignore individual layer failures

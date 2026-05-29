@@ -211,7 +211,10 @@ function PrintCard({ print, featured = false, onOpen }: { print: CatalogPrint; f
         bbox={print.bbox}
         center={print.center}
         kind={print.kind}
-        className="mb-5 aspect-[4/3] w-full overflow-hidden bg-[#07122a]/10"
+        title={print.defaultTitle}
+        subtitle={print.defaultSubtitle}
+        detail={print.establishedYear ? `EST. ${print.establishedYear}` : ''}
+        className="mb-4 w-full overflow-hidden"
       />
       <div className="mb-2 text-[10px] uppercase tracking-[1.4px] text-text-muted">
         {print.kind === 'country' ? 'National Print' : 'State Print'}
