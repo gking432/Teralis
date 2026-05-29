@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { STYLE_URL } from '@/lib/map/style';
-import { applyPreviewColorSettings, hidePrintLabels, applyMaskColor, getPrintInkColor, DEFAULT_COLOR_SCHEME } from '@/lib/print/colorSchemes';
+import { getPrintInkColor, DEFAULT_COLOR_SCHEME } from '@/lib/print/colorSchemes';
+import { applyPrintMapStyle, applyPrintMaskColor } from '@/lib/print/printRender';
 import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 
@@ -117,9 +118,11 @@ export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail
     const node = containerRef.current;
     if (!node) return;
 
-    // Render into the map portion of a portrait container.
-    // The node is the full portrait card area; map lives in the top (1 - FOOTER_RATIO) fraction.
-    const totalWidth = node.clientWidth || 240;
+    // Render at higher resolution than the card so the snapshot is crisp and
+    // the higher zoom level reveals the same city/road detail as the editor.
+    const RENDER_SCALE = 3;
+    const cardWidth = node.clientWidth || 240;
+    const totalWidth = cardWidth * RENDER_SCALE;
     const totalHeight = Math.round(totalWidth * ASPECT);
     const footerHeight = Math.round(totalHeight * FOOTER_RATIO);
     const mapHeight = totalHeight - footerHeight;
@@ -145,7 +148,7 @@ export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail
         [Number(bbox[2]), Number(bbox[0])],
         [Number(bbox[3]), Number(bbox[1])],
       ],
-      fitBoundsOptions: { padding: 16, animate: false },
+      fitBoundsOptions: { padding: 16 * RENDER_SCALE, animate: false },
     });
 
     let snapshotted = false;
@@ -175,16 +178,15 @@ export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail
     function tryApplyMask() {
       if (!geometry || !styleLoaded) return;
       applyIsolationMask(map, { name: slug, type: kind, fullName: slug, bbox, geojson: geometry }, 1);
-      applyMaskColor(map, colors);
+      applyPrintMaskColor(map, colors);
       geometryReady = true;
     }
 
     map.on('load', () => {
-      hidePrintLabels(map);
-      applyPreviewColorSettings(map, colors);
+      applyPrintMapStyle(map, colors);
       initIsolationLayers(map);
       // Default mask to ink color so exterior shows correctly before geometry arrives
-      applyMaskColor(map, colors);
+      applyPrintMaskColor(map, colors);
       styleLoaded = true;
       if (geometry) {
         tryApplyMask();
