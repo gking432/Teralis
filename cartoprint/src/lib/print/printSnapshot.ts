@@ -219,6 +219,14 @@ function drawTitleBand(
   }
 }
 
+// Sizes (width × height) for common print sizes at 300 DPI
+export const PRINT_SIZES: Record<string, { width: number; height: number; label: string }> = {
+  'preview':  { width: 2400,  height: 3200,  label: 'Preview (2400 px)' },
+  '12x16':    { width: 3600,  height: 4800,  label: '12 × 16 in (300 DPI)' },
+  '18x24':    { width: 5400,  height: 7200,  label: '18 × 24 in (300 DPI)' },
+  '24x36':    { width: 7200,  height: 10800, label: '24 × 36 in (300 DPI)' },
+};
+
 export async function renderPrintSnapshot(
   slug: string,
   bbox: [string, string, string, string],
@@ -228,17 +236,20 @@ export async function renderPrintSnapshot(
   titleSettings: PreviewTitleSettings,
   geometry: GeoJSON.Geometry | null,
   signal?: AbortSignal,
+  renderWidthOverride?: number,
 ): Promise<string> {
   if (signal?.aborted) return Promise.reject(new Error('aborted'));
 
-  const footerHeight = getFooterHeight(titleSettings.layout, RENDER_TOTAL_HEIGHT);
-  const mapHeight = RENDER_TOTAL_HEIGHT - footerHeight;
+  const rw = renderWidthOverride ?? RENDER_WIDTH;
+  const rh = Math.round(rw * (4 / 3));
+  const footerHeight = getFooterHeight(titleSettings.layout, rh);
+  const mapHeight = rh - footerHeight;
 
   return new Promise<string>((resolve, reject) => {
     if (signal?.aborted) { reject(new Error('aborted')); return; }
 
     const mapDiv = document.createElement('div');
-    mapDiv.style.cssText = `position:fixed;left:-9999px;top:0;width:${RENDER_WIDTH}px;height:${mapHeight}px;`;
+    mapDiv.style.cssText = `position:fixed;left:-9999px;top:0;width:${rw}px;height:${mapHeight}px;`;
     document.body.appendChild(mapDiv);
 
     let snapshotted = false;
@@ -270,18 +281,17 @@ export async function renderPrintSnapshot(
         const detail = titleSettings.detail.trim().toUpperCase();
 
         const c = document.createElement('canvas');
-        c.width = RENDER_WIDTH;
-        c.height = RENDER_TOTAL_HEIGHT;
+        c.width = rw;
+        c.height = rh;
         const ctx = c.getContext('2d')!;
 
-        // Fill background with land color before drawing map (handles alpha edges)
         ctx.fillStyle = land;
-        ctx.fillRect(0, 0, RENDER_WIDTH, RENDER_TOTAL_HEIGHT);
+        ctx.fillRect(0, 0, rw, rh);
 
-        ctx.drawImage(map.getCanvas(), 0, 0, RENDER_WIDTH, mapHeight);
+        ctx.drawImage(map.getCanvas(), 0, 0, rw, mapHeight);
 
         if (titleSettings.enabled && title) {
-          drawTitleBand(ctx, title, subtitle, detail, ink, land, titleSettings.layout, RENDER_WIDTH, RENDER_TOTAL_HEIGHT, mapHeight, footerHeight);
+          drawTitleBand(ctx, title, subtitle, detail, ink, land, titleSettings.layout, rw, rh, mapHeight, footerHeight);
         }
 
         const url = c.toDataURL('image/png');
@@ -297,6 +307,16 @@ export async function renderPrintSnapshot(
       if (!geom || !styleLoaded) return;
       applyIsolationMask(map, { name: slug, type: kind, fullName: slug, bbox, geojson: geom }, 1);
       applyPrintMaskColor(map, colorSettings);
+      // Move city/town/capital symbol layers above the mask so labels that
+      // straddle the state border aren't clipped by the ink fill.
+      const style = map.getStyle();
+      if (style) {
+        style.layers.forEach((layer) => {
+          if (layer.type === 'symbol' && /label_(city|city_capital|town|village)/.test(layer.id)) {
+            try { map.moveLayer(layer.id); } catch {}
+          }
+        });
+      }
       geometryReady = true;
     }
 
@@ -318,7 +338,7 @@ export async function renderPrintSnapshot(
         [Number(bbox[3]), Number(bbox[1])],
       ],
       fitBoundsOptions: {
-        padding: Math.round(Math.min(RENDER_WIDTH, mapHeight) * 0.12),
+        padding: Math.round(Math.min(rw, mapHeight) * 0.12),
         animate: false,
       },
     });
