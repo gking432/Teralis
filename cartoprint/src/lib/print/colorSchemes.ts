@@ -127,12 +127,14 @@ export function applyPreviewColorSettings(map: maplibregl.Map, colors: PreviewCo
       // Water areas (lakes, ocean) = ink
       if (layer.type === 'fill' && /water/.test(id)) {
         map.setPaintProperty(id, 'fill-color', ink);
+        map.setPaintProperty(id, 'fill-outline-color', ink);
         map.setPaintProperty(id, 'fill-opacity', 1);
         return;
       }
       // All other fills (land, parks, buildings) = land/white
       if (layer.type === 'fill') {
         map.setPaintProperty(id, 'fill-color', land);
+        map.setPaintProperty(id, 'fill-outline-color', land);
         map.setPaintProperty(id, 'fill-opacity', 1);
         return;
       }
