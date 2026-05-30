@@ -1,13 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
-import { STYLE_URL } from '@/lib/map/style';
-import { getPrintInkColor, DEFAULT_COLOR_SCHEME } from '@/lib/print/colorSchemes';
-import { applyPrintMapStyle, applyPrintMaskColor } from '@/lib/print/printRender';
-import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
-import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
+import { DEFAULT_COLOR_SCHEME } from '@/lib/print/colorSchemes';
+import { DEFAULT_TITLE_LAYOUT } from '@/lib/print/titleLayouts';
+import { getCachedBoundary } from '@/lib/print/boundaryCache';
+import { renderPrintSnapshot, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printSnapshot';
 
 interface ThumbnailMapProps {
   slug: string;
@@ -23,76 +20,8 @@ interface ThumbnailMapProps {
 // Shared snapshot cache — exported so the popup can show it immediately
 export const SNAPSHOT_CACHE = new Map<string, string>();
 
-// Portrait 3:4. Footer is 13.5% of total height.
-const FOOTER_RATIO = 0.135;
-const ASPECT = 4 / 3; // height = width * ASPECT
-
-function buildCompositeSnapshot(
-  mapCanvas: HTMLCanvasElement,
-  width: number,
-  mapHeight: number,
-  footerHeight: number,
-  ink: string,
-  land: string,
-  title: string,
-  subtitle: string,
-  detail: string
-): string {
-  const totalHeight = mapHeight + footerHeight;
-  const c = document.createElement('canvas');
-  c.width = width;
-  c.height = totalHeight;
-  const ctx = c.getContext('2d')!;
-
-  // Draw map
-  ctx.drawImage(mapCanvas, 0, 0, width, mapHeight);
-
-  // Footer band
-  ctx.fillStyle = land;
-  ctx.fillRect(0, mapHeight, width, footerHeight);
-
-  // Top border line on footer
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = Math.max(1, width * 0.004);
-  ctx.beginPath();
-  ctx.moveTo(0, mapHeight);
-  ctx.lineTo(width, mapHeight);
-  ctx.stroke();
-
-  // Title text (centered, uppercase)
-  const titleSize = Math.round(footerHeight * 0.36);
-  const subSize = Math.round(footerHeight * 0.18);
-  const detSize = Math.round(footerHeight * 0.14);
-  const cx = width / 2;
-  ctx.fillStyle = ink;
-  ctx.textAlign = 'center';
-
-  const hasSubtitle = subtitle.trim().length > 0;
-  const hasDetail = detail.trim().length > 0;
-  const lineCount = 1 + (hasSubtitle ? 1 : 0) + (hasDetail ? 1 : 0);
-  const totalTextHeight = titleSize + (hasSubtitle ? subSize + footerHeight * 0.06 : 0) + (hasDetail ? detSize + footerHeight * 0.04 : 0);
-  let textY = mapHeight + (footerHeight - totalTextHeight) / 2 + titleSize * 0.88;
-
-  ctx.font = `300 ${titleSize}px "Cormorant Garamond", serif`;
-  ctx.letterSpacing = `${Math.min(0.28, 10 / Math.max(title.length, 1) * 0.28)}em` as any;
-  ctx.fillText(title.toUpperCase(), cx, textY);
-
-  if (hasSubtitle) {
-    textY += titleSize * 0.22 + subSize;
-    ctx.font = `400 ${subSize}px "DM Sans", sans-serif`;
-    ctx.letterSpacing = '0.26em' as any;
-    ctx.fillText(subtitle.toUpperCase(), cx, textY);
-  }
-
-  if (hasDetail) {
-    textY += subSize * 0.18 + detSize;
-    ctx.font = `400 ${detSize}px "DM Sans", sans-serif`;
-    ctx.letterSpacing = '0.14em' as any;
-    ctx.fillText(detail.toUpperCase(), cx, textY);
-  }
-
-  return c.toDataURL('image/png');
-}
+// Thumbnails render at 720px — same pipeline as the popup but smaller for speed.
+const THUMBNAIL_WIDTH = 720;
 
 export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail, className }: ThumbnailMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -115,105 +44,26 @@ export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail
 
   useEffect(() => {
     if (!shouldMount || dataUrl) return;
-    const node = containerRef.current;
-    if (!node) return;
 
-    // Render at higher resolution than the card so the snapshot is crisp and
-    // the higher zoom level reveals the same city/road detail as the editor.
-    const RENDER_SCALE = 3;
-    const cardWidth = node.clientWidth || 240;
-    const totalWidth = cardWidth * RENDER_SCALE;
-    const totalHeight = Math.round(totalWidth * ASPECT);
-    const footerHeight = Math.round(totalHeight * FOOTER_RATIO);
-    const mapHeight = totalHeight - footerHeight;
+    const controller = new AbortController();
+    const geometry = getCachedBoundary(slug)?.geometry ?? null;
 
-    // Hidden map div sized to the map area only
-    const mapDiv = document.createElement('div');
-    mapDiv.style.cssText = `position:fixed;left:-9999px;top:0;width:${totalWidth}px;height:${mapHeight}px;`;
-    document.body.appendChild(mapDiv);
-
-    let cancelled = false;
-    const colors = DEFAULT_COLOR_SCHEME.colors;
-    const ink = getPrintInkColor(colors);
-    const land = colors.land;
-
-    const map = new maplibregl.Map({
-      container: mapDiv,
-      style: STYLE_URL,
-      interactive: false,
-      attributionControl: false,
-      preserveDrawingBuffer: true,
-      fadeDuration: 0,
-      bounds: [
-        [Number(bbox[2]), Number(bbox[0])],
-        [Number(bbox[3]), Number(bbox[1])],
-      ],
-      fitBoundsOptions: { padding: Math.round(Math.min(totalWidth, mapHeight) * 0.12), animate: false },
+    renderPrintSnapshot(
+      slug, bbox, center, kind,
+      DEFAULT_COLOR_SCHEME.colors,
+      { enabled: true, title, subtitle, detail, layout: DEFAULT_TITLE_LAYOUT },
+      geometry,
+      controller.signal,
+      DEFAULT_DETAIL_SETTINGS,
+      THUMBNAIL_WIDTH,
+    ).then((url) => {
+      SNAPSHOT_CACHE.set(slug, url);
+      setDataUrl(url);
+    }).catch((err) => {
+      if (err?.message !== 'aborted') console.warn('Thumbnail render failed', err);
     });
 
-    let snapshotted = false;
-    let geometryReady = false;
-    let styleLoaded = false;
-    let geometry: GeoJSON.Geometry | null = getCachedBoundary(slug)?.geometry ?? null;
-    const fallback = window.setTimeout(() => snapshot(true), 12000);
-
-    function snapshot(force: boolean) {
-      if (snapshotted) return;
-      if (!force && (!geometryReady || !map.areTilesLoaded())) return;
-      snapshotted = true;
-      window.clearTimeout(fallback);
-      try {
-        const url = buildCompositeSnapshot(
-          map.getCanvas(), totalWidth, mapHeight, footerHeight, ink, land, title, subtitle, detail
-        );
-        SNAPSHOT_CACHE.set(slug, url);
-        if (!cancelled) setDataUrl(url);
-      } catch (err) {
-        console.warn('Thumbnail snapshot failed', err);
-      }
-      map.remove();
-      document.body.removeChild(mapDiv);
-    }
-
-    function tryApplyMask() {
-      if (!geometry || !styleLoaded) return;
-      applyIsolationMask(map, { name: slug, type: kind, fullName: slug, bbox, geojson: geometry }, 1);
-      applyPrintMaskColor(map, colors);
-      geometryReady = true;
-    }
-
-    map.on('load', () => {
-      applyPrintMapStyle(map, colors);
-      initIsolationLayers(map);
-      // Default mask to ink color so exterior shows correctly before geometry arrives
-      applyPrintMaskColor(map, colors);
-      styleLoaded = true;
-      if (geometry) {
-        tryApplyMask();
-      } else {
-        fetchBoundary(slug, center, kind).then((record) => {
-          if (cancelled) return;
-          if (record?.geometry) { geometry = record.geometry; tryApplyMask(); }
-          else { geometryReady = true; }
-        });
-      }
-    });
-
-    map.on('idle', () => snapshot(false));
-
-    // If geometry was already cached, ensure mask is applied once style loads
-    if (geometry && !styleLoaded) {
-      // tryApplyMask called inside load handler above
-    }
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(fallback);
-      if (!snapshotted) {
-        try { map.remove(); } catch {}
-        if (document.body.contains(mapDiv)) document.body.removeChild(mapDiv);
-      }
-    };
+    return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldMount, dataUrl, slug]);
 
