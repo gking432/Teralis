@@ -11,7 +11,7 @@ import {
 } from '@/lib/print/colorSchemes';
 import { TITLE_LAYOUTS, DEFAULT_TITLE_LAYOUT, type PreviewTitleLayout, type PreviewTitleSettings } from '@/lib/print/titleLayouts';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
-import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey } from '@/lib/print/printSnapshot';
+import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey, colorCacheKey } from '@/lib/print/printSnapshot';
 import { type PrintDetailSettings, type Density, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
 import { ImageMagnifier } from '@/components/ui/ImageMagnifier';
 
@@ -25,10 +25,6 @@ const DENSITY_OPTIONS: { value: Density; label: string }[] = [
   { value: 'neutral', label: 'Neutral' },
   { value: 'more', label: 'More' },
 ];
-
-function colorKey(c: PreviewColorSettings): string {
-  return `${c.land}_${c.water}_${c.roads}_${c.useMapDefault ? 'd' : ''}`;
-}
 
 export function PrintCustomizer({ print }: PrintCustomizerProps) {
   const [colors, setColors] = useState<PreviewColorSettings>(DEFAULT_COLOR_SCHEME.colors);
@@ -58,7 +54,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
   useEffect(() => {
     if (!geometry) return;
-    const cacheKey = getPreviewCacheKey(print.slug, colorKey(colors), layout, detail);
+    const cacheKey = getPreviewCacheKey(print.slug, colorCacheKey(colors), layout, detail);
     const cached = PREVIEW_SNAPSHOT_CACHE.get(cacheKey);
     if (cached) { setPreviewUrl(cached); setLoading(false); return; }
 

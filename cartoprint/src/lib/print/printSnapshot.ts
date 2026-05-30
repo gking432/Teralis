@@ -16,6 +16,13 @@ export const PREVIEW_SNAPSHOT_CACHE = new Map<string, string>();
 const RENDER_WIDTH = 2400;
 const RENDER_TOTAL_HEIGHT = Math.round(RENDER_WIDTH * (4 / 3)); // 3200
 
+// Stable string for a color combination — used inside the preview cache key so
+// the thumbnail and the customizer (which both default to the same colors)
+// resolve to the exact same cached PNG.
+export function colorCacheKey(c: PreviewColorSettings): string {
+  return `${c.land}_${c.water}_${c.roads}_${c.useMapDefault ? 'd' : ''}`;
+}
+
 export function getPreviewCacheKey(
   slug: string,
   colorScheme: string,

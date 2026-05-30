@@ -4,7 +4,13 @@ import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_COLOR_SCHEME } from '@/lib/print/colorSchemes';
 import { DEFAULT_TITLE_LAYOUT } from '@/lib/print/titleLayouts';
 import { getCachedBoundary } from '@/lib/print/boundaryCache';
-import { renderPrintSnapshot, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printSnapshot';
+import {
+  renderPrintSnapshot,
+  PREVIEW_SNAPSHOT_CACHE,
+  getPreviewCacheKey,
+  colorCacheKey,
+  DEFAULT_DETAIL_SETTINGS,
+} from '@/lib/print/printSnapshot';
 
 interface ThumbnailMapProps {
   slug: string;
@@ -20,12 +26,23 @@ interface ThumbnailMapProps {
 // Shared snapshot cache — exported so the popup can show it immediately
 export const SNAPSHOT_CACHE = new Map<string, string>();
 
-// Thumbnails render at 720px — same pipeline as the popup but smaller for speed.
-const THUMBNAIL_WIDTH = 720;
+// The cache key the customizer uses for its initial (untouched) render. The
+// thumbnail renders the same image under this key so clicking through to the
+// customizer shows the *identical* PNG instantly — no re-render, no mismatch.
+function defaultPreviewKey(slug: string): string {
+  return getPreviewCacheKey(
+    slug,
+    colorCacheKey(DEFAULT_COLOR_SCHEME.colors),
+    DEFAULT_TITLE_LAYOUT,
+    DEFAULT_DETAIL_SETTINGS,
+  );
+}
 
 export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail, className }: ThumbnailMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dataUrl, setDataUrl] = useState<string | null>(() => SNAPSHOT_CACHE.get(slug) ?? null);
+  const [dataUrl, setDataUrl] = useState<string | null>(
+    () => PREVIEW_SNAPSHOT_CACHE.get(defaultPreviewKey(slug)) ?? SNAPSHOT_CACHE.get(slug) ?? null
+  );
   const [shouldMount, setShouldMount] = useState(false);
 
   useEffect(() => {
@@ -48,6 +65,9 @@ export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail
     const controller = new AbortController();
     const geometry = getCachedBoundary(slug)?.geometry ?? null;
 
+    // Render at the SAME resolution + settings the customizer opens with so the
+    // zoom level (and therefore label/road detail) is identical. Store under the
+    // customizer's default cache key so the click-through is instant.
     renderPrintSnapshot(
       slug, bbox, center, kind,
       DEFAULT_COLOR_SCHEME.colors,
@@ -55,8 +75,8 @@ export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail
       geometry,
       controller.signal,
       DEFAULT_DETAIL_SETTINGS,
-      THUMBNAIL_WIDTH,
     ).then((url) => {
+      PREVIEW_SNAPSHOT_CACHE.set(defaultPreviewKey(slug), url);
       SNAPSHOT_CACHE.set(slug, url);
       setDataUrl(url);
     }).catch((err) => {
