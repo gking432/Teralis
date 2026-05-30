@@ -56,7 +56,7 @@ async function renderSlug(browser, slug) {
   const page = await browser.newPage();
   try {
     await page.setViewportSize({ width: 820, height: 1100 });
-    await page.goto(`${BASE}/thumbnail-render?slug=${slug}`, { waitUntil: 'networkidle', timeout: 10000 });
+    await page.goto(`${BASE}/thumbnail-render?slug=${slug}`, { waitUntil: 'domcontentloaded', timeout: 20000 });
 
     // Wait for either the result img or an error marker (max 45s for tile loading)
     await page.waitForSelector('#render-result, #render-error', { timeout: 45000 });
