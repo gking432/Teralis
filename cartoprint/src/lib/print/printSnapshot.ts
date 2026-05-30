@@ -345,7 +345,13 @@ export async function renderPrintSnapshot(
           addEveryTownLayer(map, fc, getPrintInkColor(colorSettings), colorSettings.land || '#ffffff');
         })
         .catch(() => {})
-        .finally(() => { placesReady = true; void doSnapshot(false); });
+        .finally(() => {
+          // Mark ready AFTER the GeoJSON source has been added. Do NOT call
+          // doSnapshot directly here — adding a GeoJSON source triggers a
+          // MapLibre re-render. We wait for the next idle event so the labels
+          // are actually painted before the canvas is captured.
+          placesReady = true;
+        });
     }
 
     function cleanup() {

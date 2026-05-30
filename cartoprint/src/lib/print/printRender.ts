@@ -229,22 +229,33 @@ function applyPrintPreviewOverrides(
       } catch {}
     }
 
-    // Main roads (secondary/tertiary/trunk/primary): show from low zoom.
-    if (layers.mainroads && /road_(secondary_tertiary|trunk_primary)/.test(id) && layer.type === 'line') {
+    // Highways (motorway/trunk): show from low zoom, always on for highways=true.
+    if (layers.highways && /motorway|trunk/.test(id) && /road|bridge|tunnel/.test(id) && !/casing/.test(id) && layer.type === 'line') {
       try {
-        map.setLayerZoomRange(id, 4, 24);
-        map.setPaintProperty(id, 'line-opacity', 0.95);
-        map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 5, 0.65, 9, 1.05, 13, 1.55]);
+        map.setLayerZoomRange(id, 3, 24);
+        map.setPaintProperty(id, 'line-opacity', 0.9);
+        map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 3, 0.5, 6, 0.9, 9, 1.5, 13, 2.4]);
       } catch {}
     }
 
-    // Minor roads / streets (roads = More): bring them in at state zoom.
-    if (layers.allroads && /road_(minor|service_track|link|street)/.test(id) && layer.type === 'line') {
+    // Main roads (primary/secondary): show from state zoom.
+    // Matches OpenFreeMap layer IDs like road_primary, road_secondary, bridge_primary, etc.
+    if (layers.mainroads && /(primary|secondary)/.test(id) && /road|bridge|tunnel/.test(id) && !/casing/.test(id) && layer.type === 'line') {
+      try {
+        map.setLayerZoomRange(id, 4, 24);
+        map.setPaintProperty(id, 'line-opacity', 0.85);
+        map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 4, 0.4, 7, 0.75, 10, 1.2, 13, 1.8]);
+      } catch {}
+    }
+
+    // Minor roads / streets (roads = More): bring in tertiary, service, track at state zoom.
+    // Matches OpenFreeMap layer IDs like road_tertiary, road_minor, road_service, road_track.
+    if (layers.allroads && /(minor|tertiary|service|track|street|link)/.test(id) && /road|bridge|tunnel/.test(id) && !/casing/.test(id) && layer.type === 'line') {
       try {
         map.setLayoutProperty(id, 'visibility', 'visible');
         map.setLayerZoomRange(id, 4, 24);
-        map.setPaintProperty(id, 'line-opacity', 0.8);
-        map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 4, 0.12, 7, 0.26, 10, 0.6, 13, 1.0]);
+        map.setPaintProperty(id, 'line-opacity', 0.7);
+        map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 4, 0.15, 7, 0.35, 10, 0.65, 13, 1.0]);
       } catch {}
     }
 
