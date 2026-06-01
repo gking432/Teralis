@@ -2,33 +2,26 @@
 
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { useMemo, useState } from 'react';
 import {
   getFeaturedCatalogPrint,
   getStateCatalogPrints,
   type CatalogPrint,
 } from '@/lib/catalog/prints';
+import { LocationSearch } from '@/components/Storefront/LocationSearch';
 
 const ThumbnailMap = dynamic(
   () => import('@/components/Storefront/ThumbnailMap').then((m) => m.ThumbnailMap),
   { ssr: false, loading: () => <div className="h-full w-full bg-[#07122a]/10" /> }
 );
 
+const POPULAR_CITIES = [
+  'Chicago', 'New York', 'Los Angeles', 'Austin', 'Nashville',
+  'Boston', 'Portland', 'Denver', 'Seattle', 'Miami',
+];
+
 export default function StorefrontPage() {
   const featuredPrint = getFeaturedCatalogPrint();
   const statePrints = getStateCatalogPrints();
-  const [query, setQuery] = useState('');
-
-  const filteredPrints = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return statePrints;
-
-    return statePrints.filter((print) =>
-      [print.name, print.slug, print.slug === 'district-of-columbia' ? 'dc' : '', print.defaultSubtitle, print.establishedYear]
-        .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(normalizedQuery))
-    );
-  }, [query, statePrints]);
 
   return (
     <main className="min-h-screen bg-[#f8f4ec] text-text">
@@ -47,105 +40,87 @@ export default function StorefrontPage() {
             href="/customize"
             className="border border-text px-4 py-2 text-[11px] uppercase tracking-[1.4px] transition-colors hover:bg-text hover:text-white"
           >
-            Make Your Own
+            Custom Builder
           </Link>
         </header>
 
-        <div className="relative z-10 mx-auto grid max-w-7xl gap-12 px-6 pb-16 pt-8 md:px-10 lg:grid-cols-[1fr_520px] lg:px-14 lg:pb-24 lg:pt-16">
-          <div className="flex flex-col justify-center">
-            <div className="mb-5 text-[11px] font-medium uppercase tracking-[2px] text-text-muted">
-              Custom map prints, ready to personalize
-            </div>
-            <h1 className="font-display text-[56px] font-light leading-[0.95] tracking-[-2px] md:text-[82px]">
-              Select a print.
-              <br />
-              Make it yours.
-            </h1>
-            <p className="mt-7 max-w-2xl text-lg leading-8 text-text-muted">
-              Start from a polished United States or state map, then adjust colors, labels, crop,
-              titles, and print design in the editor. Or open a blank custom map and build from scratch.
-            </p>
-            <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-              <a
-                href="#select-print"
-                className="bg-text px-6 py-4 text-center text-[12px] font-medium uppercase tracking-[1.6px] text-white transition-opacity hover:opacity-85"
-              >
-                Select a Print
-              </a>
-              <Link
-                href="/customize"
-                className="border border-text px-6 py-4 text-center text-[12px] font-medium uppercase tracking-[1.6px] transition-colors hover:bg-white"
-              >
-                Make Your Own
-              </Link>
-            </div>
+        <div className="relative z-10 mx-auto max-w-3xl px-6 pb-20 pt-10 text-center md:px-10 lg:pb-28 lg:pt-16">
+          <div className="mb-5 text-[11px] font-medium uppercase tracking-[2px] text-text-muted">
+            Fine-art map prints of any place
+          </div>
+          <h1 className="font-display text-[52px] font-light leading-[0.95] tracking-[-1.5px] md:text-[78px]">
+            Where do you call home?
+          </h1>
+          <p className="mt-7 text-lg leading-8 text-text-muted">
+            Type a state, city, or town. We&rsquo;ll show you a print, ready to customize and order.
+          </p>
+
+          <div className="mt-9">
+            <LocationSearch />
           </div>
 
-          <FeaturedPrintCard print={featuredPrint} />
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-[12px] text-text-muted">
+            <span className="uppercase tracking-[1.4px] text-[10px]">Popular:</span>
+            {POPULAR_CITIES.map((city) => (
+              <Link
+                key={city}
+                href={`/customize?q=${encodeURIComponent(city)}`}
+                className="underline-offset-4 transition-colors hover:text-text hover:underline"
+              >
+                {city}
+              </Link>
+            ))}
+          </div>
         </div>
       </section>
 
-      <section id="select-print" className="mx-auto max-w-7xl px-6 py-14 md:px-10 lg:px-14 lg:py-20">
-        <div className="mb-8 flex flex-col justify-between gap-5 md:flex-row md:items-end">
-          <div>
-            <div className="mb-3 text-[11px] font-medium uppercase tracking-[2px] text-text-muted">
-              Catalog Prints
-            </div>
-            <h2 className="font-display text-4xl font-light md:text-5xl">Choose a starting map</h2>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-text-muted">
-              Every catalog print opens in the same editor, so users can keep it simple or go deep
-              with colors, labels, titles, and crop.
-            </p>
+      <section id="browse-states" className="mx-auto max-w-7xl px-6 py-14 md:px-10 lg:px-14 lg:py-20">
+        <div className="mb-8 flex flex-col gap-4">
+          <div className="text-[11px] font-medium uppercase tracking-[2px] text-text-muted">
+            Or browse by state
           </div>
-
-          <label className="block w-full md:w-[340px]">
-            <span className="mb-2 block text-[11px] uppercase tracking-[1.5px] text-text-muted">
-              Find a State
-            </span>
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search Wisconsin, Texas, DC..."
-              className="w-full border border-[#d7ccba] bg-white px-4 py-3 text-sm outline-none transition-colors placeholder:text-text-light focus:border-text"
-            />
-          </label>
+          <h2 className="font-display text-3xl font-light md:text-4xl">All 50 states & DC</h2>
+          <p className="max-w-2xl text-sm leading-7 text-text-muted">
+            Each state print is ready to order or customize — adjust colors, towns, roads,
+            and titles in the editor.
+          </p>
         </div>
 
         <div className="mb-8 grid gap-4 md:grid-cols-2">
-          <PrintCard print={featuredPrint} featured />
+          <FeaturedPrintCard print={featuredPrint} />
           <div className="border border-[#d7ccba] bg-white/60 p-6">
             <div className="mb-3 text-[11px] uppercase tracking-[1.5px] text-text-muted">
-              Full Custom
+              Don&rsquo;t see it?
             </div>
-            <h3 className="font-display text-3xl font-light">Make your own map</h3>
+            <h3 className="font-display text-3xl font-light">Search any place</h3>
             <p className="mt-3 text-sm leading-7 text-text-muted">
-              For city crops, exact neighborhoods, counties, regions, or anything outside the preset catalog.
+              Madison, Brooklyn, Lake Tahoe, the Outer Banks — we can render a print for
+              anywhere on the map.
             </p>
-            <Link
-              href="/customize"
+            <a
+              href="#top"
+              onClick={(e) => {
+                e.preventDefault();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                setTimeout(() => document.querySelector<HTMLInputElement>('input[type="text"]')?.focus(), 400);
+              }}
               className="mt-6 inline-flex border border-text px-5 py-3 text-[11px] uppercase tracking-[1.4px] transition-colors hover:bg-text hover:text-white"
             >
-              Open Custom Builder
-            </Link>
+              Use the Search
+            </a>
           </div>
         </div>
 
         <div className="mb-5 flex items-center justify-between text-[11px] uppercase tracking-[1.5px] text-text-muted">
           <span>State Prints</span>
-          <span>{filteredPrints.length} available</span>
+          <span>{statePrints.length} available</span>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filteredPrints.map((print) => (
+          {statePrints.map((print) => (
             <PrintCard key={print.slug} print={print} />
           ))}
         </div>
-
-        {filteredPrints.length === 0 && (
-          <div className="border border-[#d7ccba] bg-white p-8 text-sm text-text-muted">
-            No catalog prints matched that search. Use Make Your Own to build any region manually.
-          </div>
-        )}
       </section>
     </main>
   );
@@ -155,13 +130,9 @@ function FeaturedPrintCard({ print }: { print: CatalogPrint }) {
   return (
     <Link
       href={`/customize?print=${print.slug}`}
-      className="group relative min-h-[420px] overflow-hidden border border-[#cfc1aa] bg-[#fbfaf6] p-7 shadow-[0_30px_80px_rgba(67,48,29,0.14)] transition-transform hover:-translate-y-1"
+      className="group relative min-h-[300px] overflow-hidden border border-[#cfc1aa] bg-[#fbfaf6] p-7 shadow-[0_30px_80px_rgba(67,48,29,0.14)] transition-transform hover:-translate-y-1"
     >
       <div className="absolute inset-7 border border-[#d8cbb7]" />
-      <div className="absolute inset-x-12 top-16 h-px bg-[#c5b69d]" />
-      <div className="absolute inset-y-14 left-20 w-px bg-[#d8cbb7]" />
-      <div className="absolute inset-y-10 right-24 w-px bg-[#ded4c3]" />
-      <div className="absolute bottom-20 left-12 right-12 h-px bg-[#d0c0a8]" />
       <div className="absolute left-[22%] top-[28%] h-[130px] w-[210px] rounded-[55%] bg-[#07122a]" />
       <div className="absolute right-[18%] top-[38%] h-[110px] w-[150px] rounded-[50%] border-[18px] border-[#07122a]" />
       <div className="relative z-10 flex h-full flex-col justify-between">
@@ -171,7 +142,7 @@ function FeaturedPrintCard({ print }: { print: CatalogPrint }) {
           </div>
           <h2 className="font-display text-5xl font-light leading-none">{print.name}</h2>
           <p className="mt-4 max-w-sm text-sm leading-7 text-text-muted">
-            A ready-to-customize national map with state lines, cities, roads, water, colors, and title options.
+            The national map — state lines, capitals, and a fully customizable design.
           </p>
         </div>
         <div className="flex items-center justify-between border-t border-[#d8cbb7] pt-5">
@@ -179,7 +150,7 @@ function FeaturedPrintCard({ print }: { print: CatalogPrint }) {
             EST. {print.establishedYear}
           </span>
           <span className="text-[11px] uppercase tracking-[1.5px] transition-transform group-hover:translate-x-1">
-            Customize
+            Customize →
           </span>
         </div>
       </div>
@@ -187,13 +158,11 @@ function FeaturedPrintCard({ print }: { print: CatalogPrint }) {
   );
 }
 
-function PrintCard({ print, featured = false }: { print: CatalogPrint; featured?: boolean }) {
+function PrintCard({ print }: { print: CatalogPrint }) {
   return (
     <Link
       href={`/customize?print=${print.slug}`}
-      className={`group block w-full border border-[#d7ccba] bg-white p-5 text-left transition-all hover:-translate-y-0.5 hover:border-text hover:shadow-[0_18px_50px_rgba(67,48,29,0.1)] ${
-        featured ? 'min-h-[220px]' : ''
-      }`}
+      className="group block w-full border border-[#d7ccba] bg-white p-5 text-left transition-all hover:-translate-y-0.5 hover:border-text hover:shadow-[0_18px_50px_rgba(67,48,29,0.1)]"
     >
       <ThumbnailMap
         slug={print.slug}
