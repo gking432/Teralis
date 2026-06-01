@@ -7,7 +7,7 @@ import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSc
 import { applyPrintMapStyle, applyPrintMaskColor, wantsEveryTown, getBorderWidth, type PrintDetailSettings, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
 import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
 import { fetchBoundary } from '@/lib/print/boundaryCache';
-import type { PreviewTitleSettings } from '@/lib/print/titleLayouts';
+import type { PreviewTitleSettings, TitleBlockSettings } from '@/lib/print/titleLayouts';
 
 // Shared cache for all popup/fullscreen previews keyed by slug:colorScheme:layout
 export const PREVIEW_SNAPSHOT_CACHE = new Map<string, string>();
@@ -333,7 +333,7 @@ export async function renderPrintSnapshot(
   const border = kind === 'city'
     ? getBorderWidth((detail ?? DEFAULT_DETAIL_SETTINGS).border, rw)
     : 0;
-  const footerHeight = getFooterHeight(titleSettings.layout, rh);
+  const footerHeight = titleSettings.enabled ? getFooterHeight(titleSettings.layout, rh) : 0;
   const mapHeight = rh - footerHeight;
   // The bordered region inside the map area. MapLibre always renders at the
   // FULL (rw × mapHeight) — independent of border thickness — so the camera
@@ -538,4 +538,86 @@ export async function renderPrintSnapshot(
 
     map.on('idle', () => { void doSnapshot(false); });
   });
+}
+
+// Helper used by bakeTitleBlock
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+export function bakeTitleBlock(
+  ctx: CanvasRenderingContext2D,
+  block: TitleBlockSettings,
+  colors: PreviewColorSettings,
+  printW: number,
+  printH: number,
+): void {
+  if (!block.enabled || !block.title.trim()) return;
+
+  const ink = getPrintInkColor(colors);
+  const land = colors.land || '#ffffff';
+
+  const px = block.x * printW;
+  const py = block.y * printH;
+  const pw = block.w * printW;
+  const ph = block.h * printH;
+
+  const title = block.title.trim().toUpperCase();
+  const subtitle = block.subtitle.trim().toUpperCase();
+  const detail = block.detail.trim().toUpperCase();
+  const hasSub = subtitle.length > 0;
+  const hasDet = detail.length > 0;
+  const lineCount = 1 + (hasSub ? 1 : 0) + (hasDet ? 1 : 0);
+  const isLong = title.length > 10;
+  const isVeryLong = title.length > 16;
+  const isExtreme = title.length > 24;
+  const fitRatio = Math.min(1, 11 / Math.max(title.length, 1));
+
+  ctx.save();
+  ctx.translate(px + pw / 2, py + ph / 2);
+  ctx.rotate((block.rotation * Math.PI) / 180);
+
+  // Background
+  if (block.style === 'translucent') {
+    ctx.fillStyle = hexToRgba(ink, 0.72);
+  } else {
+    ctx.fillStyle = block.style === 'inverted' ? ink : land;
+  }
+  ctx.fillRect(-pw / 2, -ph / 2, pw, ph);
+
+  const textColor = block.style === 'standard' ? ink : land;
+  ctx.fillStyle = textColor;
+  ctx.textAlign = 'center';
+
+  const titleSize = Math.round(ph * (lineCount === 1 ? 0.46 : lineCount === 2 ? 0.38 : 0.32) * fitRatio);
+  const subSize = Math.round(ph * 0.17);
+  const detSize = Math.round(ph * 0.13);
+  const gap = Math.round(ph * 0.05);
+
+  const totalH = titleSize + (hasSub ? gap + subSize : 0) + (hasDet ? gap * 0.7 + detSize : 0);
+  let cursor = -totalH / 2 + titleSize * 0.82;
+
+  const ls = isExtreme ? '0.07em' : isVeryLong ? '0.12em' : isLong ? '0.18em' : '0.24em';
+  ctx.font = `300 ${titleSize}px "Cormorant Garamond", serif`;
+  (ctx as any).letterSpacing = ls;
+  ctx.fillText(title, 0, cursor);
+
+  if (hasSub) {
+    cursor += titleSize * 0.18 + gap + subSize;
+    ctx.font = `400 ${subSize}px "DM Sans", sans-serif`;
+    (ctx as any).letterSpacing = '0.22em';
+    ctx.fillText(subtitle, 0, cursor);
+  }
+  if (hasDet) {
+    cursor += subSize * 0.2 + gap * 0.7 + detSize;
+    ctx.font = `400 ${detSize}px "DM Sans", sans-serif`;
+    (ctx as any).letterSpacing = '0.14em';
+    ctx.fillText(detail, 0, cursor);
+  }
+
+  ctx.restore();
 }

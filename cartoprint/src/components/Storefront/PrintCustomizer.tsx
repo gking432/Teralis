@@ -9,11 +9,10 @@ import {
   sameColorSettings,
   type PreviewColorSettings,
 } from '@/lib/print/colorSchemes';
-import { TITLE_LAYOUTS, DEFAULT_TITLE_LAYOUT, type PreviewTitleLayout, type PreviewTitleSettings } from '@/lib/print/titleLayouts';
+import { type TitleBlockSettings, type TitleStyle, defaultTitleBlock } from '@/lib/print/titleLayouts';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
-import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey, colorCacheKey } from '@/lib/print/printSnapshot';
+import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey, colorCacheKey, bakeTitleBlock } from '@/lib/print/printSnapshot';
 import { type PrintDetailSettings, type Density, type BorderWeight, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
-import { ImageMagnifier } from '@/components/ui/ImageMagnifier';
 
 interface PrintCustomizerProps {
   print: CatalogPrint;
@@ -28,8 +27,13 @@ const DENSITY_OPTIONS: { value: Density; label: string }[] = [
 
 export function PrintCustomizer({ print }: PrintCustomizerProps) {
   const [colors, setColors] = useState<PreviewColorSettings>(DEFAULT_COLOR_SCHEME.colors);
-  const [layout, setLayout] = useState<PreviewTitleLayout>(DEFAULT_TITLE_LAYOUT);
-  const [titleInverted, setTitleInverted] = useState(false);
+  const [titleBlock, setTitleBlock] = useState<TitleBlockSettings>(() =>
+    defaultTitleBlock(
+      print.defaultTitle,
+      print.defaultSubtitle,
+      print.establishedYear ? `EST. ${print.establishedYear}` : '',
+    )
+  );
   const [detail, setDetail] = useState<PrintDetailSettings>(DEFAULT_DETAIL_SETTINGS);
   const [downloading, setDownloading] = useState(false);
 
@@ -39,6 +43,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
 
   const kind = print.kind === 'country' ? 'country' : print.kind === 'state' ? 'state' : 'city';
   const isCountry = kind === 'country';
@@ -55,7 +60,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
   useEffect(() => {
     if (!geometry) return;
-    const cacheKey = `${getPreviewCacheKey(print.slug, colorCacheKey(colors), layout, detail)}:${titleInverted ? 'i' : ''}`;
+    const cacheKey = getPreviewCacheKey(print.slug, colorCacheKey(colors), 'map', detail);
     const cached = PREVIEW_SNAPSHOT_CACHE.get(cacheKey);
     if (cached) { setPreviewUrl(cached); setLoading(false); return; }
 
@@ -66,7 +71,9 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
     renderPrintSnapshot(
       print.slug, print.bbox, print.center, kind,
-      colors, titleFor(print, layout, titleInverted), geometry,
+      colors,
+      { enabled: false, title: '', subtitle: '', detail: '', layout: 'classic-bottom', inverted: false },
+      geometry,
       controller.signal,
       detail,
     ).then((url) => {
@@ -80,7 +87,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
     return () => { controller.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [print.slug, colors, layout, titleInverted, detail, geometry]);
+  }, [print.slug, colors, detail, geometry]);
 
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
@@ -88,13 +95,30 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
     if (!geometry || downloading) return;
     setDownloading(true);
     try {
-      const url = await renderPrintSnapshot(
+      const DOWNLOAD_W = 3600;
+      const DOWNLOAD_H = Math.round(DOWNLOAD_W * 4 / 3); // 4800
+      const mapUrl = await renderPrintSnapshot(
         print.slug, print.bbox, print.center, kind,
-        colors, titleFor(print, layout, titleInverted), geometry,
-        undefined, detail, 3600,
+        colors,
+        { enabled: false, title: '', subtitle: '', detail: '', layout: 'classic-bottom', inverted: false },
+        geometry,
+        undefined, detail, DOWNLOAD_W,
       );
+      const img = await new Promise<HTMLImageElement>((res, rej) => {
+        const el = new Image();
+        el.onload = () => res(el);
+        el.onerror = rej;
+        el.src = mapUrl;
+      });
+      const c = document.createElement('canvas');
+      c.width = DOWNLOAD_W;
+      c.height = DOWNLOAD_H;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      await document.fonts.ready;
+      bakeTitleBlock(ctx, titleBlock, colors, DOWNLOAD_W, DOWNLOAD_H);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = c.toDataURL('image/png');
       a.download = `${print.slug}-map-print-12x16.png`;
       a.click();
     } catch (err) {
@@ -122,17 +146,20 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
         {/* Left: large preview */}
         <div className="flex flex-1 flex-col items-center justify-start lg:sticky lg:top-12 lg:self-start">
-          <div className="relative w-full max-w-[520px]" style={{ aspectRatio: '3/4' }}>
-            {previewUrl ? (
-              <ImageMagnifier
+          <div
+            ref={previewContainerRef}
+            className="relative w-full max-w-[520px] overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.28)]"
+            style={{ aspectRatio: '3/4' }}
+          >
+            {previewUrl && (
+              <img
                 src={previewUrl}
                 alt={`${print.name} customizable map print`}
-                className="absolute inset-0 h-full w-full object-cover shadow-[0_30px_90px_rgba(0,0,0,0.28)]"
-                magnification={3.5}
-                lensSize={260}
+                className="absolute inset-0 h-full w-full object-cover"
               />
-            ) : (
-              <div className="absolute inset-0 bg-[#07122a]/8 shadow-[0_30px_90px_rgba(0,0,0,0.28)]" />
+            )}
+            {!previewUrl && (
+              <div className="absolute inset-0 bg-[#07122a]/8" />
             )}
             {loading && previewUrl && (
               <div className="pointer-events-none absolute inset-0 animate-pulse bg-white/25" />
@@ -142,9 +169,15 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#07122a]/20 border-t-[#07122a]" />
               </div>
             )}
+            <DraggableTitle
+              block={titleBlock}
+              onChange={setTitleBlock}
+              containerRef={previewContainerRef}
+              colors={colors}
+            />
           </div>
           <p className="mt-4 text-center text-[10px] uppercase tracking-[1.4px] text-[#999]">
-            {loading ? 'Updating preview…' : 'Hover to zoom · Live print preview'}
+            {loading ? 'Updating preview…' : 'Drag label to reposition · Live print preview'}
           </p>
         </div>
 
@@ -234,37 +267,31 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
               </p>
             </Section>
 
-            {/* Title layout */}
-            <Section title="Title Layout">
-              <div className="flex flex-col gap-1.5">
-                {TITLE_LAYOUTS.map((l) => (
-                  <button
-                    key={l.value}
-                    onClick={() => setLayout(l.value)}
-                    className={`flex items-center gap-3 border px-3 py-2.5 text-left transition-all ${
-                      layout === l.value ? 'border-[#111] bg-[#f8f6f2]' : 'border-[#d8d1c4] hover:border-[#bbb]'
-                    }`}
-                  >
-                    <span className={`h-2 w-2 flex-shrink-0 rounded-full border ${layout === l.value ? 'border-[#111] bg-[#111]' : 'border-[#bbb]'}`} />
-                    <div>
-                      <div className="text-[11px] font-medium uppercase tracking-[1.2px]">{l.label}</div>
-                      <div className="text-[10px] text-[#999]">{l.desc}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-              <div className="mt-3">
-                <SegRow
-                  label="Title Colors"
-                  hint="Inverted = ink panel, land-color text"
-                  options={[
-                    { value: 'normal', label: 'Normal' },
-                    { value: 'inverted', label: 'Inverted' },
-                  ]}
-                  value={titleInverted ? 'inverted' : 'normal'}
-                  onChange={(v) => setTitleInverted(v === 'inverted')}
-                />
-              </div>
+            {/* Title Label */}
+            <Section title="Title Label">
+              <SegRow<TitleStyle>
+                label="Background"
+                hint="Style of the label panel"
+                options={[
+                  { value: 'standard', label: 'Light' },
+                  { value: 'inverted', label: 'Dark' },
+                  { value: 'translucent', label: 'Glass' },
+                ]}
+                value={titleBlock.style}
+                onChange={(v) => setTitleBlock((b) => ({ ...b, style: v }))}
+              />
+              <SegRow
+                label="Label"
+                options={[
+                  { value: 'on', label: 'On' },
+                  { value: 'off', label: 'Off' },
+                ]}
+                value={titleBlock.enabled ? 'on' : 'off'}
+                onChange={(v) => setTitleBlock((b) => ({ ...b, enabled: v === 'on' }))}
+              />
+              <p className="mt-1 text-[10px] leading-relaxed text-[#999]">
+                Drag the label to reposition · corners to resize · circle handle to rotate
+              </p>
             </Section>
 
             {/* Actions */}
@@ -289,17 +316,6 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
       </div>
     </div>
   );
-}
-
-function titleFor(print: CatalogPrint, layout: PreviewTitleLayout, inverted: boolean): PreviewTitleSettings {
-  return {
-    enabled: true,
-    title: print.defaultTitle,
-    subtitle: print.defaultSubtitle,
-    detail: print.establishedYear ? `EST. ${print.establishedYear}` : '',
-    layout,
-    inverted,
-  };
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -369,6 +385,213 @@ function ColorSwatch({ colors }: { colors: PreviewColorSettings }) {
   return (
     <div className="h-7 w-full overflow-hidden" style={{ backgroundColor: colors.land || '#fff' }}>
       <div className="h-[40%] w-full" style={{ backgroundColor: ink }} />
+    </div>
+  );
+}
+
+type DragHandle = 'body' | 'tl' | 'tr' | 'bl' | 'br' | 'rotate';
+
+function DraggableTitle({
+  block,
+  onChange,
+  containerRef,
+  colors,
+}: {
+  block: TitleBlockSettings;
+  onChange: (b: TitleBlockSettings) => void;
+  containerRef: React.RefObject<HTMLDivElement>;
+  colors: PreviewColorSettings;
+}) {
+  const dragRef = useRef<{
+    handle: DragHandle;
+    startNX: number; startNY: number;
+    orig: TitleBlockSettings;
+  } | null>(null);
+
+  function toNorm(e: MouseEvent | React.MouseEvent): { nx: number; ny: number } {
+    const rect = containerRef.current!.getBoundingClientRect();
+    return {
+      nx: (e.clientX - rect.left) / rect.width,
+      ny: (e.clientY - rect.top) / rect.height,
+    };
+  }
+
+  function onMouseDown(handle: DragHandle, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const { nx, ny } = toNorm(e);
+    dragRef.current = { handle, startNX: nx, startNY: ny, orig: { ...block } };
+  }
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      if (!dragRef.current || !containerRef.current) return;
+      const { handle, startNX, startNY, orig } = dragRef.current;
+      const { nx, ny } = toNorm(e);
+      const dx = nx - startNX;
+      const dy = ny - startNY;
+
+      if (handle === 'body') {
+        onChange({ ...orig, x: orig.x + dx, y: orig.y + dy });
+      } else if (handle === 'rotate') {
+        const cx = orig.x + orig.w / 2;
+        const cy = orig.y + orig.h / 2;
+        const startA = Math.atan2(startNY - cy, startNX - cx);
+        const curA = Math.atan2(ny - cy, nx - cx);
+        onChange({ ...orig, rotation: orig.rotation + (curA - startA) * (180 / Math.PI) });
+      } else {
+        let { x, y, w, h } = orig;
+        if (handle === 'tl') { x += dx; y += dy; w -= dx; h -= dy; }
+        else if (handle === 'tr') { y += dy; w += dx; h -= dy; }
+        else if (handle === 'bl') { x += dx; w -= dx; h += dy; }
+        else { w += dx; h += dy; }
+        onChange({ ...orig, x, y, w: Math.max(0.08, w), h: Math.max(0.03, h) });
+      }
+    }
+    function onUp() { dragRef.current = null; }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [onChange, containerRef]);
+
+  if (!block.enabled) return null;
+
+  const ink = colors.useMapDefault ? '#07122a' : colors.water || '#07122a';
+  const land = colors.land || '#ffffff';
+  const bgColor = block.style === 'inverted' ? ink : land;
+  const textColor = block.style === 'standard' ? ink : land;
+  const hasSubtitle = Boolean(block.subtitle.trim());
+  const hasDetail = Boolean(block.detail.trim());
+  const isLong = block.title.length > 10;
+  const isVeryLong = block.title.length > 16;
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: `${block.x * 100}%`,
+        top: `${block.y * 100}%`,
+        width: `${block.w * 100}%`,
+        height: `${block.h * 100}%`,
+        transform: `rotate(${block.rotation}deg)`,
+        transformOrigin: 'center',
+        cursor: 'move',
+        userSelect: 'none',
+        containerType: 'size',
+      } as React.CSSProperties}
+      onMouseDown={(e) => onMouseDown('body', e)}
+    >
+      {/* Background */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          backgroundColor: bgColor,
+          opacity: block.style === 'translucent' ? 0.72 : 1,
+        }}
+      />
+
+      {/* Text */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+          gap: '4cqh',
+          pointerEvents: 'none',
+          padding: '0 4%',
+        }}
+      >
+        <div style={{
+          color: textColor,
+          fontFamily: '"Cormorant Garamond", Georgia, serif',
+          fontWeight: 300,
+          fontSize: `${(hasSubtitle || hasDetail) ? 28 : 36}cqh`,
+          letterSpacing: isVeryLong ? '0.1em' : isLong ? '0.16em' : '0.22em',
+          whiteSpace: 'nowrap',
+          maxWidth: '100%',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}>
+          {block.title.trim().toUpperCase()}
+        </div>
+        {hasSubtitle && (
+          <div style={{
+            color: textColor,
+            fontFamily: '"DM Sans", sans-serif',
+            fontWeight: 400,
+            fontSize: '14cqh',
+            letterSpacing: '0.22em',
+            whiteSpace: 'nowrap',
+          }}>
+            {block.subtitle.trim().toUpperCase()}
+          </div>
+        )}
+        {hasDetail && (
+          <div style={{
+            color: textColor,
+            fontFamily: '"DM Sans", sans-serif',
+            fontWeight: 400,
+            fontSize: '11cqh',
+            letterSpacing: '0.14em',
+            whiteSpace: 'nowrap',
+          }}>
+            {block.detail.trim().toUpperCase()}
+          </div>
+        )}
+      </div>
+
+      {/* Selection dashed border */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        outline: '1.5px dashed rgba(80,80,80,0.45)',
+        outlineOffset: '-1px',
+        pointerEvents: 'none',
+      }} />
+
+      {/* 4 corner resize handles */}
+      {([
+        ['tl', { top: -5, left: -5, cursor: 'nw-resize' }],
+        ['tr', { top: -5, right: -5, cursor: 'ne-resize' }],
+        ['bl', { bottom: -5, left: -5, cursor: 'sw-resize' }],
+        ['br', { bottom: -5, right: -5, cursor: 'se-resize' }],
+      ] as const).map(([handle, pos]) => (
+        <div
+          key={handle}
+          style={{
+            position: 'absolute', width: 10, height: 10,
+            backgroundColor: 'white', border: '1.5px solid #333',
+            borderRadius: 2, ...pos,
+          }}
+          onMouseDown={(e) => onMouseDown(handle, e)}
+        />
+      ))}
+
+      {/* Rotation handle */}
+      <div
+        style={{ position: 'absolute', left: '50%', top: -30, transform: 'translateX(-50%)', cursor: 'grab' }}
+        onMouseDown={(e) => onMouseDown('rotate', e)}
+      >
+        <div style={{
+          position: 'absolute', left: '50%', bottom: 0,
+          width: 1, height: 18,
+          backgroundColor: 'rgba(50,50,50,0.5)',
+          transform: 'translateX(-50%)',
+          pointerEvents: 'none',
+        }} />
+        <div style={{
+          width: 12, height: 12, borderRadius: '50%',
+          backgroundColor: 'white', border: '1.5px solid #333',
+          position: 'relative', zIndex: 1,
+        }} />
+      </div>
     </div>
   );
 }

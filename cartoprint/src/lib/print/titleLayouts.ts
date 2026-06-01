@@ -36,3 +36,37 @@ export const DEFAULT_TITLE_LAYOUT: PreviewTitleLayout = 'classic-bottom';
 export function isFooterTitleLayout(layout: PreviewTitleLayout): boolean {
   return layout === 'classic-bottom' || layout === 'compact-bottom';
 }
+
+export type TitleStyle = 'standard' | 'inverted' | 'translucent';
+
+export interface TitleBlockSettings {
+  enabled: boolean;
+  title: string;
+  subtitle: string;
+  detail: string;
+  style: TitleStyle;
+  x: number;       // left edge, normalized [0,1] relative to print width
+  y: number;       // top edge, normalized [0,1] relative to print height
+  w: number;       // width, normalized [0,1]
+  h: number;       // height, normalized [0,1]
+  rotation: number; // degrees
+}
+
+export function defaultTitleBlock(
+  title: string,
+  subtitle: string,
+  detail: string,
+): TitleBlockSettings {
+  return {
+    enabled: true,
+    title,
+    subtitle,
+    detail,
+    style: 'standard',
+    x: 0,
+    y: 0.79,
+    w: 1.0,
+    h: 0.15,
+    rotation: 0,
+  };
+}
