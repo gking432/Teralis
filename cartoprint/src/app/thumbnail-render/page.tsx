@@ -37,7 +37,7 @@ function ThumbnailRenderer() {
       const url = await renderPrintSnapshot(
         slug, print.bbox, print.center, kind,
         DEFAULT_COLOR_SCHEME.colors,
-        { enabled: true, title: print.defaultTitle, subtitle: print.defaultSubtitle, detail, layout: DEFAULT_TITLE_LAYOUT },
+        { enabled: true, title: print.defaultTitle, subtitle: print.defaultSubtitle, detail, layout: DEFAULT_TITLE_LAYOUT, inverted: false },
         geometry,
         controller.signal,
         DEFAULT_DETAIL_SETTINGS,

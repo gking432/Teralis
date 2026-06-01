@@ -79,7 +79,7 @@ export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail
     renderPrintSnapshot(
       slug, bbox, center, kind,
       DEFAULT_COLOR_SCHEME.colors,
-      { enabled: true, title, subtitle, detail, layout: DEFAULT_TITLE_LAYOUT },
+      { enabled: true, title, subtitle, detail, layout: DEFAULT_TITLE_LAYOUT, inverted: false },
       geometry,
       controller.signal,
       DEFAULT_DETAIL_SETTINGS,

@@ -196,39 +196,55 @@ function drawTitleBand(
   }
 
   if (layout === 'side-rail') {
-    const railW = Math.round(W * 0.08);
+    const railW = Math.round(W * 0.085);
     const railX = Math.round(W * 0.03);
     const railTop = Math.round(MH * 0.04);
     const railH = MH - 2 * railTop;
-    const railTitleSize = Math.round(railW * 0.55);
-    const borderW = Math.max(1, Math.round(W * 0.0004));
+    const dividerW = Math.max(1, Math.round(W * 0.0006));
 
+    // Rail panel + thin divider line on the inside (right) edge.
     ctx.fillStyle = land;
     ctx.fillRect(railX, railTop, railW, railH);
     ctx.fillStyle = ink;
-    ctx.fillRect(railX + railW - borderW, railTop, borderW, railH);
+    ctx.fillRect(railX + railW - dividerW, railTop, dividerW, railH);
 
+    const railTitleSize = Math.round(railW * 0.5);
+    const railSubSize = Math.round(railW * 0.22);
+    const railDetSize = Math.round(railW * 0.18);
+
+    // Single rotated coordinate system anchored at the bottom-center of the
+    // rail. After rotate(-90°): +X axis points UP the page; +Y axis points
+    // out toward the map. textBaseline='middle' centers the text on the
+    // rail's horizontal midline. Stack title → subtitle → detail upward.
     ctx.save();
     ctx.translate(railX + railW / 2, railTop + railH);
     ctx.rotate(-Math.PI / 2);
     ctx.fillStyle = ink;
     ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+
+    let cursor = railH * 0.06;
+
     ctx.font = `300 ${railTitleSize}px "Cormorant Garamond", serif`;
     setLetterSpacing(ctx, letterSpacing);
-    ctx.fillText(title, 0, railTitleSize * 0.88, railH);
-    ctx.restore();
+    ctx.fillText(title, cursor, 0);
+    cursor += ctx.measureText(title).width + railH * 0.035;
 
     if (hasSubtitle) {
-      ctx.save();
-      ctx.translate(railX + railW * 0.5, railTop + Math.round(subSize * 1.5));
-      ctx.rotate(-Math.PI / 2);
-      ctx.fillStyle = ink;
-      ctx.textAlign = 'right';
-      ctx.font = `400 ${subSize}px "DM Sans", sans-serif`;
-      setLetterSpacing(ctx, 0.12);
-      ctx.fillText(subtitle, 0, subSize * 0.88);
-      ctx.restore();
+      ctx.font = `400 ${railSubSize}px "DM Sans", sans-serif`;
+      setLetterSpacing(ctx, 0.22);
+      ctx.fillText(subtitle, cursor, 0);
+      cursor += ctx.measureText(subtitle).width + railH * 0.02;
     }
+
+    if (hasDetail) {
+      ctx.font = `400 ${railDetSize}px "DM Sans", sans-serif`;
+      setLetterSpacing(ctx, 0.14);
+      ctx.fillText(detail, cursor, 0);
+    }
+
+    ctx.restore();
+    ctx.textBaseline = 'alphabetic';
   }
 }
 
@@ -414,14 +430,18 @@ export async function renderPrintSnapshot(
         ctx.drawImage(map.getCanvas(), border, border, innerMapW, innerMapH);
 
         if (titleSettings.enabled && title) {
+          // Inverted title swaps the ink/land roles inside the title band,
+          // so backgrounds become ink, text and dividers become land.
+          const tbInk = titleSettings.inverted ? land : ink;
+          const tbLand = titleSettings.inverted ? ink : land;
           if (footerHeight > 0) {
             // Footer layout: title band sits below the map, no border around it
-            drawTitleBand(ctx, title, subtitle, detail, ink, land, titleSettings.layout, rw, rh, mapHeight, footerHeight);
+            drawTitleBand(ctx, title, subtitle, detail, tbInk, tbLand, titleSettings.layout, rw, rh, mapHeight, footerHeight);
           } else {
             // Overlay layout: position the title inside the bordered map area
             ctx.save();
             ctx.translate(border, border);
-            drawTitleBand(ctx, title, subtitle, detail, ink, land, titleSettings.layout, innerMapW, innerMapH, innerMapH, 0);
+            drawTitleBand(ctx, title, subtitle, detail, tbInk, tbLand, titleSettings.layout, innerMapW, innerMapH, innerMapH, 0);
             ctx.restore();
           }
         }

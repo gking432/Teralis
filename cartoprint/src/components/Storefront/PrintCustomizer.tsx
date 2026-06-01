@@ -29,6 +29,7 @@ const DENSITY_OPTIONS: { value: Density; label: string }[] = [
 export function PrintCustomizer({ print }: PrintCustomizerProps) {
   const [colors, setColors] = useState<PreviewColorSettings>(DEFAULT_COLOR_SCHEME.colors);
   const [layout, setLayout] = useState<PreviewTitleLayout>(DEFAULT_TITLE_LAYOUT);
+  const [titleInverted, setTitleInverted] = useState(false);
   const [detail, setDetail] = useState<PrintDetailSettings>(DEFAULT_DETAIL_SETTINGS);
   const [downloading, setDownloading] = useState(false);
 
@@ -54,7 +55,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
   useEffect(() => {
     if (!geometry) return;
-    const cacheKey = getPreviewCacheKey(print.slug, colorCacheKey(colors), layout, detail);
+    const cacheKey = `${getPreviewCacheKey(print.slug, colorCacheKey(colors), layout, detail)}:${titleInverted ? 'i' : ''}`;
     const cached = PREVIEW_SNAPSHOT_CACHE.get(cacheKey);
     if (cached) { setPreviewUrl(cached); setLoading(false); return; }
 
@@ -65,7 +66,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
     renderPrintSnapshot(
       print.slug, print.bbox, print.center, kind,
-      colors, titleFor(print, layout), geometry,
+      colors, titleFor(print, layout, titleInverted), geometry,
       controller.signal,
       detail,
     ).then((url) => {
@@ -79,7 +80,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
     return () => { controller.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [print.slug, colors, layout, detail, geometry]);
+  }, [print.slug, colors, layout, titleInverted, detail, geometry]);
 
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
@@ -89,7 +90,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
     try {
       const url = await renderPrintSnapshot(
         print.slug, print.bbox, print.center, kind,
-        colors, titleFor(print, layout), geometry,
+        colors, titleFor(print, layout, titleInverted), geometry,
         undefined, detail, 3600,
       );
       const a = document.createElement('a');
@@ -252,6 +253,18 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
                   </button>
                 ))}
               </div>
+              <div className="mt-3">
+                <SegRow
+                  label="Title Colors"
+                  hint="Inverted = ink panel, land-color text"
+                  options={[
+                    { value: 'normal', label: 'Normal' },
+                    { value: 'inverted', label: 'Inverted' },
+                  ]}
+                  value={titleInverted ? 'inverted' : 'normal'}
+                  onChange={(v) => setTitleInverted(v === 'inverted')}
+                />
+              </div>
             </Section>
 
             {/* Actions */}
@@ -278,13 +291,14 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
   );
 }
 
-function titleFor(print: CatalogPrint, layout: PreviewTitleLayout): PreviewTitleSettings {
+function titleFor(print: CatalogPrint, layout: PreviewTitleLayout, inverted: boolean): PreviewTitleSettings {
   return {
     enabled: true,
     title: print.defaultTitle,
     subtitle: print.defaultSubtitle,
     detail: print.establishedYear ? `EST. ${print.establishedYear}` : '',
     layout,
+    inverted,
   };
 }
 

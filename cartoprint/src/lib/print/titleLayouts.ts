@@ -11,6 +11,10 @@ export interface PreviewTitleSettings {
   subtitle: string;
   detail: string;
   layout: PreviewTitleLayout;
+  // When true, the title band paints with ink as the background and land as
+  // the text/divider color (the inverse of the default). Useful for matching
+  // the ink frame on bordered city prints.
+  inverted: boolean;
 }
 
 export interface TitleLayoutOption {
