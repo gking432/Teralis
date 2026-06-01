@@ -248,31 +248,25 @@ function applyPrintPreviewOverrides(
       } catch {}
     }
 
-    // Highways (motorway/trunk): show from low zoom, always on for highways=true.
+    // Highways (motorway/trunk) and main roads (primary/secondary) — paint
+    // overrides only. Visibility + zoom range are forced in the unified block
+    // below so they can't be left in the base style's restrictive defaults.
     if (layers.highways && /motorway|trunk/.test(id) && /road|bridge|tunnel/.test(id) && !/casing/.test(id) && layer.type === 'line') {
       try {
-        map.setLayerZoomRange(id, 3, 24);
         map.setPaintProperty(id, 'line-opacity', 0.9);
         map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 3, 0.5, 6, 0.9, 9, 1.5, 13, 2.4]);
       } catch {}
     }
 
-    // Main roads (primary/secondary): show from state zoom.
-    // Matches OpenFreeMap layer IDs like road_primary, road_secondary, bridge_primary, etc.
-    if (layers.mainroads && /(primary|secondary)/.test(id) && /road|bridge|tunnel/.test(id) && !/casing/.test(id) && layer.type === 'line') {
+    if (layers.mainroads && /(primary|secondary)/.test(id) && !/motorway|trunk/.test(id) && /road|bridge|tunnel/.test(id) && !/casing/.test(id) && layer.type === 'line') {
       try {
-        map.setLayerZoomRange(id, 4, 24);
         map.setPaintProperty(id, 'line-opacity', 0.85);
         map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 4, 0.4, 7, 0.75, 10, 1.2, 13, 1.8]);
       } catch {}
     }
 
-    // Minor roads / streets (roads = More): bring in tertiary, service, track at state zoom.
-    // Matches OpenFreeMap layer IDs like road_tertiary, road_minor, road_service, road_track.
-    if (layers.allroads && /(minor|tertiary|service|track|street|link)/.test(id) && /road|bridge|tunnel/.test(id) && !/casing/.test(id) && layer.type === 'line') {
+    if (layers.allroads && /(minor|tertiary|service|track|street|link|residential|living|pedestrian|cycleway|footway|path|steps)/.test(id) && !/motorway|trunk|primary|secondary/.test(id) && /road|bridge|tunnel/.test(id) && !/casing/.test(id) && layer.type === 'line') {
       try {
-        map.setLayoutProperty(id, 'visibility', 'visible');
-        map.setLayerZoomRange(id, 4, 24);
         map.setPaintProperty(id, 'line-opacity', 0.7);
         map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 4, 0.15, 7, 0.35, 10, 0.65, 13, 1.0]);
       } catch {}
@@ -286,21 +280,23 @@ function applyPrintPreviewOverrides(
       } catch {}
     }
 
-    // Final road-line suppression: hide any road/bridge/tunnel line layer
-    // that isn't in the desired density level. Catches types not covered by
-    // classifyLayer (road_residential, road_path, road_living_street…) that
-    // base styles expose at city zoom. Roads are controlled solely by the
-    // roads toggle — the places toggle must never affect them.
+    // Unified road visibility + zoom range. Runs for every line layer whose
+    // id mentions a road/bridge/tunnel keyword. Classifies into highway /
+    // main / other, forces visibility based ONLY on the matching density
+    // toggle, and expands the zoom range to 3-24 so the road shows at any
+    // print zoom (immune to small zoom shifts from border resizing). Roads
+    // are completely decoupled from the cities/towns toggle here.
     if (layer.type === 'line' && /road|bridge|tunnel/.test(id) && !/casing/.test(id)) {
       const isHighway = /motorway|trunk/.test(id);
-      const isMain = /(primary|secondary)/.test(id) && !isHighway;
+      const isMain = !isHighway && /(primary|secondary)/.test(id);
       const shouldBeVisible =
         (isHighway && layers.highways) ||
         (isMain && layers.mainroads) ||
         (!isHighway && !isMain && layers.allroads);
-      if (!shouldBeVisible) {
-        try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
-      }
+      try {
+        map.setLayoutProperty(id, 'visibility', shouldBeVisible ? 'visible' : 'none');
+        if (shouldBeVisible) map.setLayerZoomRange(id, 3, 24);
+      } catch {}
     }
   });
 }
