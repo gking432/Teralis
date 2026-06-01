@@ -25,7 +25,7 @@ export function classifyLayer(id: string): LayerGroup | null {
   if (/highway-name|road.*label|road_name|street_name|transportation_name/.test(id)) return 'roadlabels';
   if (/motorway|trunk/.test(id) && /road|bridge|tunnel/.test(id)) return 'highways';
   if (/(primary|secondary)/.test(id) && /road|bridge|tunnel/.test(id)) return 'mainroads';
-  if (/(minor|tertiary|service|track|street|link)/.test(id) && /road|bridge|tunnel/.test(id)) return 'allroads';
+  if (/(minor|tertiary|service|track|street|link|residential|living|pedestrian|cycleway|footway|path|steps)/.test(id) && /road|bridge|tunnel/.test(id)) return 'allroads';
 
   if (/water_name_(point|line)_label/.test(id)) return 'waterlabels';
   if (/waterway.*label/.test(id)) return 'riverlabels';
@@ -36,6 +36,15 @@ export function classifyLayer(id: string): LayerGroup | null {
 
   return null;
 }
+
+// Groups that represent place/label layers — only symbol layers belong here.
+// Fill and line layers sharing the same name pattern (e.g. suburb boundary
+// polygons) should not have their visibility tied to label density toggles.
+const LABEL_GROUPS = new Set<string>([
+  'cities', 'towns', 'capitals',
+  'statelabels', 'countrylabels',
+  'waterlabels', 'riverlabels', 'roadlabels',
+]);
 
 export function applyLayerVisibility(map: MaplibreMap, layers: LayerState): void {
   const style = map.getStyle();
@@ -55,6 +64,12 @@ export function applyLayerVisibility(map: MaplibreMap, layers: LayerState): void
 
     const group = classifyLayer(layer.id);
     if (group && layers[group] !== undefined) {
+      // Label groups only control symbol layers. Fill/line layers that share
+      // a label-group name pattern (suburb boundaries, water area outlines…)
+      // are left at their base-style visibility so they can't be mistaken for
+      // roads appearing/disappearing when the places density is toggled.
+      if (LABEL_GROUPS.has(group) && layer.type !== 'symbol') return;
+
       try {
         map.setLayoutProperty(layer.id, 'visibility', layers[group] ? 'visible' : 'none');
       } catch {}

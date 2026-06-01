@@ -285,6 +285,23 @@ function applyPrintPreviewOverrides(
         map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 4, 0.35, 8, 0.7, 12, 1.15]);
       } catch {}
     }
+
+    // Final road-line suppression: hide any road/bridge/tunnel line layer
+    // that isn't in the desired density level. Catches types not covered by
+    // classifyLayer (road_residential, road_path, road_living_street…) that
+    // base styles expose at city zoom. Roads are controlled solely by the
+    // roads toggle — the places toggle must never affect them.
+    if (layer.type === 'line' && /road|bridge|tunnel/.test(id) && !/casing/.test(id)) {
+      const isHighway = /motorway|trunk/.test(id);
+      const isMain = /(primary|secondary)/.test(id) && !isHighway;
+      const shouldBeVisible =
+        (isHighway && layers.highways) ||
+        (isMain && layers.mainroads) ||
+        (!isHighway && !isMain && layers.allroads);
+      if (!shouldBeVisible) {
+        try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
+      }
+    }
   });
 }
 
