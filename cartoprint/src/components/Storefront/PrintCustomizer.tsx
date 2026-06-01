@@ -9,7 +9,12 @@ import {
   sameColorSettings,
   type PreviewColorSettings,
 } from '@/lib/print/colorSchemes';
-import { type TitleBlockSettings, type TitleStyle, defaultTitleBlock } from '@/lib/print/titleLayouts';
+import {
+  TITLE_LAYOUTS,
+  type TitleBlockSettings,
+  type TitleStyle,
+  defaultTitleBlock,
+} from '@/lib/print/titleLayouts';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey, colorCacheKey, bakeTitleBlock } from '@/lib/print/printSnapshot';
 import { type PrintDetailSettings, type Density, type BorderWeight, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
@@ -48,6 +53,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
   const kind = print.kind === 'country' ? 'country' : print.kind === 'state' ? 'state' : 'city';
   const isCountry = kind === 'country';
   const activePreset = COLOR_SCHEMES.find((s) => sameColorSettings(s.colors, colors))?.value ?? 'custom';
+  const isFreeform = titleBlock.layout === 'freeform';
 
   useEffect(() => {
     if (geometry) return;
@@ -58,9 +64,14 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
     return () => { cancelled = true; };
   }, [print.slug, print.center, kind, geometry]);
 
+  // Preview cache key: for fixed layouts we bake the title into the snapshot,
+  // so layout + style must be part of the key. For freeform the snapshot is
+  // identical regardless of title position, so we use a single 'freeform' tag.
+  const previewLayoutKey = isFreeform ? 'freeform' : `${titleBlock.layout}:${titleBlock.style}`;
+
   useEffect(() => {
     if (!geometry) return;
-    const cacheKey = getPreviewCacheKey(print.slug, colorCacheKey(colors), 'map', detail);
+    const cacheKey = getPreviewCacheKey(print.slug, colorCacheKey(colors), previewLayoutKey, detail);
     const cached = PREVIEW_SNAPSHOT_CACHE.get(cacheKey);
     if (cached) { setPreviewUrl(cached); setLoading(false); return; }
 
@@ -72,7 +83,15 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
     renderPrintSnapshot(
       print.slug, print.bbox, print.center, kind,
       colors,
-      { enabled: false, title: '', subtitle: '', detail: '', layout: 'classic-bottom', inverted: false },
+      {
+        enabled: titleBlock.enabled,
+        title: titleBlock.title,
+        subtitle: titleBlock.subtitle,
+        detail: titleBlock.detail,
+        layout: titleBlock.layout,
+        inverted: false,
+        style: titleBlock.style,
+      },
       geometry,
       controller.signal,
       detail,
@@ -87,7 +106,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
     return () => { controller.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [print.slug, colors, detail, geometry]);
+  }, [print.slug, colors, detail, geometry, previewLayoutKey, titleBlock.enabled]);
 
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
@@ -100,25 +119,42 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
       const mapUrl = await renderPrintSnapshot(
         print.slug, print.bbox, print.center, kind,
         colors,
-        { enabled: false, title: '', subtitle: '', detail: '', layout: 'classic-bottom', inverted: false },
+        {
+          enabled: titleBlock.enabled,
+          title: titleBlock.title,
+          subtitle: titleBlock.subtitle,
+          detail: titleBlock.detail,
+          layout: titleBlock.layout,
+          inverted: false,
+          style: titleBlock.style,
+        },
         geometry,
         undefined, detail, DOWNLOAD_W,
       );
-      const img = await new Promise<HTMLImageElement>((res, rej) => {
-        const el = new Image();
-        el.onload = () => res(el);
-        el.onerror = rej;
-        el.src = mapUrl;
-      });
-      const c = document.createElement('canvas');
-      c.width = DOWNLOAD_W;
-      c.height = DOWNLOAD_H;
-      const ctx = c.getContext('2d')!;
-      ctx.drawImage(img, 0, 0);
-      await document.fonts.ready;
-      bakeTitleBlock(ctx, titleBlock, colors, DOWNLOAD_W, DOWNLOAD_H);
+
+      let finalDataUrl: string;
+      if (isFreeform && titleBlock.enabled) {
+        // Snapshot is map-only; bake the freeform title block onto it.
+        const img = await new Promise<HTMLImageElement>((res, rej) => {
+          const el = new Image();
+          el.onload = () => res(el);
+          el.onerror = rej;
+          el.src = mapUrl;
+        });
+        const c = document.createElement('canvas');
+        c.width = DOWNLOAD_W;
+        c.height = DOWNLOAD_H;
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
+        await document.fonts.ready;
+        bakeTitleBlock(ctx, titleBlock, colors, DOWNLOAD_W, DOWNLOAD_H);
+        finalDataUrl = c.toDataURL('image/png');
+      } else {
+        finalDataUrl = mapUrl;
+      }
+
       const a = document.createElement('a');
-      a.href = c.toDataURL('image/png');
+      a.href = finalDataUrl;
       a.download = `${print.slug}-map-print-12x16.png`;
       a.click();
     } catch (err) {
@@ -169,15 +205,21 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#07122a]/20 border-t-[#07122a]" />
               </div>
             )}
-            <DraggableTitle
-              block={titleBlock}
-              onChange={setTitleBlock}
-              containerRef={previewContainerRef}
-              colors={colors}
-            />
+            {isFreeform && titleBlock.enabled && (
+              <DraggableTitle
+                block={titleBlock}
+                onChange={setTitleBlock}
+                containerRef={previewContainerRef}
+                colors={colors}
+              />
+            )}
           </div>
           <p className="mt-4 text-center text-[10px] uppercase tracking-[1.4px] text-[#999]">
-            {loading ? 'Updating preview…' : 'Drag label to reposition · Live print preview'}
+            {loading
+              ? 'Updating preview…'
+              : isFreeform
+                ? 'Drag label to reposition · Live print preview'
+                : 'Live print preview'}
           </p>
         </div>
 
@@ -269,17 +311,6 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
             {/* Title Label */}
             <Section title="Title Label">
-              <SegRow<TitleStyle>
-                label="Background"
-                hint="Style of the label panel"
-                options={[
-                  { value: 'standard', label: 'Light' },
-                  { value: 'inverted', label: 'Dark' },
-                  { value: 'translucent', label: 'Glass' },
-                ]}
-                value={titleBlock.style}
-                onChange={(v) => setTitleBlock((b) => ({ ...b, style: v }))}
-              />
               <SegRow
                 label="Label"
                 options={[
@@ -289,9 +320,47 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
                 value={titleBlock.enabled ? 'on' : 'off'}
                 onChange={(v) => setTitleBlock((b) => ({ ...b, enabled: v === 'on' }))}
               />
-              <p className="mt-1 text-[10px] leading-relaxed text-[#999]">
-                Drag the label to reposition · corners to resize · circle handle to rotate
-              </p>
+              <div className="mb-4">
+                <div className="mb-2 text-[11px] font-medium uppercase tracking-[1.2px] text-[#444]">Layout</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {TITLE_LAYOUTS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setTitleBlock((b) => ({ ...b, layout: opt.value }))}
+                      disabled={!titleBlock.enabled}
+                      className={`flex flex-col items-start gap-0.5 border px-3 py-2 text-left transition-all disabled:opacity-40 ${
+                        titleBlock.layout === opt.value
+                          ? 'border-[#111] bg-[#f4f0e8]'
+                          : 'border-[#d8d1c4] bg-white hover:border-[#aaa]'
+                      }`}
+                    >
+                      <span className="text-[10px] uppercase tracking-[1.2px] text-[#222]">{opt.label}</span>
+                      <span className="text-[9px] leading-tight text-[#999]">{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <SegRow<TitleStyle>
+                label="Background"
+                hint="Light · Dark panel · Clear glass"
+                options={[
+                  { value: 'standard', label: 'Light' },
+                  { value: 'inverted', label: 'Dark' },
+                  { value: 'translucent', label: 'Glass' },
+                ]}
+                value={titleBlock.style}
+                onChange={(v) => setTitleBlock((b) => ({ ...b, style: v }))}
+              />
+              {isFreeform && (
+                <p className="mt-1 text-[10px] leading-relaxed text-[#999]">
+                  Drag the label to reposition · corners to resize · circle handle to rotate
+                </p>
+              )}
+              {titleBlock.style === 'translucent' && (
+                <p className="mt-1 text-[10px] leading-relaxed text-[#999]">
+                  Glass: no background. Text auto-inverts against whatever it sits over.
+                </p>
+              )}
             </Section>
 
             {/* Actions */}
@@ -461,8 +530,11 @@ function DraggableTitle({
 
   const ink = colors.useMapDefault ? '#07122a' : colors.water || '#07122a';
   const land = colors.land || '#ffffff';
+  const trans = block.style === 'translucent';
   const bgColor = block.style === 'inverted' ? ink : land;
-  const textColor = block.style === 'standard' ? ink : land;
+  // For translucent, text is white blended via mix-blend-mode: difference,
+  // which auto-inverts against whatever's behind it per-pixel.
+  const textColor = trans ? '#ffffff' : (block.style === 'standard' ? ink : land);
   const hasSubtitle = Boolean(block.subtitle.trim());
   const hasDetail = Boolean(block.detail.trim());
   const isLong = block.title.length > 10;
@@ -484,15 +556,16 @@ function DraggableTitle({
       } as React.CSSProperties}
       onMouseDown={(e) => onMouseDown('body', e)}
     >
-      {/* Background */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          backgroundColor: bgColor,
-          opacity: block.style === 'translucent' ? 0.72 : 1,
-        }}
-      />
+      {/* Background — skipped entirely for translucent (clear glass) */}
+      {!trans && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundColor: bgColor,
+          }}
+        />
+      )}
 
       {/* Text */}
       <div
@@ -507,7 +580,8 @@ function DraggableTitle({
           gap: '4cqh',
           pointerEvents: 'none',
           padding: '0 4%',
-        }}
+          mixBlendMode: trans ? 'difference' : 'normal',
+        } as React.CSSProperties}
       >
         <div style={{
           color: textColor,

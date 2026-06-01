@@ -7,7 +7,7 @@ import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSc
 import { applyPrintMapStyle, applyPrintMaskColor, wantsEveryTown, getBorderWidth, type PrintDetailSettings, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
 import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
 import { fetchBoundary } from '@/lib/print/boundaryCache';
-import type { PreviewTitleSettings, TitleBlockSettings } from '@/lib/print/titleLayouts';
+import { effectiveTitleStyle, type PreviewTitleSettings, type TitleBlockSettings, type TitleStyle } from '@/lib/print/titleLayouts';
 
 // Shared cache for all popup/fullscreen previews keyed by slug:colorScheme:layout
 export const PREVIEW_SNAPSHOT_CACHE = new Map<string, string>();
@@ -33,7 +33,9 @@ export function getPreviewCacheKey(
   return `${slug}:${colorScheme}:${layout}:${d.places}:${d.roads}:${d.counties ? 'c' : ''}:b${d.border}`;
 }
 
-function getFooterHeight(layout: string, totalHeight: number): number {
+function getFooterHeight(layout: string, totalHeight: number, style: TitleStyle = 'standard'): number {
+  // Translucent layouts paint no band — the title text floats over the map.
+  if (style === 'translucent') return 0;
   if (layout === 'classic-bottom') return Math.round(totalHeight * 0.135);
   if (layout === 'compact-bottom') return Math.round(totalHeight * 0.095);
   return 0; // overlay layouts have no footer strip
@@ -55,6 +57,7 @@ function drawTitleBand(
   totalHeight: number,
   mapHeight: number,
   footerHeight: number,
+  style: TitleStyle = 'standard',
 ): void {
   const hasSubtitle = subtitle.length > 0;
   const hasDetail = detail.length > 0;
@@ -62,20 +65,42 @@ function drawTitleBand(
   const isVeryLong = title.length > 16;
   const isExtreme = title.length > 24;
   const fitRatio = Math.min(1, 11 / Math.max(title.length, 1));
+  const trans = style === 'translucent';
+
+  // For translucent style, paint text using globalCompositeOperation = 'difference'
+  // with white. This auto-inverts text color per-pixel against whatever map
+  // content is behind it — text over white land becomes near-black, text over
+  // dark ink becomes near-white.
+  function startText() {
+    ctx.save();
+    if (trans) {
+      ctx.globalCompositeOperation = 'difference';
+      ctx.fillStyle = '#ffffff';
+    } else {
+      ctx.fillStyle = ink;
+    }
+  }
+  function endText() { ctx.restore(); }
 
   if (layout === 'classic-bottom' || layout === 'compact-bottom') {
     const isClassic = layout === 'classic-bottom';
-    const fh = footerHeight;
+    // In translucent mode there's no footer strip; emulate the band height so
+    // text still sits in the same vertical position over the bottom of the map.
+    const fh = trans
+      ? Math.round(totalHeight * (isClassic ? 0.135 : 0.095))
+      : footerHeight;
+    const bandTop = trans ? totalHeight - fh : mapHeight;
 
-    ctx.fillStyle = land;
-    ctx.fillRect(0, mapHeight, width, fh);
-
-    ctx.strokeStyle = ink;
-    ctx.lineWidth = isClassic ? Math.max(3, width * 0.0012) : Math.max(2, width * 0.0008);
-    ctx.beginPath();
-    ctx.moveTo(0, mapHeight);
-    ctx.lineTo(width, mapHeight);
-    ctx.stroke();
+    if (!trans) {
+      ctx.fillStyle = land;
+      ctx.fillRect(0, bandTop, width, fh);
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = isClassic ? Math.max(3, width * 0.0012) : Math.max(2, width * 0.0008);
+      ctx.beginPath();
+      ctx.moveTo(0, bandTop);
+      ctx.lineTo(width, bandTop);
+      ctx.stroke();
+    }
 
     const baseSize = isClassic
       ? Math.max(48, Math.min(fh * (hasSubtitle || hasDetail ? 0.33 : 0.44), 160))
@@ -89,9 +114,9 @@ function drawTitleBand(
       titleSize +
       (hasSubtitle ? fh * 0.06 + subSize : 0) +
       (hasDetail ? fh * 0.04 + detSize : 0);
-    let textY = mapHeight + (fh - totalTextHeight) / 2 + titleSize * 0.88;
+    let textY = bandTop + (fh - totalTextHeight) / 2 + titleSize * 0.88;
 
-    ctx.fillStyle = ink;
+    startText();
     ctx.textAlign = 'center';
     ctx.font = `300 ${titleSize}px "Cormorant Garamond", serif`;
     setLetterSpacing(ctx, letterSpacing);
@@ -109,6 +134,7 @@ function drawTitleBand(
       setLetterSpacing(ctx, 0.14);
       ctx.fillText(detail, width / 2, textY);
     }
+    endText();
     return;
   }
 
@@ -132,12 +158,14 @@ function drawTitleBand(
     );
     const borderW = Math.max(2, Math.round(W * 0.0008));
 
-    ctx.fillStyle = land;
-    ctx.fillRect(panelX, panelY, panelW, panelH);
-    ctx.fillStyle = ink;
-    ctx.fillRect(panelX, panelY, borderW, panelH);
+    if (!trans) {
+      ctx.fillStyle = land;
+      ctx.fillRect(panelX, panelY, panelW, panelH);
+      ctx.fillStyle = ink;
+      ctx.fillRect(panelX, panelY, borderW, panelH);
+    }
 
-    ctx.fillStyle = ink;
+    startText();
     ctx.textAlign = 'left';
     let textY = panelY + pad + titleSize * 0.88;
     ctx.font = `300 ${titleSize}px "Cormorant Garamond", serif`;
@@ -155,6 +183,7 @@ function drawTitleBand(
       setLetterSpacing(ctx, 0.08);
       ctx.fillText(detail, panelX + borderW + pad, textY, panelW - borderW - pad * 2);
     }
+    endText();
     return;
   }
 
@@ -169,12 +198,14 @@ function drawTitleBand(
     const panelY = MH - Math.round(MH * 0.04) - panelH;
     const borderH = Math.max(1, Math.round(W * 0.0004));
 
-    ctx.fillStyle = land;
-    ctx.fillRect(panelX, panelY, panelW, panelH);
-    ctx.fillStyle = ink;
-    ctx.fillRect(panelX, panelY, panelW, borderH);
+    if (!trans) {
+      ctx.fillStyle = land;
+      ctx.fillRect(panelX, panelY, panelW, panelH);
+      ctx.fillStyle = ink;
+      ctx.fillRect(panelX, panelY, panelW, borderH);
+    }
 
-    ctx.fillStyle = ink;
+    startText();
     ctx.textAlign = 'right';
     let textY = panelY + borderH + pad + titleSize * 0.88;
     ctx.font = `300 ${titleSize}px "Cormorant Garamond", serif`;
@@ -192,6 +223,7 @@ function drawTitleBand(
       setLetterSpacing(ctx, 0.08);
       ctx.fillText(detail, panelX + panelW - pad, textY);
     }
+    endText();
     return;
   }
 
@@ -202,11 +234,12 @@ function drawTitleBand(
     const railH = MH - 2 * railTop;
     const dividerW = Math.max(1, Math.round(W * 0.0006));
 
-    // Rail panel + thin divider line on the inside (right) edge.
-    ctx.fillStyle = land;
-    ctx.fillRect(railX, railTop, railW, railH);
-    ctx.fillStyle = ink;
-    ctx.fillRect(railX + railW - dividerW, railTop, dividerW, railH);
+    if (!trans) {
+      ctx.fillStyle = land;
+      ctx.fillRect(railX, railTop, railW, railH);
+      ctx.fillStyle = ink;
+      ctx.fillRect(railX + railW - dividerW, railTop, dividerW, railH);
+    }
 
     const railTitleSize = Math.round(railW * 0.5);
     const railSubSize = Math.round(railW * 0.22);
@@ -216,10 +249,9 @@ function drawTitleBand(
     // rail. After rotate(-90°): +X axis points UP the page; +Y axis points
     // out toward the map. textBaseline='middle' centers the text on the
     // rail's horizontal midline. Stack title → subtitle → detail upward.
-    ctx.save();
+    startText();
     ctx.translate(railX + railW / 2, railTop + railH);
     ctx.rotate(-Math.PI / 2);
-    ctx.fillStyle = ink;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
 
@@ -243,7 +275,7 @@ function drawTitleBand(
       ctx.fillText(detail, cursor, 0);
     }
 
-    ctx.restore();
+    endText();
     ctx.textBaseline = 'alphabetic';
   }
 }
@@ -333,7 +365,9 @@ export async function renderPrintSnapshot(
   const border = kind === 'city'
     ? getBorderWidth((detail ?? DEFAULT_DETAIL_SETTINGS).border, rw)
     : 0;
-  const footerHeight = titleSettings.enabled ? getFooterHeight(titleSettings.layout, rh) : 0;
+  const titleStyle = effectiveTitleStyle(titleSettings);
+  const titleVisible = titleSettings.enabled && titleSettings.layout !== 'freeform';
+  const footerHeight = titleVisible ? getFooterHeight(titleSettings.layout, rh, titleStyle) : 0;
   const mapHeight = rh - footerHeight;
   // The bordered region inside the map area. MapLibre always renders at the
   // FULL (rw × mapHeight) — independent of border thickness — so the camera
@@ -429,19 +463,21 @@ export async function renderPrintSnapshot(
         // Draw the rendered map into the bordered inner region.
         ctx.drawImage(map.getCanvas(), border, border, innerMapW, innerMapH);
 
-        if (titleSettings.enabled && title) {
-          // Inverted title swaps the ink/land roles inside the title band,
+        if (titleVisible && title) {
+          // Inverted style swaps the ink/land roles inside the title band,
           // so backgrounds become ink, text and dividers become land.
-          const tbInk = titleSettings.inverted ? land : ink;
-          const tbLand = titleSettings.inverted ? ink : land;
+          const tbInk = titleStyle === 'inverted' ? land : ink;
+          const tbLand = titleStyle === 'inverted' ? ink : land;
           if (footerHeight > 0) {
             // Footer layout: title band sits below the map, no border around it
-            drawTitleBand(ctx, title, subtitle, detail, tbInk, tbLand, titleSettings.layout, rw, rh, mapHeight, footerHeight);
+            drawTitleBand(ctx, title, subtitle, detail, tbInk, tbLand, titleSettings.layout, rw, rh, mapHeight, footerHeight, titleStyle);
           } else {
-            // Overlay layout: position the title inside the bordered map area
+            // Overlay layout (incl. translucent footer overlays): position
+            // inside the bordered map area so the auto-contrast falls on
+            // map content rather than the ink frame.
             ctx.save();
             ctx.translate(border, border);
-            drawTitleBand(ctx, title, subtitle, detail, tbInk, tbLand, titleSettings.layout, innerMapW, innerMapH, innerMapH, 0);
+            drawTitleBand(ctx, title, subtitle, detail, tbInk, tbLand, titleSettings.layout, innerMapW, innerMapH, innerMapH, 0, titleStyle);
             ctx.restore();
           }
         }
@@ -540,15 +576,6 @@ export async function renderPrintSnapshot(
   });
 }
 
-// Helper used by bakeTitleBlock
-function hexToRgba(hex: string, alpha: number): string {
-  const h = hex.replace('#', '');
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
-
 export function bakeTitleBlock(
   ctx: CanvasRenderingContext2D,
   block: TitleBlockSettings,
@@ -576,21 +603,27 @@ export function bakeTitleBlock(
   const isVeryLong = title.length > 16;
   const isExtreme = title.length > 24;
   const fitRatio = Math.min(1, 11 / Math.max(title.length, 1));
+  const trans = block.style === 'translucent';
 
   ctx.save();
   ctx.translate(px + pw / 2, py + ph / 2);
   ctx.rotate((block.rotation * Math.PI) / 180);
 
-  // Background
-  if (block.style === 'translucent') {
-    ctx.fillStyle = hexToRgba(ink, 0.72);
-  } else {
+  // Background — translucent skips fill entirely (clear glass).
+  if (!trans) {
     ctx.fillStyle = block.style === 'inverted' ? ink : land;
+    ctx.fillRect(-pw / 2, -ph / 2, pw, ph);
   }
-  ctx.fillRect(-pw / 2, -ph / 2, pw, ph);
 
-  const textColor = block.style === 'standard' ? ink : land;
-  ctx.fillStyle = textColor;
+  // Text. For translucent, use globalCompositeOperation = 'difference' with
+  // white so each text pixel auto-inverts against whatever map content is
+  // behind it.
+  if (trans) {
+    ctx.globalCompositeOperation = 'difference';
+    ctx.fillStyle = '#ffffff';
+  } else {
+    ctx.fillStyle = block.style === 'standard' ? ink : land;
+  }
   ctx.textAlign = 'center';
 
   const titleSize = Math.round(ph * (lineCount === 1 ? 0.46 : lineCount === 2 ? 0.38 : 0.32) * fitRatio);
