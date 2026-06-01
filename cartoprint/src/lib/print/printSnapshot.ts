@@ -310,20 +310,26 @@ export async function renderPrintSnapshot(
 
   const rw = renderWidthOverride ?? RENDER_WIDTH;
   const rh = Math.round(rw * (4 / 3));
-  const border = getBorderWidth((detail ?? DEFAULT_DETAIL_SETTINGS).border, rw);
-  // Inner usable area inside the border. Footer height + map height are
-  // computed from innerH so the title band stays proportional to the visible
-  // print, not the full canvas (the border eats space on all four sides).
-  const innerW = rw - 2 * border;
-  const innerH = rh - 2 * border;
-  const footerHeight = getFooterHeight(titleSettings.layout, innerH);
-  const mapHeight = innerH - footerHeight;
+  // Border is city-only. State and country prints already get a visual frame
+  // from the isolation-mask silhouette, so a redundant ink frame around them
+  // would just thicken the look. City prints have no mask, so they get the
+  // ink frame as their visual "edge" by default.
+  const border = kind === 'city'
+    ? getBorderWidth((detail ?? DEFAULT_DETAIL_SETTINGS).border, rw)
+    : 0;
+  const footerHeight = getFooterHeight(titleSettings.layout, rh);
+  const mapHeight = rh - footerHeight;
+  // MapLibre renders into the inner bordered region of the map area only —
+  // the title band below the map is NOT bordered (it sits flush against the
+  // bottom of the framed map).
+  const innerMapW = rw - 2 * border;
+  const innerMapH = mapHeight - 2 * border;
 
   return new Promise<string>((resolve, reject) => {
     if (signal?.aborted) { reject(new Error('aborted')); return; }
 
     const mapDiv = document.createElement('div');
-    mapDiv.style.cssText = `position:fixed;left:-9999px;top:0;width:${innerW}px;height:${mapHeight}px;`;
+    mapDiv.style.cssText = `position:fixed;left:-9999px;top:0;width:${innerMapW}px;height:${innerMapH}px;`;
     document.body.appendChild(mapDiv);
 
     let snapshotted = false;
@@ -386,25 +392,35 @@ export async function renderPrintSnapshot(
         c.height = rh;
         const ctx = c.getContext('2d')!;
 
-        // Outer border: fill the full canvas with ink first; the inner area is
-        // then painted on top, leaving the border showing on all four sides.
+        // Land fill for the title band area below the map (unbordered, edge to
+        // edge). Drawn first so subsequent layers paint on top.
+        ctx.fillStyle = land;
+        ctx.fillRect(0, 0, rw, rh);
+
+        // Map area frame: ink rectangle over the entire map portion (NOT the
+        // title band below it), then land fill over the inner region. The
+        // border ends flush against the top of the title band.
         if (border > 0) {
           ctx.fillStyle = ink;
-          ctx.fillRect(0, 0, rw, rh);
+          ctx.fillRect(0, 0, rw, mapHeight);
+          ctx.fillStyle = land;
+          ctx.fillRect(border, border, innerMapW, innerMapH);
         }
 
-        // Inner land fill (the background behind the map + title band)
-        ctx.fillStyle = land;
-        ctx.fillRect(border, border, innerW, innerH);
-
-        // Draw the rendered map into the inner area
-        ctx.drawImage(map.getCanvas(), border, border, innerW, mapHeight);
+        // Draw the rendered map into the bordered inner region.
+        ctx.drawImage(map.getCanvas(), border, border, innerMapW, innerMapH);
 
         if (titleSettings.enabled && title) {
-          ctx.save();
-          ctx.translate(border, border);
-          drawTitleBand(ctx, title, subtitle, detail, ink, land, titleSettings.layout, innerW, innerH, mapHeight, footerHeight);
-          ctx.restore();
+          if (footerHeight > 0) {
+            // Footer layout: title band sits below the map, no border around it
+            drawTitleBand(ctx, title, subtitle, detail, ink, land, titleSettings.layout, rw, rh, mapHeight, footerHeight);
+          } else {
+            // Overlay layout: position the title inside the bordered map area
+            ctx.save();
+            ctx.translate(border, border);
+            drawTitleBand(ctx, title, subtitle, detail, ink, land, titleSettings.layout, innerMapW, innerMapH, innerMapH, 0);
+            ctx.restore();
+          }
         }
 
         const url = c.toDataURL('image/png');
@@ -475,7 +491,7 @@ export async function renderPrintSnapshot(
         [Number(bbox[3]), Number(bbox[1])],
       ],
       fitBoundsOptions: {
-        padding: Math.round(Math.min(innerW, mapHeight) * 0.12),
+        padding: Math.round(Math.min(innerMapW, innerMapH) * 0.12),
         animate: false,
       },
     });

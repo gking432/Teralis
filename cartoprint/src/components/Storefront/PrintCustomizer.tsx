@@ -187,18 +187,20 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
                 value={detail.counties ? 'more' : 'none'}
                 onChange={(v) => setDetail((d) => ({ ...d, counties: v === 'more' }))}
               />
-              <SegRow<BorderWeight>
-                label="Border"
-                hint="Thick ink frame around the print"
-                options={[
-                  { value: 'none', label: 'Off' },
-                  { value: 'thin', label: 'Thin' },
-                  { value: 'medium', label: 'Medium' },
-                  { value: 'thick', label: 'Thick' },
-                ]}
-                value={detail.border}
-                onChange={(v) => setDetail((d) => ({ ...d, border: v }))}
-              />
+              {kind === 'city' && (
+                <SegRow<BorderWeight>
+                  label="Border"
+                  hint="Ink frame around the map"
+                  options={[
+                    { value: 'none', label: 'Off' },
+                    { value: 'thin', label: 'Thin' },
+                    { value: 'medium', label: 'Medium' },
+                    { value: 'thick', label: 'Thick' },
+                  ]}
+                  value={detail.border}
+                  onChange={(v) => setDetail((d) => ({ ...d, border: v }))}
+                />
+              )}
             </Section>
 
             {/* Color scheme presets */}
