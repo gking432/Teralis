@@ -400,6 +400,19 @@ export async function renderPrintSnapshot(
 
     function tryApplyMask() {
       if (!geom || !styleLoaded) return;
+
+      // For cities, we don't want to cut out a jagged city-shaped silhouette —
+      // a city print is a normal map view cropped by the bbox, with neighboring
+      // streets and labels still visible for context. Skip the isolation mask
+      // and the `within` label filter; the bbox crop alone does the framing.
+      // (We still keep the geometry around for the server-side every-town
+      //  filter, which uses it to pick which places to label.)
+      if (kind === 'city') {
+        geometryReady = true;
+        loadEveryTownIfNeeded();
+        return;
+      }
+
       applyIsolationMask(map, { name: slug, type: kind, fullName: slug, bbox, geojson: geom }, 1);
       applyPrintMaskColor(map, colorSettings);
       // Move city/town/capital symbol layers above the mask so labels that
