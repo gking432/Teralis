@@ -73,6 +73,11 @@ export function CustomizePageClient() {
     return () => { cancelled = true; };
   }, [catalogPrint, placePrint, freeQuery, router]);
 
+  const print = catalogPrint || placePrint;
+  if (print) {
+    return <PrintCustomizer print={print} />;
+  }
+
   if (resolving) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#ece7dd]">
@@ -97,11 +102,6 @@ export function CustomizePageClient() {
         </div>
       </div>
     );
-  }
-
-  const print = catalogPrint || placePrint;
-  if (print) {
-    return <PrintCustomizer print={print} />;
   }
 
   return <MapBuilder catalogPrint={catalogPrint} catalogSlug={catalogSlug} />;
