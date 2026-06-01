@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { inferKind } from '@/lib/catalog/placeFromQuery';
-import type { CatalogPrintKind } from '@/lib/catalog/prints';
+import { getAllCatalogPrints, type CatalogPrintKind } from '@/lib/catalog/prints';
 
 interface NominatimResult {
   place_id: number;
@@ -44,7 +44,16 @@ function toDisplay(r: NominatimResult): DisplayResult {
   };
 }
 
+function catalogSlug(r: DisplayResult): string | null {
+  if (r.kind !== 'state' && r.kind !== 'country') return null;
+  const needle = r.primary.toLowerCase();
+  const match = getAllCatalogPrints().find((p) => p.name.toLowerCase() === needle);
+  return match?.slug ?? null;
+}
+
 function navigateUrl(r: DisplayResult): string {
+  const slug = catalogSlug(r);
+  if (slug) return `/customize?print=${slug}`;
   const params = new URLSearchParams({
     place: r.primary,
     kind: r.kind,
