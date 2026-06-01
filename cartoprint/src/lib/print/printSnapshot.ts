@@ -319,9 +319,12 @@ export async function renderPrintSnapshot(
     : 0;
   const footerHeight = getFooterHeight(titleSettings.layout, rh);
   const mapHeight = rh - footerHeight;
-  // MapLibre renders into the inner bordered region of the map area only —
-  // the title band below the map is NOT bordered (it sits flush against the
-  // bottom of the framed map).
+  // The bordered region inside the map area. MapLibre always renders at the
+  // FULL (rw × mapHeight) — independent of border thickness — so the camera
+  // zoom level is identical regardless of border. We then draw the rendered
+  // canvas scaled into the inner region during composition. This guarantees
+  // road density, label density, and visible content are the same whether
+  // the user picks none / thin / medium / thick borders.
   const innerMapW = rw - 2 * border;
   const innerMapH = mapHeight - 2 * border;
 
@@ -329,7 +332,7 @@ export async function renderPrintSnapshot(
     if (signal?.aborted) { reject(new Error('aborted')); return; }
 
     const mapDiv = document.createElement('div');
-    mapDiv.style.cssText = `position:fixed;left:-9999px;top:0;width:${innerMapW}px;height:${innerMapH}px;`;
+    mapDiv.style.cssText = `position:fixed;left:-9999px;top:0;width:${rw}px;height:${mapHeight}px;`;
     document.body.appendChild(mapDiv);
 
     let snapshotted = false;
@@ -491,7 +494,7 @@ export async function renderPrintSnapshot(
         [Number(bbox[3]), Number(bbox[1])],
       ],
       fitBoundsOptions: {
-        padding: Math.round(Math.min(innerMapW, innerMapH) * 0.12),
+        padding: Math.round(Math.min(rw, mapHeight) * 0.12),
         animate: false,
       },
     });
