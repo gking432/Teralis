@@ -4,7 +4,7 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { STYLE_URL } from '@/lib/map/style';
 import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSchemes';
-import { applyPrintMapStyle, applyPrintMaskColor, wantsEveryTown, type PrintDetailSettings, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
+import { applyPrintMapStyle, applyPrintMaskColor, wantsEveryTown, getBorderWidth, type PrintDetailSettings, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
 import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
 import { fetchBoundary } from '@/lib/print/boundaryCache';
 import type { PreviewTitleSettings } from '@/lib/print/titleLayouts';
@@ -30,7 +30,7 @@ export function getPreviewCacheKey(
   detail?: PrintDetailSettings,
 ): string {
   const d = detail ?? DEFAULT_DETAIL_SETTINGS;
-  return `${slug}:${colorScheme}:${layout}:${d.places}:${d.roads}:${d.counties ? 'c' : ''}`;
+  return `${slug}:${colorScheme}:${layout}:${d.places}:${d.roads}:${d.counties ? 'c' : ''}:b${d.border}`;
 }
 
 function getFooterHeight(layout: string, totalHeight: number): number {
@@ -310,14 +310,20 @@ export async function renderPrintSnapshot(
 
   const rw = renderWidthOverride ?? RENDER_WIDTH;
   const rh = Math.round(rw * (4 / 3));
-  const footerHeight = getFooterHeight(titleSettings.layout, rh);
-  const mapHeight = rh - footerHeight;
+  const border = getBorderWidth((detail ?? DEFAULT_DETAIL_SETTINGS).border, rw);
+  // Inner usable area inside the border. Footer height + map height are
+  // computed from innerH so the title band stays proportional to the visible
+  // print, not the full canvas (the border eats space on all four sides).
+  const innerW = rw - 2 * border;
+  const innerH = rh - 2 * border;
+  const footerHeight = getFooterHeight(titleSettings.layout, innerH);
+  const mapHeight = innerH - footerHeight;
 
   return new Promise<string>((resolve, reject) => {
     if (signal?.aborted) { reject(new Error('aborted')); return; }
 
     const mapDiv = document.createElement('div');
-    mapDiv.style.cssText = `position:fixed;left:-9999px;top:0;width:${rw}px;height:${mapHeight}px;`;
+    mapDiv.style.cssText = `position:fixed;left:-9999px;top:0;width:${innerW}px;height:${mapHeight}px;`;
     document.body.appendChild(mapDiv);
 
     let snapshotted = false;
@@ -380,13 +386,25 @@ export async function renderPrintSnapshot(
         c.height = rh;
         const ctx = c.getContext('2d')!;
 
-        ctx.fillStyle = land;
-        ctx.fillRect(0, 0, rw, rh);
+        // Outer border: fill the full canvas with ink first; the inner area is
+        // then painted on top, leaving the border showing on all four sides.
+        if (border > 0) {
+          ctx.fillStyle = ink;
+          ctx.fillRect(0, 0, rw, rh);
+        }
 
-        ctx.drawImage(map.getCanvas(), 0, 0, rw, mapHeight);
+        // Inner land fill (the background behind the map + title band)
+        ctx.fillStyle = land;
+        ctx.fillRect(border, border, innerW, innerH);
+
+        // Draw the rendered map into the inner area
+        ctx.drawImage(map.getCanvas(), border, border, innerW, mapHeight);
 
         if (titleSettings.enabled && title) {
-          drawTitleBand(ctx, title, subtitle, detail, ink, land, titleSettings.layout, rw, rh, mapHeight, footerHeight);
+          ctx.save();
+          ctx.translate(border, border);
+          drawTitleBand(ctx, title, subtitle, detail, ink, land, titleSettings.layout, innerW, innerH, mapHeight, footerHeight);
+          ctx.restore();
         }
 
         const url = c.toDataURL('image/png');
@@ -457,7 +475,7 @@ export async function renderPrintSnapshot(
         [Number(bbox[3]), Number(bbox[1])],
       ],
       fitBoundsOptions: {
-        padding: Math.round(Math.min(rw, mapHeight) * 0.12),
+        padding: Math.round(Math.min(innerW, mapHeight) * 0.12),
         animate: false,
       },
     });

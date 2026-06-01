@@ -8,17 +8,36 @@ import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSc
 // Neutral is the default; Less/More step down/up from there.
 export type Density = 'none' | 'less' | 'neutral' | 'more';
 
+// Outer ink-color border around the print. Default is medium (~1 inch on a
+// 12x16, ~2 inches on a 24x36). Removable via the customizer panel.
+export type BorderWeight = 'none' | 'thin' | 'medium' | 'thick';
+
 export interface PrintDetailSettings {
   places: Density;   // cities & towns
   roads: Density;    // highways & main roads
   counties: boolean; // county lines
+  border: BorderWeight; // outer print frame
 }
 
 export const DEFAULT_DETAIL_SETTINGS: PrintDetailSettings = {
   places: 'neutral',
   roads: 'neutral',
   counties: false,
+  border: 'medium',
 };
+
+// Border thickness as a fraction of the rendered width. Picked so medium
+// gives ~1" on a 12x16 and ~2" on a 24x36 at 300 DPI.
+const BORDER_RATIO: Record<BorderWeight, number> = {
+  none: 0,
+  thin: 0.03,
+  medium: 0.08,
+  thick: 0.12,
+};
+
+export function getBorderWidth(weight: BorderWeight, renderWidth: number): number {
+  return Math.round(renderWidth * BORDER_RATIO[weight]);
+}
 
 // --- per-kind base layer states ---
 

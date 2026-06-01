@@ -12,7 +12,7 @@ import {
 import { TITLE_LAYOUTS, DEFAULT_TITLE_LAYOUT, type PreviewTitleLayout, type PreviewTitleSettings } from '@/lib/print/titleLayouts';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey, colorCacheKey } from '@/lib/print/printSnapshot';
-import { type PrintDetailSettings, type Density, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
+import { type PrintDetailSettings, type Density, type BorderWeight, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
 import { ImageMagnifier } from '@/components/ui/ImageMagnifier';
 
 interface PrintCustomizerProps {
@@ -187,6 +187,18 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
                 value={detail.counties ? 'more' : 'none'}
                 onChange={(v) => setDetail((d) => ({ ...d, counties: v === 'more' }))}
               />
+              <SegRow<BorderWeight>
+                label="Border"
+                hint="Thick ink frame around the print"
+                options={[
+                  { value: 'none', label: 'Off' },
+                  { value: 'thin', label: 'Thin' },
+                  { value: 'medium', label: 'Medium' },
+                  { value: 'thick', label: 'Thick' },
+                ]}
+                value={detail.border}
+                onChange={(v) => setDetail((d) => ({ ...d, border: v }))}
+              />
             </Section>
 
             {/* Color scheme presets */}
@@ -283,7 +295,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function SegRow({
+function SegRow<T extends string>({
   label,
   hint,
   options,
@@ -292,9 +304,9 @@ function SegRow({
 }: {
   label: string;
   hint?: string;
-  options: { value: Density; label: string }[];
-  value: Density;
-  onChange: (v: Density) => void;
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
 }) {
   return (
     <div className="mb-4 last:mb-0">
