@@ -196,9 +196,12 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
             ref={previewContainerRef}
             className="relative w-full overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.28)]"
             style={{
-              // aspectRatio in CSS is width / height; printRatio is height / width.
+              // aspectRatio is width/height; printRatio is height/width.
+              // maxWidth uses CSS min() so the preview never exceeds 90vw.
+              // maxHeight keeps portrait prints from being taller than the viewport.
               aspectRatio: `${1 / printRatio}`,
-              maxWidth: orientation === 'landscape' ? 920 : 740,
+              maxWidth: `min(${orientation === 'landscape' ? '920px' : '740px'}, 90vw)`,
+              maxHeight: '82vh',
             }}
           >
             {previewUrl && (
@@ -528,27 +531,40 @@ function DraggableTitle({
       setGlassColor(getPrintInkColor(colors));
       return;
     }
+    let cancelled = false;
     const img = new Image();
+    const fallback = getPrintInkColor(colors);
     img.onload = () => {
-      const iw = img.naturalWidth;
-      const ih = img.naturalHeight;
-      const sx = Math.max(0, Math.round(block.x * iw));
-      const sy = Math.max(0, Math.round(block.y * ih));
-      const sw = Math.max(1, Math.min(Math.round(block.w * iw), iw - sx));
-      const sh = Math.max(1, Math.min(Math.round(block.h * ih), ih - sy));
-      const c = document.createElement('canvas');
-      c.width = sw; c.height = sh;
-      const ctx = c.getContext('2d')!;
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-      const data = ctx.getImageData(0, 0, sw, sh).data;
-      let total = 0;
-      for (let i = 0; i < data.length; i += 4) {
-        total += (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
+      if (cancelled) return;
+      try {
+        const iw = img.naturalWidth;
+        const ih = img.naturalHeight;
+        // Sample a 100×100 region at the center of the title block.
+        const cx = Math.round((block.x + block.w / 2) * iw);
+        const cy = Math.round((block.y + block.h / 2) * ih);
+        const r = 50;
+        const sx = Math.max(0, cx - r);
+        const sy = Math.max(0, cy - r);
+        const sw = Math.min(r * 2, iw - sx);
+        const sh = Math.min(r * 2, ih - sy);
+        const c = document.createElement('canvas');
+        c.width = sw; c.height = sh;
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+        const data = ctx.getImageData(0, 0, sw, sh).data;
+        let total = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          total += (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
+        }
+        const avgLum = total / (data.length / 4);
+        setGlassColor(avgLum > 0.5 ? getPrintInkColor(colors) : (colors.land || '#ffffff'));
+      } catch {
+        setGlassColor(fallback);
       }
-      const avgLum = total / (data.length / 4);
-      setGlassColor(avgLum > 0.5 ? getPrintInkColor(colors) : (colors.land || '#ffffff'));
     };
+    img.onerror = () => { if (!cancelled) setGlassColor(fallback); };
     img.src = previewUrl;
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trans, previewUrl, block.x, block.y, block.w, block.h]);
 
