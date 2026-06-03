@@ -53,14 +53,14 @@ function catalogSlug(r: DisplayResult): string | null {
 
 function navigateUrl(r: DisplayResult): string {
   const slug = catalogSlug(r);
-  if (slug) return `/customize?print=${slug}`;
+  if (slug) return `/design?print=${slug}`;
   const params = new URLSearchParams({
     place: r.primary,
     kind: r.kind,
     bbox: r.bbox.join(','),
     display: r.displayName,
   });
-  return `/customize?${params.toString()}`;
+  return `/design?${params.toString()}`;
 }
 
 export function LocationSearch({ autoFocus = false, placeholder = 'Type a state, city, or town…' }: {

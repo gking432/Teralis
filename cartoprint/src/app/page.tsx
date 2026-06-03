@@ -50,7 +50,7 @@ export default function StorefrontPage() {
             {POPULAR_CITIES.map((city) => (
               <Link
                 key={city}
-                href={`/customize?q=${encodeURIComponent(city)}`}
+                href={`/design?q=${encodeURIComponent(city)}`}
                 className="underline-offset-4 transition-colors hover:text-text hover:underline"
               >
                 {city}

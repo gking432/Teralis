@@ -12,9 +12,23 @@ import { effectiveTitleStyle, type PreviewTitleSettings, type TitleBlockSettings
 // Shared cache for all popup/fullscreen previews keyed by slug:colorScheme:layout
 export const PREVIEW_SNAPSHOT_CACHE = new Map<string, string>();
 
-// 8" wide at 300 dpi — matches the smallest print size. Portrait 3:4.
+// 8" wide at 300 dpi — matches the smallest print size.
 const RENDER_WIDTH = 2400;
-const RENDER_TOTAL_HEIGHT = Math.round(RENDER_WIDTH * (4 / 3)); // 3200
+
+export type Orientation = 'portrait' | 'landscape' | 'square';
+
+// Height-to-width ratio per orientation. Portrait is 3:4 (taller), landscape
+// is 4:3 (wider), square is 1:1. fitBounds adapts the camera to whatever
+// canvas shape we render at.
+export const ORIENTATION_RATIO: Record<Orientation, number> = {
+  portrait: 4 / 3,
+  landscape: 3 / 4,
+  square: 1,
+};
+
+export function isValidOrientation(s: string | null | undefined): s is Orientation {
+  return s === 'portrait' || s === 'landscape' || s === 'square';
+}
 
 // Stable string for a color combination — used inside the preview cache key so
 // the thumbnail and the customizer (which both default to the same colors)
@@ -405,11 +419,12 @@ export async function renderPrintSnapshot(
   signal?: AbortSignal,
   detail?: PrintDetailSettings,
   renderWidthOverride?: number,
+  orientation: Orientation = 'portrait',
 ): Promise<string> {
   if (signal?.aborted) return Promise.reject(new Error('aborted'));
 
   const rw = renderWidthOverride ?? RENDER_WIDTH;
-  const rh = Math.round(rw * (4 / 3));
+  const rh = Math.round(rw * ORIENTATION_RATIO[orientation]);
   // Border is city-only. State and country prints already get a visual frame
   // from the isolation-mask silhouette, so a redundant ink frame around them
   // would just thicken the look. City prints have no mask, so they get the

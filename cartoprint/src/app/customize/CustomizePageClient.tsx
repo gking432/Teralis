@@ -6,6 +6,7 @@ import { MapBuilder } from '@/components/MapBuilder/MapBuilder';
 import { PrintCustomizer } from '@/components/Storefront/PrintCustomizer';
 import { getCatalogPrint, type CatalogPrint } from '@/lib/catalog/prints';
 import { buildPlaceCatalogPrint, inferKind, placeFromSearchParams } from '@/lib/catalog/placeFromQuery';
+import { isValidOrientation, type Orientation } from '@/lib/print/printSnapshot';
 
 interface NominatimResult {
   place_id: number;
@@ -21,6 +22,8 @@ export function CustomizePageClient() {
   const searchParams = useSearchParams();
   const catalogSlug = searchParams.get('print');
   const catalogPrint = getCatalogPrint(catalogSlug);
+  const orientationParam = searchParams.get('o');
+  const orientation: Orientation = isValidOrientation(orientationParam) ? orientationParam : 'portrait';
 
   // Arbitrary place from search result (?place=Madison&bbox=...&kind=city&display=...)
   const placePrint = useMemo<CatalogPrint | null>(() => {
@@ -61,6 +64,7 @@ export function CustomizePageClient() {
           kind: print.kind,
           bbox: bb.join(','),
           display: top.display_name,
+          o: orientation,
         });
         router.replace(`/customize?${next.toString()}`);
       })
@@ -75,7 +79,7 @@ export function CustomizePageClient() {
 
   const print = catalogPrint || placePrint;
   if (print) {
-    return <PrintCustomizer print={print} />;
+    return <PrintCustomizer print={print} orientation={orientation} />;
   }
 
   if (resolving) {

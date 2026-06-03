@@ -16,11 +16,12 @@ import {
   defaultTitleBlock,
 } from '@/lib/print/titleLayouts';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
-import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey, colorCacheKey, bakeTitleBlock } from '@/lib/print/printSnapshot';
+import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey, colorCacheKey, bakeTitleBlock, ORIENTATION_RATIO, type Orientation } from '@/lib/print/printSnapshot';
 import { type PrintDetailSettings, type Density, type BorderWeight, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
 
 interface PrintCustomizerProps {
   print: CatalogPrint;
+  orientation?: Orientation;
 }
 
 const DENSITY_OPTIONS: { value: Density; label: string }[] = [
@@ -30,7 +31,7 @@ const DENSITY_OPTIONS: { value: Density; label: string }[] = [
   { value: 'more', label: 'More' },
 ];
 
-export function PrintCustomizer({ print }: PrintCustomizerProps) {
+export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustomizerProps) {
   const [colors, setColors] = useState<PreviewColorSettings>(DEFAULT_COLOR_SCHEME.colors);
   const [titleBlock, setTitleBlock] = useState<TitleBlockSettings>(() =>
     defaultTitleBlock(
@@ -67,7 +68,8 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
   // Preview cache key: for fixed layouts we bake the title into the snapshot,
   // so layout + style must be part of the key. For freeform the snapshot is
   // identical regardless of title position, so we use a single 'freeform' tag.
-  const previewLayoutKey = isFreeform ? 'freeform' : `${titleBlock.layout}:${titleBlock.style}`;
+  // Orientation changes the canvas shape so it must be part of the key.
+  const previewLayoutKey = `${orientation}:${isFreeform ? 'freeform' : `${titleBlock.layout}:${titleBlock.style}`}`;
 
   useEffect(() => {
     if (!geometry) return;
@@ -95,6 +97,8 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
       geometry,
       controller.signal,
       detail,
+      undefined,
+      orientation,
     ).then((url) => {
       if (controller.signal.aborted) return;
       PREVIEW_SNAPSHOT_CACHE.set(cacheKey, url);
@@ -106,7 +110,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
     return () => { controller.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [print.slug, colors, detail, geometry, previewLayoutKey, titleBlock.enabled]);
+  }, [print.slug, colors, detail, geometry, previewLayoutKey, titleBlock.enabled, orientation]);
 
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
@@ -115,7 +119,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
     setDownloading(true);
     try {
       const DOWNLOAD_W = 3600;
-      const DOWNLOAD_H = Math.round(DOWNLOAD_W * 4 / 3); // 4800
+      const DOWNLOAD_H = Math.round(DOWNLOAD_W * ORIENTATION_RATIO[orientation]);
       const mapUrl = await renderPrintSnapshot(
         print.slug, print.bbox, print.center, kind,
         colors,
@@ -129,7 +133,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
           style: titleBlock.style,
         },
         geometry,
-        undefined, detail, DOWNLOAD_W,
+        undefined, detail, DOWNLOAD_W, orientation,
       );
 
       let finalDataUrl: string;
@@ -155,7 +159,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
 
       const a = document.createElement('a');
       a.href = finalDataUrl;
-      a.download = `${print.slug}-map-print-12x16.png`;
+      a.download = `${print.slug}-map-print-${orientation}.png`;
       a.click();
     } catch (err) {
       console.warn('Download failed', err);
@@ -174,7 +178,9 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
         <Link href="/" className="text-[11px] uppercase tracking-[1.8px] text-[#555] transition-colors hover:text-[#111]">
           ← Back to Catalog
         </Link>
-        <div className="text-[11px] uppercase tracking-[2px] text-[#999]">Customize Your Print</div>
+        <div className="text-[11px] uppercase tracking-[2px] text-[#999]">
+          Step 2 of 3 · Customize · <span className="text-[#555]">{orientation}</span>
+        </div>
         <div className="w-[120px]" />
       </div>
 
@@ -184,8 +190,11 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
         <div className="flex flex-1 flex-col items-center justify-start lg:sticky lg:top-12 lg:self-start">
           <div
             ref={previewContainerRef}
-            className="relative w-full max-w-[520px] overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.28)]"
-            style={{ aspectRatio: '3/4' }}
+            className="relative w-full overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.28)]"
+            style={{
+              aspectRatio: orientation === 'portrait' ? '3/4' : orientation === 'landscape' ? '4/3' : '1/1',
+              maxWidth: orientation === 'landscape' ? 680 : 520,
+            }}
           >
             {previewUrl && (
               <img
