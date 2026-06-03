@@ -366,24 +366,30 @@ function addEveryTownLayer(
 }
 
 // Clamp city/town bboxes so the resulting fitBounds zoom is high enough that
-// OpenFreeMap Liberty tiles include residential / subdivision streets at that
-// zoom. Nominatim sometimes returns very wide bboxes (e.g. Madison's includes
+// OpenFreeMap Liberty tiles include residential / subdivision streets.
+// Liberty serves residential roads only in z14+ tiles, so TARGET_ZOOM = 14.
+// Nominatim sometimes returns very wide bboxes (e.g. Madison's includes
 // Lakes Mendota/Monona and outlying suburbs); without clamping, fitBounds
-// would zoom out below z13, where the tiles don't carry residential geometry,
+// would zoom out below z14, where the tiles don't carry residential geometry,
 // so the "More" roads toggle has nothing to enable.
+//
+// stableMapH must be the mapHeight when the title footer IS shown (worst case
+// — minimum effective height), so that the clamped bbox produces zoom >= 14
+// regardless of whether the footer is visible. With a constant padding of
+// rw * 0.12, the effective area is (rw - 2*pad) × (stableMapH - 2*pad).
 function clampCityBbox(
   bbox: [string, string, string, string],
   center: [number, number],
   kind: 'country' | 'state' | 'city',
   rw: number,
-  mapHeight: number,
+  stableMapH: number,
 ): [string, string, string, string] {
   if (kind !== 'city') return bbox;
 
-  const TARGET_ZOOM = 13;
-  const PADDING_FRAC = 0.12;
-  const usableW = rw * (1 - 2 * PADDING_FRAC);
-  const usableH = mapHeight * (1 - 2 * PADDING_FRAC);
+  const TARGET_ZOOM = 14; // residential streets appear in Liberty tiles at z14+
+  const paddingPx = Math.round(rw * 0.12);
+  const usableW = rw - 2 * paddingPx;
+  const usableH = stableMapH - 2 * paddingPx;
   const worldPx = 256 * Math.pow(2, TARGET_ZOOM);
   const [clon, clat] = center;
   const cosLat = Math.max(0.2, Math.cos((clat * Math.PI) / 180));
@@ -610,13 +616,14 @@ export async function renderPrintSnapshot(
       });
     }
 
-    // Use a STABLE clamp height — the smallest possible map area (worst case,
-    // largest footer) — so the bbox is identical whether the title is on or
-    // off. Otherwise toggling the title silently shifts the visible map area
-    // and dense urban subdivisions can appear/disappear depending on title
-    // state. With a stable clamp, the bbox stays the same; only the actual
-    // fitBounds zoom changes slightly (title off zooms in a touch further,
-    // since the same bbox fills a taller container).
+    // stableMapHeight = mapHeight when the largest footer is visible (classic-
+    // bottom at 13.5% of rh). Passing this to clampCityBbox ensures the bbox
+    // clamp is computed for the worst-case (smallest) effective map area, so
+    // the fitBounds zoom reaches z14 regardless of whether the footer is shown.
+    //
+    // Padding is anchored to rw (not mapHeight) so it is constant across all
+    // orientations and title states — portrait, landscape, title on/off all
+    // get the same padding, the same clamped bbox, and therefore the same zoom.
     const stableMapHeight = Math.round(rh * (1 - 0.135));
     const cameraBbox = clampCityBbox(bbox, center, kind, rw, stableMapHeight);
     const map = new maplibregl.Map({
@@ -631,7 +638,7 @@ export async function renderPrintSnapshot(
         [Number(cameraBbox[3]), Number(cameraBbox[1])],
       ],
       fitBoundsOptions: {
-        padding: Math.round(Math.min(rw, mapHeight) * 0.12),
+        padding: Math.round(rw * 0.12),
         animate: false,
       },
     });
