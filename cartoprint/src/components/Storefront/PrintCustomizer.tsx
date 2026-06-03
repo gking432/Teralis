@@ -218,7 +218,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
             {loading
               ? 'Updating preview…'
               : isFreeform
-                ? 'Drag label to reposition · Live print preview'
+                ? 'Click label to select · drag to reposition'
                 : 'Live print preview'}
           </p>
         </div>
@@ -353,7 +353,7 @@ export function PrintCustomizer({ print }: PrintCustomizerProps) {
               />
               {isFreeform && (
                 <p className="mt-1 text-[10px] leading-relaxed text-[#999]">
-                  Drag the label to reposition · corners to resize · circle handle to rotate
+                  Click label to select · drag to move · corners to resize · circle to rotate · click away to deselect
                 </p>
               )}
               {titleBlock.style === 'translucent' && (
@@ -471,11 +471,26 @@ function DraggableTitle({
   containerRef: React.RefObject<HTMLDivElement>;
   colors: PreviewColorSettings;
 }) {
+  // Start selected so handles are immediately visible when switching to freeform.
+  const [selected, setSelected] = useState(true);
+  const titleRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     handle: DragHandle;
     startNX: number; startNY: number;
     orig: TitleBlockSettings;
+    moved: boolean;
   } | null>(null);
+
+  // Deselect when clicking anywhere outside this element.
+  useEffect(() => {
+    function onDocMouseDown(e: MouseEvent) {
+      if (titleRef.current && !titleRef.current.contains(e.target as Node)) {
+        setSelected(false);
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, []);
 
   function toNorm(e: MouseEvent | React.MouseEvent): { nx: number; ny: number } {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -485,11 +500,22 @@ function DraggableTitle({
     };
   }
 
-  function onMouseDown(handle: DragHandle, e: React.MouseEvent) {
+  function onBodyMouseDown(e: React.MouseEvent) {
+    e.preventDefault();
+    if (!selected) {
+      // First click: select only, don't start a drag.
+      setSelected(true);
+      return;
+    }
+    const { nx, ny } = toNorm(e);
+    dragRef.current = { handle: 'body', startNX: nx, startNY: ny, orig: { ...block }, moved: false };
+  }
+
+  function onHandleMouseDown(handle: Exclude<DragHandle, 'body'>, e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
     const { nx, ny } = toNorm(e);
-    dragRef.current = { handle, startNX: nx, startNY: ny, orig: { ...block } };
+    dragRef.current = { handle, startNX: nx, startNY: ny, orig: { ...block }, moved: false };
   }
 
   useEffect(() => {
@@ -499,6 +525,7 @@ function DraggableTitle({
       const { nx, ny } = toNorm(e);
       const dx = nx - startNX;
       const dy = ny - startNY;
+      dragRef.current.moved = true;
 
       if (handle === 'body') {
         onChange({ ...orig, x: orig.x + dx, y: orig.y + dy });
@@ -509,12 +536,29 @@ function DraggableTitle({
         const curA = Math.atan2(ny - cy, nx - cx);
         onChange({ ...orig, rotation: orig.rotation + (curA - startA) * (180 / Math.PI) });
       } else {
-        let { x, y, w, h } = orig;
-        if (handle === 'tl') { x += dx; y += dy; w -= dx; h -= dy; }
-        else if (handle === 'tr') { y += dy; w += dx; h -= dy; }
-        else if (handle === 'bl') { x += dx; w -= dx; h += dy; }
-        else { w += dx; h += dy; }
-        onChange({ ...orig, x, y, w: Math.max(0.08, w), h: Math.max(0.03, h) });
+        // Locked aspect-ratio resize: compute a single uniform scale from the
+        // average of how much each axis changed relative to its original size,
+        // so the box always scales proportionally and text can never overflow.
+        const ratio = orig.w / orig.h;
+        let scale: number;
+        if (handle === 'br') {
+          scale = 1 + (dx / orig.w + dy / orig.h) / 2;
+        } else if (handle === 'tl') {
+          scale = 1 + (-dx / orig.w - dy / orig.h) / 2;
+        } else if (handle === 'tr') {
+          scale = 1 + (dx / orig.w - dy / orig.h) / 2;
+        } else {
+          // bl
+          scale = 1 + (-dx / orig.w + dy / orig.h) / 2;
+        }
+        const newW = Math.max(0.06, orig.w * scale);
+        const newH = newW / ratio;
+        // Keep the anchor corner (opposite to the drag handle) fixed in place.
+        let newX = orig.x, newY = orig.y;
+        if (handle === 'tl') { newX = orig.x + orig.w - newW; newY = orig.y + orig.h - newH; }
+        else if (handle === 'tr') { newY = orig.y + orig.h - newH; }
+        else if (handle === 'bl') { newX = orig.x + orig.w - newW; }
+        onChange({ ...orig, x: newX, y: newY, w: newW, h: newH });
       }
     }
     function onUp() { dragRef.current = null; }
@@ -532,8 +576,6 @@ function DraggableTitle({
   const land = colors.land || '#ffffff';
   const trans = block.style === 'translucent';
   const bgColor = block.style === 'inverted' ? ink : land;
-  // For translucent, text is white blended via mix-blend-mode: difference,
-  // which auto-inverts against whatever's behind it per-pixel.
   const textColor = trans ? '#ffffff' : (block.style === 'standard' ? ink : land);
   const hasSubtitle = Boolean(block.subtitle.trim());
   const hasDetail = Boolean(block.detail.trim());
@@ -542,6 +584,7 @@ function DraggableTitle({
 
   return (
     <div
+      ref={titleRef}
       style={{
         position: 'absolute',
         left: `${block.x * 100}%`,
@@ -550,24 +593,18 @@ function DraggableTitle({
         height: `${block.h * 100}%`,
         transform: `rotate(${block.rotation}deg)`,
         transformOrigin: 'center',
-        cursor: 'move',
+        cursor: selected ? 'move' : 'pointer',
         userSelect: 'none',
         containerType: 'size',
       } as React.CSSProperties}
-      onMouseDown={(e) => onMouseDown('body', e)}
+      onMouseDown={onBodyMouseDown}
     >
       {/* Background — skipped entirely for translucent (clear glass) */}
       {!trans && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            backgroundColor: bgColor,
-          }}
-        />
+        <div style={{ position: 'absolute', inset: 0, backgroundColor: bgColor }} />
       )}
 
-      {/* Text */}
+      {/* Text — overflow hidden so text is always clipped to the box bounds */}
       <div
         style={{
           position: 'absolute',
@@ -604,6 +641,9 @@ function DraggableTitle({
             fontSize: '14cqh',
             letterSpacing: '0.22em',
             whiteSpace: 'nowrap',
+            maxWidth: '100%',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
           }}>
             {block.subtitle.trim().toUpperCase()}
           </div>
@@ -616,56 +656,61 @@ function DraggableTitle({
             fontSize: '11cqh',
             letterSpacing: '0.14em',
             whiteSpace: 'nowrap',
+            maxWidth: '100%',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
           }}>
             {block.detail.trim().toUpperCase()}
           </div>
         )}
       </div>
 
-      {/* Selection dashed border */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        outline: '1.5px dashed rgba(80,80,80,0.45)',
-        outlineOffset: '-1px',
-        pointerEvents: 'none',
-      }} />
+      {/* Selection chrome — only visible when selected */}
+      {selected && (
+        <>
+          <div style={{
+            position: 'absolute', inset: 0,
+            outline: '1.5px dashed rgba(80,80,80,0.45)',
+            outlineOffset: '-1px',
+            pointerEvents: 'none',
+          }} />
 
-      {/* 4 corner resize handles */}
-      {([
-        ['tl', { top: -5, left: -5, cursor: 'nw-resize' }],
-        ['tr', { top: -5, right: -5, cursor: 'ne-resize' }],
-        ['bl', { bottom: -5, left: -5, cursor: 'sw-resize' }],
-        ['br', { bottom: -5, right: -5, cursor: 'se-resize' }],
-      ] as const).map(([handle, pos]) => (
-        <div
-          key={handle}
-          style={{
-            position: 'absolute', width: 10, height: 10,
-            backgroundColor: 'white', border: '1.5px solid #333',
-            borderRadius: 2, ...pos,
-          }}
-          onMouseDown={(e) => onMouseDown(handle, e)}
-        />
-      ))}
+          {([
+            ['tl', { top: -5, left: -5, cursor: 'nw-resize' }],
+            ['tr', { top: -5, right: -5, cursor: 'ne-resize' }],
+            ['bl', { bottom: -5, left: -5, cursor: 'sw-resize' }],
+            ['br', { bottom: -5, right: -5, cursor: 'se-resize' }],
+          ] as const).map(([handle, pos]) => (
+            <div
+              key={handle}
+              style={{
+                position: 'absolute', width: 10, height: 10,
+                backgroundColor: 'white', border: '1.5px solid #333',
+                borderRadius: 2, ...pos,
+              }}
+              onMouseDown={(e) => onHandleMouseDown(handle, e)}
+            />
+          ))}
 
-      {/* Rotation handle */}
-      <div
-        style={{ position: 'absolute', left: '50%', top: -30, transform: 'translateX(-50%)', cursor: 'grab' }}
-        onMouseDown={(e) => onMouseDown('rotate', e)}
-      >
-        <div style={{
-          position: 'absolute', left: '50%', bottom: 0,
-          width: 1, height: 18,
-          backgroundColor: 'rgba(50,50,50,0.5)',
-          transform: 'translateX(-50%)',
-          pointerEvents: 'none',
-        }} />
-        <div style={{
-          width: 12, height: 12, borderRadius: '50%',
-          backgroundColor: 'white', border: '1.5px solid #333',
-          position: 'relative', zIndex: 1,
-        }} />
-      </div>
+          <div
+            style={{ position: 'absolute', left: '50%', top: -30, transform: 'translateX(-50%)', cursor: 'grab' }}
+            onMouseDown={(e) => onHandleMouseDown('rotate', e)}
+          >
+            <div style={{
+              position: 'absolute', left: '50%', bottom: 0,
+              width: 1, height: 18,
+              backgroundColor: 'rgba(50,50,50,0.5)',
+              transform: 'translateX(-50%)',
+              pointerEvents: 'none',
+            }} />
+            <div style={{
+              width: 12, height: 12, borderRadius: '50%',
+              backgroundColor: 'white', border: '1.5px solid #333',
+              position: 'relative', zIndex: 1,
+            }} />
+          </div>
+        </>
+      )}
     </div>
   );
 }
