@@ -576,11 +576,22 @@ function DraggableTitle({
   const land = colors.land || '#ffffff';
   const trans = block.style === 'translucent';
   const bgColor = block.style === 'inverted' ? ink : land;
-  const textColor = trans ? '#ffffff' : (block.style === 'standard' ? ink : land);
+  // For Glass: fill in land color (white), stroke in ink (navy). paintOrder
+  // draws stroke first so the fill sits on top — white on dark stays white,
+  // on light the white fill vanishes and the ink stroke carries the text.
+  const textFill = trans ? land : (block.style === 'standard' ? ink : land);
+  const glassStroke = trans ? ink : undefined;
   const hasSubtitle = Boolean(block.subtitle.trim());
   const hasDetail = Boolean(block.detail.trim());
   const isLong = block.title.length > 10;
   const isVeryLong = block.title.length > 16;
+
+  const glassTextStyle = trans
+    ? {
+        WebkitTextStroke: `0.08em ${glassStroke}`,
+        paintOrder: 'stroke fill',
+      }
+    : {};
 
   return (
     <div
@@ -596,11 +607,6 @@ function DraggableTitle({
         cursor: selected ? 'move' : 'pointer',
         userSelect: 'none',
         containerType: 'size',
-        // Apply the blend at the same element as the transform so the
-        // (rotation-induced) stacking context still blends against the
-        // preview container backdrop (the map image) rather than blending
-        // against an isolated transparent layer.
-        mixBlendMode: trans ? 'difference' : 'normal',
       } as React.CSSProperties}
       onMouseDown={onBodyMouseDown}
     >
@@ -625,7 +631,7 @@ function DraggableTitle({
         } as React.CSSProperties}
       >
         <div style={{
-          color: textColor,
+          color: textFill,
           fontFamily: '"Cormorant Garamond", Georgia, serif',
           fontWeight: 300,
           fontSize: `${(hasSubtitle || hasDetail) ? 28 : 36}cqh`,
@@ -634,12 +640,13 @@ function DraggableTitle({
           maxWidth: '100%',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
+          ...glassTextStyle,
         }}>
           {block.title.trim().toUpperCase()}
         </div>
         {hasSubtitle && (
           <div style={{
-            color: textColor,
+            color: textFill,
             fontFamily: '"DM Sans", sans-serif',
             fontWeight: 400,
             fontSize: '14cqh',
@@ -648,13 +655,14 @@ function DraggableTitle({
             maxWidth: '100%',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
+            ...glassTextStyle,
           }}>
             {block.subtitle.trim().toUpperCase()}
           </div>
         )}
         {hasDetail && (
           <div style={{
-            color: textColor,
+            color: textFill,
             fontFamily: '"DM Sans", sans-serif',
             fontWeight: 400,
             fontSize: '11cqh',
@@ -663,6 +671,7 @@ function DraggableTitle({
             maxWidth: '100%',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
+            ...glassTextStyle,
           }}>
             {block.detail.trim().toUpperCase()}
           </div>

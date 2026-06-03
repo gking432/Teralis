@@ -67,17 +67,23 @@ function drawTitleBand(
   const fitRatio = Math.min(1, 11 / Math.max(title.length, 1));
   const trans = style === 'translucent';
 
-  // For translucent style, paint text using globalCompositeOperation = 'difference'
-  // with white. This auto-inverts text color per-pixel against whatever map
-  // content is behind it — text over white land becomes near-black, text over
-  // dark ink becomes near-white.
+  // For translucent style: stroke in ink first, then fill in land on top.
+  // The land fill is clear on dark (ink) areas; where it blends into light
+  // (land) bg the ink stroke carries the legibility instead.
   function startText() {
     ctx.save();
+  }
+  function drawText(text: string, x: number, y: number, maxW?: number) {
     if (trans) {
-      ctx.globalCompositeOperation = 'difference';
-      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = Math.max(1.5, ctx.canvas.width * 0.0004);
+      ctx.lineJoin = 'round';
+      if (maxW !== undefined) { ctx.strokeText(text, x, y, maxW); } else { ctx.strokeText(text, x, y); }
+      ctx.fillStyle = land;
+      if (maxW !== undefined) { ctx.fillText(text, x, y, maxW); } else { ctx.fillText(text, x, y); }
     } else {
       ctx.fillStyle = ink;
+      if (maxW !== undefined) { ctx.fillText(text, x, y, maxW); } else { ctx.fillText(text, x, y); }
     }
   }
   function endText() { ctx.restore(); }
@@ -120,19 +126,19 @@ function drawTitleBand(
     ctx.textAlign = 'center';
     ctx.font = `300 ${titleSize}px "Cormorant Garamond", serif`;
     setLetterSpacing(ctx, letterSpacing);
-    ctx.fillText(title, width / 2, textY);
+    drawText(title, width / 2, textY);
 
     if (hasSubtitle) {
       textY += titleSize * 0.22 + subSize;
       ctx.font = `400 ${subSize}px "DM Sans", sans-serif`;
       setLetterSpacing(ctx, 0.26);
-      ctx.fillText(subtitle, width / 2, textY);
+      drawText(subtitle, width / 2, textY);
     }
     if (hasDetail) {
       textY += subSize * 0.18 + detSize;
       ctx.font = `400 ${detSize}px "DM Sans", sans-serif`;
       setLetterSpacing(ctx, 0.14);
-      ctx.fillText(detail, width / 2, textY);
+      drawText(detail, width / 2, textY);
     }
     endText();
     return;
@@ -170,18 +176,18 @@ function drawTitleBand(
     let textY = panelY + pad + titleSize * 0.88;
     ctx.font = `300 ${titleSize}px "Cormorant Garamond", serif`;
     setLetterSpacing(ctx, letterSpacing);
-    ctx.fillText(title, panelX + borderW + pad, textY, panelW - borderW - pad * 2);
+    drawText(title, panelX + borderW + pad, textY, panelW - borderW - pad * 2);
     if (hasSubtitle) {
       textY += titleSize * 0.22 + subSize;
       ctx.font = `400 ${subSize}px "DM Sans", sans-serif`;
       setLetterSpacing(ctx, 0.16);
-      ctx.fillText(subtitle, panelX + borderW + pad, textY, panelW - borderW - pad * 2);
+      drawText(subtitle, panelX + borderW + pad, textY, panelW - borderW - pad * 2);
     }
     if (hasDetail) {
       textY += subSize * 0.18 + detSize;
       ctx.font = `400 ${detSize}px "DM Sans", sans-serif`;
       setLetterSpacing(ctx, 0.08);
-      ctx.fillText(detail, panelX + borderW + pad, textY, panelW - borderW - pad * 2);
+      drawText(detail, panelX + borderW + pad, textY, panelW - borderW - pad * 2);
     }
     endText();
     return;
@@ -210,18 +216,18 @@ function drawTitleBand(
     let textY = panelY + borderH + pad + titleSize * 0.88;
     ctx.font = `300 ${titleSize}px "Cormorant Garamond", serif`;
     setLetterSpacing(ctx, letterSpacing);
-    ctx.fillText(title, panelX + panelW - pad, textY);
+    drawText(title, panelX + panelW - pad, textY);
     if (hasSubtitle) {
       textY += titleSize * 0.22 + subSize;
       ctx.font = `400 ${subSize}px "DM Sans", sans-serif`;
       setLetterSpacing(ctx, 0.12);
-      ctx.fillText(subtitle, panelX + panelW - pad, textY);
+      drawText(subtitle, panelX + panelW - pad, textY);
     }
     if (hasDetail) {
       textY += subSize * 0.18 + detSize;
       ctx.font = `400 ${detSize}px "DM Sans", sans-serif`;
       setLetterSpacing(ctx, 0.08);
-      ctx.fillText(detail, panelX + panelW - pad, textY);
+      drawText(detail, panelX + panelW - pad, textY);
     }
     endText();
     return;
@@ -259,20 +265,20 @@ function drawTitleBand(
 
     ctx.font = `300 ${railTitleSize}px "Cormorant Garamond", serif`;
     setLetterSpacing(ctx, letterSpacing);
-    ctx.fillText(title, cursor, 0);
+    drawText(title, cursor, 0);
     cursor += ctx.measureText(title).width + railH * 0.035;
 
     if (hasSubtitle) {
       ctx.font = `400 ${railSubSize}px "DM Sans", sans-serif`;
       setLetterSpacing(ctx, 0.22);
-      ctx.fillText(subtitle, cursor, 0);
+      drawText(subtitle, cursor, 0);
       cursor += ctx.measureText(subtitle).width + railH * 0.02;
     }
 
     if (hasDetail) {
       ctx.font = `400 ${railDetSize}px "DM Sans", sans-serif`;
       setLetterSpacing(ctx, 0.14);
-      ctx.fillText(detail, cursor, 0);
+      drawText(detail, cursor, 0);
     }
 
     endText();
@@ -662,15 +668,6 @@ export function bakeTitleBlock(
     ctx.fillRect(-pw / 2, -ph / 2, pw, ph);
   }
 
-  // Text. For translucent, use globalCompositeOperation = 'difference' with
-  // white so each text pixel auto-inverts against whatever map content is
-  // behind it.
-  if (trans) {
-    ctx.globalCompositeOperation = 'difference';
-    ctx.fillStyle = '#ffffff';
-  } else {
-    ctx.fillStyle = block.style === 'standard' ? ink : land;
-  }
   ctx.textAlign = 'center';
 
   const titleSize = Math.round(ph * (lineCount === 1 ? 0.46 : lineCount === 2 ? 0.38 : 0.32) * fitRatio);
@@ -681,22 +678,40 @@ export function bakeTitleBlock(
   const totalH = titleSize + (hasSub ? gap + subSize : 0) + (hasDet ? gap * 0.7 + detSize : 0);
   let cursor = -totalH / 2 + titleSize * 0.82;
 
+  // Glass: stroke in ink first, then fill in land on top. This matches how
+  // professional map labels handle unknown backgrounds: the land-colored fill
+  // reads clearly on dark (ink) areas; where the fill blends into a light
+  // (land-colored) background, the ink stroke carries the text instead.
+  function drawTextLine(text: string, y: number, strokeW: number) {
+    if (trans) {
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = strokeW;
+      ctx.lineJoin = 'round';
+      ctx.strokeText(text, 0, y);
+      ctx.fillStyle = land;
+      ctx.fillText(text, 0, y);
+    } else {
+      ctx.fillStyle = block.style === 'standard' ? ink : land;
+      ctx.fillText(text, 0, y);
+    }
+  }
+
   const ls = isExtreme ? '0.07em' : isVeryLong ? '0.12em' : isLong ? '0.18em' : '0.24em';
   ctx.font = `300 ${titleSize}px "Cormorant Garamond", serif`;
   (ctx as any).letterSpacing = ls;
-  ctx.fillText(title, 0, cursor);
+  drawTextLine(title, cursor, Math.max(2, titleSize * 0.06));
 
   if (hasSub) {
     cursor += titleSize * 0.18 + gap + subSize;
     ctx.font = `400 ${subSize}px "DM Sans", sans-serif`;
     (ctx as any).letterSpacing = '0.22em';
-    ctx.fillText(subtitle, 0, cursor);
+    drawTextLine(subtitle, cursor, Math.max(1.5, subSize * 0.06));
   }
   if (hasDet) {
     cursor += subSize * 0.2 + gap * 0.7 + detSize;
     ctx.font = `400 ${detSize}px "DM Sans", sans-serif`;
     (ctx as any).letterSpacing = '0.14em';
-    ctx.fillText(detail, 0, cursor);
+    drawTextLine(detail, cursor, Math.max(1.5, detSize * 0.06));
   }
 
   ctx.restore();
