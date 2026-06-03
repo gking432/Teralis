@@ -92,11 +92,15 @@ function drawTitleBand(
   }
   function drawText(text: string, x: number, y: number, maxW?: number) {
     if (trans) {
-      ctx.strokeStyle = ink;
-      ctx.lineWidth = Math.max(1.5, ctx.canvas.width * 0.0004);
+      // Land-colored halo drawn first so it extends outside the letter outline.
+      // Ink fill drawn on top covers the inner half of the stroke, leaving only
+      // the outer halo visible. Result: dark ink text with light land glow —
+      // readable on both light land and dark water backgrounds.
+      ctx.strokeStyle = land;
+      ctx.lineWidth = Math.max(4, ctx.canvas.width * 0.002);
       ctx.lineJoin = 'round';
       if (maxW !== undefined) { ctx.strokeText(text, x, y, maxW); } else { ctx.strokeText(text, x, y); }
-      ctx.fillStyle = land;
+      ctx.fillStyle = ink;
       if (maxW !== undefined) { ctx.fillText(text, x, y, maxW); } else { ctx.fillText(text, x, y); }
     } else {
       ctx.fillStyle = ink;
@@ -713,17 +717,17 @@ export function bakeTitleBlock(
   const totalH = titleSize + (hasSub ? gap + subSize : 0) + (hasDet ? gap * 0.7 + detSize : 0);
   let cursor = -totalH / 2 + titleSize * 0.82;
 
-  // Glass: stroke in ink first, then fill in land on top. This matches how
-  // professional map labels handle unknown backgrounds: the land-colored fill
-  // reads clearly on dark (ink) areas; where the fill blends into a light
-  // (land-colored) background, the ink stroke carries the text instead.
+  // Glass: land-colored halo first (extends outside the letter), then ink fill
+  // on top. Dark ink text is readable on any light background; the land-colored
+  // halo provides contrast on dark water areas. Matches the canvas drawText and
+  // the CSS DraggableTitle glass styles.
   function drawTextLine(text: string, y: number, strokeW: number) {
     if (trans) {
-      ctx.strokeStyle = ink;
+      ctx.strokeStyle = land;
       ctx.lineWidth = strokeW;
       ctx.lineJoin = 'round';
       ctx.strokeText(text, 0, y);
-      ctx.fillStyle = land;
+      ctx.fillStyle = ink;
       ctx.fillText(text, 0, y);
     } else {
       ctx.fillStyle = block.style === 'standard' ? ink : land;

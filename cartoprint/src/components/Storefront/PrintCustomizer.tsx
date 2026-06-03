@@ -187,17 +187,17 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
         <div className="w-[120px]" />
       </div>
 
-      <div className="mx-auto flex max-w-[1280px] flex-col gap-8 px-6 py-8 lg:flex-row lg:py-12">
+      <div className="mx-auto flex max-w-[1440px] flex-col gap-8 px-6 py-8 lg:flex-row lg:py-12">
 
         {/* Left: large preview */}
-        <div className="flex flex-1 flex-col items-center justify-start lg:sticky lg:top-12 lg:self-start">
+        <div className="flex flex-1 flex-col items-center justify-start lg:sticky lg:top-4 lg:self-start">
           <div
             ref={previewContainerRef}
             className="relative w-full overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.28)]"
             style={{
               // aspectRatio in CSS is width / height; printRatio is height / width.
               aspectRatio: `${1 / printRatio}`,
-              maxWidth: orientation === 'landscape' ? 680 : 520,
+              maxWidth: orientation === 'landscape' ? 920 : 740,
             }}
           >
             {previewUrl && (
@@ -592,11 +592,11 @@ function DraggableTitle({
   const land = colors.land || '#ffffff';
   const trans = block.style === 'translucent';
   const bgColor = block.style === 'inverted' ? ink : land;
-  // For Glass: fill in land color (white), stroke in ink (navy). paintOrder
-  // draws stroke first so the fill sits on top — white on dark stays white,
-  // on light the white fill vanishes and the ink stroke carries the text.
-  const textFill = trans ? land : (block.style === 'standard' ? ink : land);
-  const glassStroke = trans ? ink : undefined;
+  // Glass: ink-colored fill (dark, readable on light), land-colored stroke drawn
+  // first as a halo. paintOrder 'stroke fill' means halo underneath, ink on top.
+  // The land halo extends outside the letter outline and provides contrast on
+  // dark water backgrounds. Matches the canvas glass rendering in printSnapshot.
+  const textFill = trans ? ink : (block.style === 'standard' ? ink : land);
   const hasSubtitle = Boolean(block.subtitle.trim());
   const hasDetail = Boolean(block.detail.trim());
   const isLong = block.title.length > 10;
@@ -604,7 +604,7 @@ function DraggableTitle({
 
   const glassTextStyle = trans
     ? {
-        WebkitTextStroke: `0.08em ${glassStroke}`,
+        WebkitTextStroke: `0.12em ${land}`,
         paintOrder: 'stroke fill',
       }
     : {};
