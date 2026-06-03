@@ -201,24 +201,23 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
         <div className="flex flex-1 flex-col items-center justify-start lg:sticky lg:top-4 lg:self-start">
           <div
             ref={previewContainerRef}
-            className="relative w-full overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.28)]"
+            className="relative overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.28)]"
             style={{
-              // aspectRatio is width/height; printRatio is height/width.
-              // All height constraints are expressed as maxWidth so there is
-              // only one axis driving the layout — mixing maxWidth + maxHeight
-              // + aspectRatio causes browsers to compute a slightly mismatched
-              // container, making object-cover crop the edges of the print.
-              // "82vh * (width/height ratio)" converts the viewport-height limit
-              // into an equivalent maxWidth, keeping the image uncropped.
-              aspectRatio: `${1 / printRatio}`,
-              maxWidth: `min(${orientation === 'landscape' ? '920px' : '740px'}, 90vw, calc(82vh * ${(1 / printRatio).toFixed(4)}))`,
+              // Explicit width AND height — no aspect-ratio fallback math.
+              // Width uses min() so the preview shrinks on narrow viewports;
+              // height tracks width via the same min() multiplied by printRatio,
+              // so container ratio is mathematically guaranteed to equal image ratio.
+              width: orientation === 'landscape' ? 'min(880px, 90vw)' : 'min(600px, 90vw)',
+              height: orientation === 'landscape'
+                ? `calc(min(880px, 90vw) * ${printRatio.toFixed(4)})`
+                : `calc(min(600px, 90vw) * ${printRatio.toFixed(4)})`,
             }}
           >
             {previewUrl && (
               <img
                 src={previewUrl}
                 alt={`${print.name} customizable map print`}
-                className="absolute inset-0 h-full w-full object-contain"
+                className="absolute inset-0 h-full w-full object-cover"
               />
             )}
             {!previewUrl && (
