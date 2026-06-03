@@ -610,7 +610,15 @@ export async function renderPrintSnapshot(
       });
     }
 
-    const cameraBbox = clampCityBbox(bbox, center, kind, rw, mapHeight);
+    // Use a STABLE clamp height — the smallest possible map area (worst case,
+    // largest footer) — so the bbox is identical whether the title is on or
+    // off. Otherwise toggling the title silently shifts the visible map area
+    // and dense urban subdivisions can appear/disappear depending on title
+    // state. With a stable clamp, the bbox stays the same; only the actual
+    // fitBounds zoom changes slightly (title off zooms in a touch further,
+    // since the same bbox fills a taller container).
+    const stableMapHeight = Math.round(rh * (1 - 0.135));
+    const cameraBbox = clampCityBbox(bbox, center, kind, rw, stableMapHeight);
     const map = new maplibregl.Map({
       container: mapDiv,
       style: STYLE_URL,
