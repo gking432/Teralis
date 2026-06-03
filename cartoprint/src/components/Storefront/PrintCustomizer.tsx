@@ -6,6 +6,7 @@ import type { CatalogPrint } from '@/lib/catalog/prints';
 import {
   COLOR_SCHEMES,
   DEFAULT_COLOR_SCHEME,
+  getPrintInkColor,
   sameColorSettings,
   type PreviewColorSettings,
 } from '@/lib/print/colorSchemes';
@@ -224,6 +225,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
                 onChange={setTitleBlock}
                 containerRef={previewContainerRef}
                 colors={colors}
+                previewUrl={previewUrl}
               />
             )}
           </div>
@@ -481,14 +483,20 @@ function DraggableTitle({
   onChange,
   containerRef,
   colors,
+  previewUrl,
 }: {
   block: TitleBlockSettings;
   onChange: (b: TitleBlockSettings) => void;
   containerRef: React.RefObject<HTMLDivElement>;
   colors: PreviewColorSettings;
+  previewUrl: string | null;
 }) {
   // Start selected so handles are immediately visible when switching to freeform.
   const [selected, setSelected] = useState(true);
+  // For the glass style: start with ink, update after sampling the map pixels
+  // under this block so the text is always legible against whatever background
+  // it sits on — ink on light areas, land on dark areas.
+  const [glassColor, setGlassColor] = useState<string>(() => getPrintInkColor(colors));
   const titleRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     handle: DragHandle;
@@ -507,6 +515,42 @@ function DraggableTitle({
     document.addEventListener('mousedown', onDocMouseDown);
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, []);
+
+  // Sample the preview image pixels under this block to pick the right text
+  // color: ink on light backgrounds, land on dark. Re-runs whenever the image
+  // changes (new render) or the block is moved/resized.
+  const ink = getPrintInkColor(colors);
+  const land = colors.land || '#ffffff';
+  const trans = block.style === 'translucent';
+
+  useEffect(() => {
+    if (!trans || !previewUrl) {
+      setGlassColor(getPrintInkColor(colors));
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      const iw = img.naturalWidth;
+      const ih = img.naturalHeight;
+      const sx = Math.max(0, Math.round(block.x * iw));
+      const sy = Math.max(0, Math.round(block.y * ih));
+      const sw = Math.max(1, Math.min(Math.round(block.w * iw), iw - sx));
+      const sh = Math.max(1, Math.min(Math.round(block.h * ih), ih - sy));
+      const c = document.createElement('canvas');
+      c.width = sw; c.height = sh;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      const data = ctx.getImageData(0, 0, sw, sh).data;
+      let total = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        total += (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
+      }
+      const avgLum = total / (data.length / 4);
+      setGlassColor(avgLum > 0.5 ? getPrintInkColor(colors) : (colors.land || '#ffffff'));
+    };
+    img.src = previewUrl;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trans, previewUrl, block.x, block.y, block.w, block.h]);
 
   function toNorm(e: MouseEvent | React.MouseEvent): { nx: number; ny: number } {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -588,24 +632,21 @@ function DraggableTitle({
 
   if (!block.enabled) return null;
 
-  const ink = colors.useMapDefault ? '#07122a' : colors.water || '#07122a';
-  const land = colors.land || '#ffffff';
-  const trans = block.style === 'translucent';
   const bgColor = block.style === 'inverted' ? ink : land;
-  // Glass: ink-colored fill (dark, readable on light), land-colored stroke drawn
-  // first as a halo. paintOrder 'stroke fill' means halo underneath, ink on top.
-  // The land halo extends outside the letter outline and provides contrast on
-  // dark water backgrounds. Matches the canvas glass rendering in printSnapshot.
-  const textFill = trans ? ink : (block.style === 'standard' ? ink : land);
+  // Glass: use the pixel-sampled color (ink on light, land on dark).
+  const textFill = trans ? glassColor : (block.style === 'standard' ? ink : land);
   const hasSubtitle = Boolean(block.subtitle.trim());
   const hasDetail = Boolean(block.detail.trim());
   const isLong = block.title.length > 10;
   const isVeryLong = block.title.length > 16;
 
+  // Glass gets a subtle shadow in the opposite color so text stays legible when
+  // the title spans both light and dark map areas simultaneously.
   const glassTextStyle = trans
     ? {
-        WebkitTextStroke: `0.12em ${land}`,
-        paintOrder: 'stroke fill',
+        textShadow: glassColor === land
+          ? `0 0 8px ${ink}, 0 0 4px ${ink}`
+          : `0 0 8px ${land}, 0 0 4px ${land}`,
       }
     : {};
 
