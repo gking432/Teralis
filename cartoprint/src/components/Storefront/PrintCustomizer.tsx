@@ -596,6 +596,11 @@ function DraggableTitle({
         cursor: selected ? 'move' : 'pointer',
         userSelect: 'none',
         containerType: 'size',
+        // Apply the blend at the same element as the transform so the
+        // (rotation-induced) stacking context still blends against the
+        // preview container backdrop (the map image) rather than blending
+        // against an isolated transparent layer.
+        mixBlendMode: trans ? 'difference' : 'normal',
       } as React.CSSProperties}
       onMouseDown={onBodyMouseDown}
     >
@@ -617,7 +622,6 @@ function DraggableTitle({
           gap: '4cqh',
           pointerEvents: 'none',
           padding: '0 4%',
-          mixBlendMode: trans ? 'difference' : 'normal',
         } as React.CSSProperties}
       >
         <div style={{
