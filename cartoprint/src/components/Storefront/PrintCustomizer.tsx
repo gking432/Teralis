@@ -16,7 +16,7 @@ import {
   defaultTitleBlock,
 } from '@/lib/print/titleLayouts';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
-import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey, colorCacheKey, bakeTitleBlock, getEffectivePrintRatio, type Orientation } from '@/lib/print/printSnapshot';
+import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey, colorCacheKey, bakeTitleBlock, ORIENTATION_RATIO, type Orientation } from '@/lib/print/printSnapshot';
 import { type PrintDetailSettings, type Density, type BorderWeight, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
 
 interface PrintCustomizerProps {
@@ -55,10 +55,9 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   const isCountry = kind === 'country';
   const activePreset = COLOR_SCHEMES.find((s) => sameColorSettings(s.colors, colors))?.value ?? 'custom';
   const isFreeform = titleBlock.layout === 'freeform';
-  // Effective height/width ratio of the actual print, including any title
-  // footer band. Drives the preview container shape and the download canvas
-  // height so they stay in lockstep with the snapshot's true dimensions.
-  const printRatio = getEffectivePrintRatio(orientation, titleBlock.enabled, titleBlock.layout, titleBlock.style);
+  // Print height/width ratio comes from orientation alone. The title footer
+  // (if any) is carved out of the canvas — the canvas itself never grows.
+  const printRatio = ORIENTATION_RATIO[orientation];
 
   useEffect(() => {
     if (geometry) return;
