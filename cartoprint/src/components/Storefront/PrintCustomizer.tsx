@@ -73,7 +73,8 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   // so layout + style + enabled must all be part of the key (enabled grows the
   // canvas with a footer). For freeform the snapshot is identical regardless
   // of title position. Orientation changes the canvas shape too.
-  const previewLayoutKey = `${orientation}:${isFreeform ? 'freeform' : `${titleBlock.layout}:${titleBlock.style}:${titleBlock.enabled ? 'on' : 'off'}`}`;
+  const glassTag = titleBlock.style === 'translucent' ? `:${titleBlock.glassFill}` : '';
+  const previewLayoutKey = `${orientation}:${isFreeform ? 'freeform' : `${titleBlock.layout}:${titleBlock.style}${glassTag}:${titleBlock.enabled ? 'on' : 'off'}`}`;
 
   useEffect(() => {
     if (!geometry) return;
@@ -97,6 +98,9 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
         layout: titleBlock.layout,
         inverted: false,
         style: titleBlock.style,
+        glassTextColor: titleBlock.glassFill === 'ink'
+          ? getPrintInkColor(colors)
+          : (colors.land || '#ffffff'),
       },
       geometry,
       controller.signal,
@@ -135,6 +139,9 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
           layout: titleBlock.layout,
           inverted: false,
           style: titleBlock.style,
+          glassTextColor: titleBlock.glassFill === 'ink'
+            ? getPrintInkColor(colors)
+            : (colors.land || '#ffffff'),
         },
         geometry,
         undefined, detail, DOWNLOAD_W, orientation,
@@ -371,14 +378,39 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
                 value={titleBlock.style}
                 onChange={(v) => setTitleBlock((b) => ({ ...b, style: v }))}
               />
+              {titleBlock.style === 'translucent' && (
+                <div className="mb-4">
+                  <div className="mb-2 flex items-baseline justify-between gap-2">
+                    <span className="text-[11px] font-medium uppercase tracking-[1.2px] text-[#444]">Text Color</span>
+                    <span className="text-right text-[9px] text-[#aaa]">Pick from your scheme</span>
+                  </div>
+                  <div className="flex gap-2">
+                    {([
+                      { fill: 'land' as const, hex: colors.land || '#ffffff', label: 'Light' },
+                      { fill: 'ink' as const, hex: getPrintInkColor(colors), label: 'Dark' },
+                    ]).map(({ fill, hex, label }) => (
+                      <button
+                        key={fill}
+                        onClick={() => setTitleBlock((b) => ({ ...b, glassFill: fill }))}
+                        className={`flex items-center gap-2 border px-3 py-2 text-[10px] uppercase tracking-[1.2px] transition-all ${
+                          titleBlock.glassFill === fill
+                            ? 'border-[#111] bg-[#f4f0e8]'
+                            : 'border-[#d8d1c4] bg-white hover:border-[#aaa]'
+                        }`}
+                      >
+                        <span
+                          className="inline-block h-4 w-4 rounded-full border border-[#ccc] flex-shrink-0"
+                          style={{ backgroundColor: hex }}
+                        />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {isFreeform && (
                 <p className="mt-1 text-[10px] leading-relaxed text-[#999]">
                   Click label to select · drag to move · corners to resize · circle to rotate · click away to deselect
-                </p>
-              )}
-              {titleBlock.style === 'translucent' && (
-                <p className="mt-1 text-[10px] leading-relaxed text-[#999]">
-                  Glass: no background. Text auto-inverts against whatever it sits over.
                 </p>
               )}
             </Section>
@@ -513,6 +545,7 @@ function DraggableTitle({
   const ink = getPrintInkColor(colors);
   const land = colors.land || '#ffffff';
   const trans = block.style === 'translucent';
+  const glassColor = block.glassFill === 'ink' ? ink : land;
 
   function toNorm(e: MouseEvent | React.MouseEvent): { nx: number; ny: number } {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -595,10 +628,7 @@ function DraggableTitle({
   if (!block.enabled) return null;
 
   const bgColor = block.style === 'inverted' ? ink : land;
-  // Glass: white text + mix-blend-mode:difference on the wrapper = per-pixel
-  // automatic color inversion against whatever map content is below.
-  // Letters over light land render dark; letters over dark water render light.
-  const textFill = trans ? 'white' : (block.style === 'standard' ? ink : land);
+  const textFill = trans ? glassColor : (block.style === 'standard' ? ink : land);
   const hasSubtitle = Boolean(block.subtitle.trim());
   const hasDetail = Boolean(block.detail.trim());
   const isLong = block.title.length > 10;
@@ -618,9 +648,6 @@ function DraggableTitle({
         cursor: selected ? 'move' : 'pointer',
         userSelect: 'none',
         containerType: 'size',
-        // Glass: difference blend inverts each pixel against the map below.
-        // White text over light land → dark. White text over dark water → light.
-        ...(trans ? { mixBlendMode: 'difference' } : {}),
       } as React.CSSProperties}
       onMouseDown={onBodyMouseDown}
     >

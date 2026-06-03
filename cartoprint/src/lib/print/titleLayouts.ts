@@ -14,12 +14,12 @@ export interface PreviewTitleSettings {
   subtitle: string;
   detail: string;
   layout: PreviewTitleLayout;
-  // When true, the title band paints with ink as the background and land as
-  // the text/divider color (the inverse of the default). Useful for matching
-  // the ink frame on bordered city prints.
   inverted: boolean;
-  // Optional richer style; when set, takes precedence over `inverted`.
   style?: TitleStyle;
+  // Resolved hex color to use for glass/translucent text. Caller computes this
+  // from glassFill ('land'|'ink') + the active color scheme so the canvas
+  // renderer doesn't need to re-derive it.
+  glassTextColor?: string;
 }
 
 export interface TitleLayoutOption {
@@ -54,6 +54,7 @@ export interface TitleBlockSettings {
   detail: string;
   layout: PreviewTitleLayout;
   style: TitleStyle;
+  glassFill: 'land' | 'ink'; // which scheme color to use for glass/translucent text
   x: number;       // left edge, normalized [0,1] relative to print width (freeform only)
   y: number;       // top edge, normalized [0,1] relative to print height (freeform only)
   w: number;       // width, normalized [0,1] (freeform only)
@@ -73,6 +74,7 @@ export function defaultTitleBlock(
     detail,
     layout: 'classic-bottom',
     style: 'standard',
+    glassFill: 'land',
     x: 0,
     y: 0.79,
     w: 1.0,
