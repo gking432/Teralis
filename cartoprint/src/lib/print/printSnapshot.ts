@@ -47,12 +47,36 @@ export function getPreviewCacheKey(
   return `${slug}:${colorScheme}:${layout}:${d.places}:${d.roads}:${d.counties ? 'c' : ''}:b${d.border}`;
 }
 
-function getFooterHeight(layout: string, totalHeight: number, style: TitleStyle = 'standard'): number {
-  // Translucent layouts paint no band — the title text floats over the map.
+// Footer band height as a fraction of the MAP area (not the total canvas).
+// This way the map keeps its orientation-based ratio and the footer adds
+// extra paper below it — so turning the title on grows the print's total
+// height rather than squishing the map.
+function getFooterFraction(
+  layout: string,
+  style: TitleStyle = 'standard',
+  enabled = true,
+): number {
+  if (!enabled) return 0;
   if (style === 'translucent') return 0;
-  if (layout === 'classic-bottom') return Math.round(totalHeight * 0.135);
-  if (layout === 'compact-bottom') return Math.round(totalHeight * 0.095);
-  return 0; // overlay layouts have no footer strip
+  if (layout === 'classic-bottom') return 0.15;
+  if (layout === 'compact-bottom') return 0.10;
+  return 0; // overlay / freeform layouts add no extra height
+}
+
+function getFooterHeight(layout: string, mapHeight: number, style: TitleStyle = 'standard', enabled = true): number {
+  return Math.round(mapHeight * getFooterFraction(layout, style, enabled));
+}
+
+// Effective height/width ratio of the actual print, including any title footer.
+// Used by the customizer preview container and the download canvas height.
+export function getEffectivePrintRatio(
+  orientation: Orientation,
+  titleEnabled: boolean,
+  layout: string,
+  style: TitleStyle,
+): number {
+  const base = ORIENTATION_RATIO[orientation]; // mapH / rw
+  return base * (1 + getFooterFraction(layout, style, titleEnabled));
 }
 
 function setLetterSpacing(ctx: CanvasRenderingContext2D, em: number) {
@@ -424,7 +448,10 @@ export async function renderPrintSnapshot(
   if (signal?.aborted) return Promise.reject(new Error('aborted'));
 
   const rw = renderWidthOverride ?? RENDER_WIDTH;
-  const rh = Math.round(rw * ORIENTATION_RATIO[orientation]);
+  // Map area keeps the chosen orientation ratio. Footer is added BELOW the
+  // map, so turning the title on grows the total print height rather than
+  // squishing the map area.
+  const mapHeight = Math.round(rw * ORIENTATION_RATIO[orientation]);
   // Border is city-only. State and country prints already get a visual frame
   // from the isolation-mask silhouette, so a redundant ink frame around them
   // would just thicken the look. City prints have no mask, so they get the
@@ -434,8 +461,8 @@ export async function renderPrintSnapshot(
     : 0;
   const titleStyle = effectiveTitleStyle(titleSettings);
   const titleVisible = titleSettings.enabled && titleSettings.layout !== 'freeform';
-  const footerHeight = titleVisible ? getFooterHeight(titleSettings.layout, rh, titleStyle) : 0;
-  const mapHeight = rh - footerHeight;
+  const footerHeight = titleVisible ? getFooterHeight(titleSettings.layout, mapHeight, titleStyle) : 0;
+  const rh = mapHeight + footerHeight;
   // The bordered region inside the map area. MapLibre always renders at the
   // FULL (rw × mapHeight) — independent of border thickness — so the camera
   // zoom level is identical regardless of border. We then draw the rendered

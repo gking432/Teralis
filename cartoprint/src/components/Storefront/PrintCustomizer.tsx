@@ -16,7 +16,7 @@ import {
   defaultTitleBlock,
 } from '@/lib/print/titleLayouts';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
-import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey, colorCacheKey, bakeTitleBlock, ORIENTATION_RATIO, type Orientation } from '@/lib/print/printSnapshot';
+import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey, colorCacheKey, bakeTitleBlock, getEffectivePrintRatio, type Orientation } from '@/lib/print/printSnapshot';
 import { type PrintDetailSettings, type Density, type BorderWeight, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
 
 interface PrintCustomizerProps {
@@ -55,6 +55,10 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   const isCountry = kind === 'country';
   const activePreset = COLOR_SCHEMES.find((s) => sameColorSettings(s.colors, colors))?.value ?? 'custom';
   const isFreeform = titleBlock.layout === 'freeform';
+  // Effective height/width ratio of the actual print, including any title
+  // footer band. Drives the preview container shape and the download canvas
+  // height so they stay in lockstep with the snapshot's true dimensions.
+  const printRatio = getEffectivePrintRatio(orientation, titleBlock.enabled, titleBlock.layout, titleBlock.style);
 
   useEffect(() => {
     if (geometry) return;
@@ -66,10 +70,10 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   }, [print.slug, print.center, kind, geometry]);
 
   // Preview cache key: for fixed layouts we bake the title into the snapshot,
-  // so layout + style must be part of the key. For freeform the snapshot is
-  // identical regardless of title position, so we use a single 'freeform' tag.
-  // Orientation changes the canvas shape so it must be part of the key.
-  const previewLayoutKey = `${orientation}:${isFreeform ? 'freeform' : `${titleBlock.layout}:${titleBlock.style}`}`;
+  // so layout + style + enabled must all be part of the key (enabled grows the
+  // canvas with a footer). For freeform the snapshot is identical regardless
+  // of title position. Orientation changes the canvas shape too.
+  const previewLayoutKey = `${orientation}:${isFreeform ? 'freeform' : `${titleBlock.layout}:${titleBlock.style}:${titleBlock.enabled ? 'on' : 'off'}`}`;
 
   useEffect(() => {
     if (!geometry) return;
@@ -119,7 +123,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
     setDownloading(true);
     try {
       const DOWNLOAD_W = 3600;
-      const DOWNLOAD_H = Math.round(DOWNLOAD_W * ORIENTATION_RATIO[orientation]);
+      const DOWNLOAD_H = Math.round(DOWNLOAD_W * printRatio);
       const mapUrl = await renderPrintSnapshot(
         print.slug, print.bbox, print.center, kind,
         colors,
@@ -192,7 +196,8 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
             ref={previewContainerRef}
             className="relative w-full overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.28)]"
             style={{
-              aspectRatio: orientation === 'portrait' ? '3/4' : orientation === 'landscape' ? '4/3' : '1/1',
+              // aspectRatio in CSS is width / height; printRatio is height / width.
+              aspectRatio: `${1 / printRatio}`,
               maxWidth: orientation === 'landscape' ? 680 : 520,
             }}
           >
@@ -229,6 +234,9 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
               : isFreeform
                 ? 'Click label to select · drag to reposition'
                 : 'Live print preview'}
+          </p>
+          <p className="mt-1 text-center text-[10px] uppercase tracking-[1.4px] text-[#bbb]">
+            Print ratio · {(1 / printRatio).toFixed(2)} : 1.00
           </p>
         </div>
 
