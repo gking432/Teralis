@@ -204,18 +204,21 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
             className="relative w-full overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.28)]"
             style={{
               // aspectRatio is width/height; printRatio is height/width.
-              // maxWidth uses CSS min() so the preview never exceeds 90vw.
-              // maxHeight keeps portrait prints from being taller than the viewport.
+              // All height constraints are expressed as maxWidth so there is
+              // only one axis driving the layout — mixing maxWidth + maxHeight
+              // + aspectRatio causes browsers to compute a slightly mismatched
+              // container, making object-cover crop the edges of the print.
+              // "82vh * (width/height ratio)" converts the viewport-height limit
+              // into an equivalent maxWidth, keeping the image uncropped.
               aspectRatio: `${1 / printRatio}`,
-              maxWidth: `min(${orientation === 'landscape' ? '920px' : '740px'}, 90vw)`,
-              maxHeight: '82vh',
+              maxWidth: `min(${orientation === 'landscape' ? '920px' : '740px'}, 90vw, calc(82vh * ${(1 / printRatio).toFixed(4)}))`,
             }}
           >
             {previewUrl && (
               <img
                 src={previewUrl}
                 alt={`${print.name} customizable map print`}
-                className="absolute inset-0 h-full w-full object-cover"
+                className="absolute inset-0 h-full w-full object-contain"
               />
             )}
             {!previewUrl && (
