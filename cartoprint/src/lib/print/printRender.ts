@@ -15,14 +15,12 @@ export type BorderWeight = 'none' | 'thin' | 'medium' | 'thick';
 export interface PrintDetailSettings {
   places: Density;   // cities & towns
   roads: Density;    // highways & main roads
-  counties: boolean; // county lines
   border: BorderWeight; // outer print frame
 }
 
 export const DEFAULT_DETAIL_SETTINGS: PrintDetailSettings = {
   places: 'neutral',
   roads: 'neutral',
-  counties: false,
   border: 'medium',
 };
 
@@ -125,10 +123,23 @@ export function buildPrintLayerState(
       highways,
       mainroads,
       allroads,
-      counties: detail.counties,
     };
   }
 
+  // City prints never show city/town labels — the title block names the place.
+  if (kind === 'city') {
+    return {
+      ...STATE_PRINT_LAYER_STATE,
+      capitals: false,
+      cities: false,
+      towns: false,
+      highways,
+      mainroads,
+      allroads,
+    };
+  }
+
+  // State prints never show residential streets.
   return {
     ...STATE_PRINT_LAYER_STATE,
     capitals: cities,
@@ -136,8 +147,7 @@ export function buildPrintLayerState(
     towns,
     highways,
     mainroads,
-    allroads,
-    counties: detail.counties,
+    allroads: false,
   };
 }
 
@@ -179,23 +189,9 @@ function applyPrintPreviewOverrides(
       return;
     }
 
-    // County borders from the base style (if present): driven by layers.counties.
-    // We also add a dedicated county-line layer in addPrintCountyLines() because
-    // many base styles don't render admin_level 6 at all.
+    // County borders: always hidden.
     if (/admin.*(5|6|7|8)|boundary.*(county|5|6|7|8)/.test(id)) {
-      if (!layers.counties) {
-        try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
-      } else if (layer.type === 'line') {
-        try {
-          map.setLayoutProperty(id, 'visibility', 'visible');
-          map.setLayerZoomRange(id, 3, 24);
-          map.setPaintProperty(id, 'line-opacity', 0.32);
-          map.setPaintProperty(id, 'line-width', [
-            'interpolate', ['linear'], ['zoom'],
-            4, 0.5, 7, 0.9, 10, 1.4,
-          ]);
-        } catch {}
-      }
+      try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
       return;
     }
 
@@ -301,46 +297,6 @@ function applyPrintPreviewOverrides(
   });
 }
 
-// Find the vector source + source-layer used for admin boundaries, by scanning
-// the existing boundary/admin layers. Returns null if none can be identified.
-function findBoundarySource(map: maplibregl.Map): { source: string; sourceLayer: string } | null {
-  const style = map.getStyle();
-  if (!style) return null;
-  for (const layer of style.layers) {
-    if ('source' in layer && (layer as any)['source-layer'] && /admin|boundary/.test(layer.id)) {
-      const src = (layer as any).source as string;
-      const srcLayer = (layer as any)['source-layer'] as string;
-      if (src && srcLayer) return { source: src, sourceLayer: srcLayer };
-    }
-  }
-  return null;
-}
-
-// Adds a dedicated county-line layer (admin_level 6) from the boundary vector
-// source. Needed because most base styles don't draw county boundaries.
-function addPrintCountyLines(map: maplibregl.Map, ink: string): void {
-  const boundary = findBoundarySource(map);
-  if (!boundary) return;
-  if (map.getLayer('print-county-lines')) {
-    try { map.removeLayer('print-county-lines'); } catch {}
-  }
-  try {
-    map.addLayer({
-      id: 'print-county-lines',
-      type: 'line',
-      source: boundary.source,
-      'source-layer': boundary.sourceLayer,
-      filter: ['==', ['get', 'admin_level'], 6],
-      minzoom: 3,
-      paint: {
-        'line-color': ink,
-        'line-opacity': 0.3,
-        'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.45, 7, 0.85, 10, 1.35],
-      },
-    });
-  } catch {}
-}
-
 // Recolors visible layers to the selected scheme.
 function recolor(map: maplibregl.Map, colors: PreviewColorSettings): void {
   if (colors.useMapDefault) return;
@@ -406,7 +362,6 @@ export function applyPrintMapStyle(
   applyLayerVisibility(map, layers);
   applyPrintPreviewOverrides(map, layers, detail.places === 'more');
   recolor(map, colors);
-  if (layers.counties) addPrintCountyLines(map, getPrintInkColor(colors));
 }
 
 /** Sets the isolation mask (area outside the region) to the ink color. */

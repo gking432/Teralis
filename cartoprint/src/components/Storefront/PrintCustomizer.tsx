@@ -32,6 +32,14 @@ const DENSITY_OPTIONS: { value: Density; label: string }[] = [
   { value: 'more', label: 'More' },
 ];
 
+// State-level roads: no residential streets. "More" maps to highways + main
+// roads (the old 'neutral' tier).
+const STATE_ROADS_OPTIONS: { value: Density; label: string }[] = [
+  { value: 'none', label: 'None' },
+  { value: 'less', label: 'Less' },
+  { value: 'neutral', label: 'More' },
+];
+
 export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustomizerProps) {
   const [colors, setColors] = useState<PreviewColorSettings>(DEFAULT_COLOR_SCHEME.colors);
   const [titleBlock, setTitleBlock] = useState<TitleBlockSettings>(() =>
@@ -269,28 +277,21 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
                   Always includes state outlines + state capitals. Toggles add more on top.
                 </p>
               )}
-              <SegRow
-                label={isCountry ? 'Cities & Towns' : 'Cities & Towns'}
-                hint="Less = major cities · More = every town"
-                options={DENSITY_OPTIONS}
-                value={detail.places}
-                onChange={(v) => setDetail((d) => ({ ...d, places: v }))}
-              />
+              {kind !== 'city' && (
+                <SegRow
+                  label="Cities & Towns"
+                  hint="Less = major cities · More = every town"
+                  options={DENSITY_OPTIONS}
+                  value={detail.places}
+                  onChange={(v) => setDetail((d) => ({ ...d, places: v }))}
+                />
+              )}
               <SegRow
                 label="Roads"
-                hint="Less = highways · More = streets"
-                options={DENSITY_OPTIONS}
+                hint={kind === 'state' ? 'Less = highways · More = main roads' : 'Less = highways · More = streets'}
+                options={kind === 'state' ? STATE_ROADS_OPTIONS : DENSITY_OPTIONS}
                 value={detail.roads}
                 onChange={(v) => setDetail((d) => ({ ...d, roads: v }))}
-              />
-              <SegRow
-                label="County Lines"
-                options={[
-                  { value: 'none' as Density, label: 'Off' },
-                  { value: 'more' as Density, label: 'On' },
-                ]}
-                value={detail.counties ? 'more' : 'none'}
-                onChange={(v) => setDetail((d) => ({ ...d, counties: v === 'more' }))}
               />
               {kind === 'city' && (
                 <SegRow<BorderWeight>

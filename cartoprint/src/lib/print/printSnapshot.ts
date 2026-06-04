@@ -44,7 +44,7 @@ export function getPreviewCacheKey(
   detail?: PrintDetailSettings,
 ): string {
   const d = detail ?? DEFAULT_DETAIL_SETTINGS;
-  return `${slug}:${colorScheme}:${layout}:${d.places}:${d.roads}:${d.counties ? 'c' : ''}:b${d.border}`;
+  return `${slug}:${colorScheme}:${layout}:${d.places}:${d.roads}:b${d.border}`;
 }
 
 // Footer band height as a fraction of the TOTAL canvas height. The total
