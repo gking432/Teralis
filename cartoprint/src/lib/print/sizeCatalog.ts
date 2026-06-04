@@ -16,8 +16,6 @@ export interface FrameOptionInfo {
   value: FrameOption;
   label: string;
   swatchColor: string;
-  borderColor: string; // CSS color for simulated frame preview
-  insetColor: string;  // inner lip highlight
 }
 
 export const SIZE_CATALOG: Record<Orientation, Record<SizeLabel, PrintSizeOption>> = {
@@ -44,10 +42,10 @@ export const SIZE_CATALOG: Record<Orientation, Record<SizeLabel, PrintSizeOption
 export const SIZE_LABELS: SizeLabel[] = ['small', 'medium', 'large', 'xlarge'];
 
 export const FRAME_OPTIONS: FrameOptionInfo[] = [
-  { value: 'none',  label: 'Unframed', swatchColor: 'transparent', borderColor: 'transparent',  insetColor: 'transparent' },
-  { value: 'black', label: 'Black',    swatchColor: '#1a1a1a',     borderColor: '#111111',       insetColor: '#333333' },
-  { value: 'white', label: 'White',    swatchColor: '#f0ede8',     borderColor: '#e8e3da',       insetColor: '#d8d3ca' },
-  { value: 'wood',  label: 'Wood',     swatchColor: '#8b5c2a',     borderColor: '#7a4e22',       insetColor: '#9e6b35' },
+  { value: 'none',  label: 'Unframed', swatchColor: 'transparent' },
+  { value: 'black', label: 'Black',    swatchColor: '#1a1a1a' },
+  { value: 'white', label: 'White',    swatchColor: '#f0ede8' },
+  { value: 'wood',  label: 'Wood',     swatchColor: '#8b5c2a' },
 ];
 
 // Placeholder prices in USD cents — replace with real Prodigi base cost + margin
@@ -65,14 +63,45 @@ const FRAME_UPCHARGE: Record<FrameOption, number> = {
   wood:  13900,
 };
 
-export function getSizePrice(size: SizeLabel, frame: FrameOption): number {
-  return SIZE_BASE_PRICE[size] + FRAME_UPCHARGE[frame];
+export const MAT_UPCHARGE = 1500; // $15 placeholder
+
+export function getSizePrice(size: SizeLabel, frame: FrameOption, mat: boolean): number {
+  return SIZE_BASE_PRICE[size] + FRAME_UPCHARGE[frame] + (mat && frame !== 'none' ? MAT_UPCHARGE : 0);
 }
 
 export function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(0)}`;
 }
 
-// Key used for sessionStorage handoff from Step 2 → Step 3
-export const SESSION_PREVIEW_KEY = 'teralis:preview';
+// Maps our FrameOption to the Prodigi color string used in mockup filenames
+const FRAME_TO_PRODIGI_COLOR: Record<Exclude<FrameOption, 'none'>, string> = {
+  black: 'black',
+  white: 'white',
+  wood:  'natural',
+};
+
+// Maps orientation to the representative size used for mockup filenames
+const ORIENTATION_TO_MOCKUP_SIZE: Record<Orientation, string> = {
+  portrait:  '18x24',
+  square:    '20x20',
+  landscape: '24x18',
+};
+
+export function getMockupUrl(
+  frame: FrameOption,
+  orientation: Orientation,
+  mat: boolean,
+  scene: 0 | 1
+): string | null {
+  if (frame === 'none') return null;
+  const color = FRAME_TO_PRODIGI_COLOR[frame];
+  const size  = ORIENTATION_TO_MOCKUP_SIZE[orientation];
+  const product     = mat ? 'cfpm' : 'cfp';
+  const mountSuffix = mat ? '-snow-white-mount' : '';
+  const sceneSuffix = scene === 1 ? '__1_' : '';
+  return `/mockups/wall/prodigi-global-${product}-${size}-${color}-frame${mountSuffix}${sceneSuffix}.png`;
+}
+
+// Session storage keys for Step 2 → Step 3 handoff
+export const SESSION_PREVIEW_KEY       = 'teralis:preview';
 export const SESSION_CUSTOMIZATION_KEY = 'teralis:customization';

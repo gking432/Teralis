@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { getCatalogPrint } from '@/lib/catalog/prints';
 import { placeFromSearchParams } from '@/lib/catalog/placeFromQuery';
 import { isValidOrientation, ORIENTATION_RATIO, type Orientation } from '@/lib/print/printSnapshot';
 import {
   SIZE_CATALOG, SIZE_LABELS, FRAME_OPTIONS,
-  getSizePrice, formatPrice,
+  getSizePrice, formatPrice, getMockupUrl, MAT_UPCHARGE,
   SESSION_PREVIEW_KEY,
   type SizeLabel, type FrameOption,
 } from '@/lib/print/sizeCatalog';
@@ -16,9 +17,9 @@ import {
 export function SizePickerClient() {
   const searchParams = useSearchParams();
 
-  const catalogSlug = searchParams.get('print');
+  const catalogSlug  = searchParams.get('print');
   const catalogPrint = getCatalogPrint(catalogSlug);
-  const placePrint = !catalogPrint
+  const placePrint   = !catalogPrint
     ? placeFromSearchParams(new URLSearchParams(searchParams.toString()))
     : null;
   const print = catalogPrint ?? placePrint;
@@ -28,8 +29,10 @@ export function SizePickerClient() {
   const printRatio = ORIENTATION_RATIO[orientation];
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [size, setSize] = useState<SizeLabel>('medium');
+  const [size,  setSize]  = useState<SizeLabel>('medium');
   const [frame, setFrame] = useState<FrameOption>('none');
+  const [mat,   setMat]   = useState(false);
+  const [scene, setScene] = useState<0 | 1>(0);
 
   useEffect(() => {
     try {
@@ -38,30 +41,33 @@ export function SizePickerClient() {
     } catch {}
   }, []);
 
+  // Reset mat + scene when frame changes
+  function handleFrameChange(f: FrameOption) {
+    setFrame(f);
+    if (f === 'none') setMat(false);
+    setScene(0);
+  }
+
   if (!print) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#ece7dd]">
         <p className="text-sm text-[#999]">
           No print selected.{' '}
-          <Link href="/" className="underline hover:text-[#111]">
-            Start over
-          </Link>
+          <Link href="/" className="underline hover:text-[#111]">Start over</Link>
         </p>
       </div>
     );
   }
 
-  const sizes = SIZE_CATALOG[orientation];
-  const selected = sizes[size];
+  const sizes       = SIZE_CATALOG[orientation];
+  const selected    = sizes[size];
   const activeFrame = FRAME_OPTIONS.find((f) => f.value === frame)!;
-  const total = getSizePrice(size, frame);
-  const hasFrame = frame !== 'none';
+  const total       = getSizePrice(size, frame, mat);
+  const mockupUrl   = getMockupUrl(frame, orientation, mat, scene);
+  const isFramed    = frame !== 'none';
 
   const backParams = new URLSearchParams(searchParams.toString());
-  const backUrl = `/customize?${backParams.toString()}`;
-
-  // CSS border thickness scales with preview width — roughly 3.5% on each side
-  const frameBorderPx = 22;
+  const backUrl    = `/customize?${backParams.toString()}`;
 
   return (
     <div className="min-h-screen bg-[#ece7dd]">
@@ -74,69 +80,86 @@ export function SizePickerClient() {
           ← Back
         </Link>
         <div className="text-[11px] uppercase tracking-[2px] text-[#999]">
-          Step 3 of 3 · Size &amp; Frame · <span className="text-[#555]">{print.name}</span>
+          Step 3 of 3 · Size &amp; Frame ·{' '}
+          <span className="text-[#555]">{print.name}</span>
         </div>
         <div className="w-[80px]" />
       </div>
 
-      <div className="mx-auto flex max-w-[1200px] flex-col gap-10 px-6 py-8 lg:flex-row lg:items-start lg:py-14">
+      <div className="mx-auto flex max-w-[1280px] flex-col gap-10 px-6 py-8 lg:flex-row lg:items-start lg:py-14">
 
-        {/* Left: preview with simulated frame */}
-        <div className="flex flex-1 flex-col items-center justify-start lg:sticky lg:top-10 lg:self-start">
-          <div
-            className="transition-all duration-200"
-            style={
-              hasFrame
-                ? {
-                    padding: frameBorderPx,
-                    backgroundColor: activeFrame.borderColor,
-                    boxShadow: `inset 0 0 0 3px ${activeFrame.insetColor}, 0 30px_90px_rgba(0,0,0,0.28)`.replace(/_/g, ' '),
-                  }
-                : { boxShadow: '0 30px 90px rgba(0,0,0,0.28)' }
-            }
-          >
-            <div
-              className="relative overflow-hidden"
-              style={{
-                width: orientation === 'landscape' ? 'min(520px, 80vw)' : 'min(340px, 80vw)',
-                height:
-                  orientation === 'landscape'
-                    ? `calc(min(520px, 80vw) * ${printRatio.toFixed(4)})`
-                    : `calc(min(340px, 80vw) * ${printRatio.toFixed(4)})`,
-              }}
-            >
-              {previewUrl ? (
-                <img
-                  src={previewUrl}
-                  alt={`${print.name} map print preview`}
-                  className="absolute inset-0 h-full w-full object-fill"
+        {/* ── Left: preview ── */}
+        <div className="flex flex-1 flex-col items-center lg:sticky lg:top-10 lg:self-start">
+          {isFramed && mockupUrl ? (
+            /* Wall lifestyle mockup */
+            <div className="relative w-full max-w-[680px]">
+              <div className="relative overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.22)]">
+                <Image
+                  src={mockupUrl}
+                  alt={`${print.name} — ${activeFrame.label} frame${mat ? ' with mat' : ''}`}
+                  width={1200}
+                  height={900}
+                  className="h-auto w-full object-cover transition-opacity duration-300"
+                  priority
                 />
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center bg-[#07122a]/8">
-                  <span className="text-[10px] uppercase tracking-[1.4px] text-[#999]">
-                    Go back to generate preview
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
+              </div>
 
-          {hasFrame && (
-            <p className="mt-4 text-center text-[10px] uppercase tracking-[1.2px] text-[#aaa]">
-              {activeFrame.label} frame · {selected.dimensionStr} print
-            </p>
-          )}
-          {!hasFrame && (
-            <p className="mt-4 text-center text-[10px] uppercase tracking-[1.2px] text-[#aaa]">
-              Unframed · {selected.dimensionStr} print
-            </p>
+              {/* Scene switcher */}
+              <div className="mt-4 flex items-center justify-center gap-2">
+                {([0, 1] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setScene(s)}
+                    aria-label={`Scene ${s + 1}`}
+                    className={`h-1.5 rounded-full transition-all duration-200 ${
+                      scene === s ? 'w-6 bg-[#333]' : 'w-1.5 bg-[#bbb] hover:bg-[#888]'
+                    }`}
+                  />
+                ))}
+              </div>
+
+              <p className="mt-3 text-center text-[10px] uppercase tracking-[1.4px] text-[#aaa]">
+                {activeFrame.label} frame{mat ? ' · Snow White mat' : ''} · {selected.dimensionStr}
+              </p>
+            </div>
+          ) : (
+            /* Flat map preview (unframed) */
+            <div className="flex flex-col items-center">
+              <div
+                className="relative overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.28)]"
+                style={{
+                  width: orientation === 'landscape' ? 'min(520px, 85vw)' : 'min(340px, 85vw)',
+                  height:
+                    orientation === 'landscape'
+                      ? `calc(min(520px, 85vw) * ${printRatio.toFixed(4)})`
+                      : `calc(min(340px, 85vw) * ${printRatio.toFixed(4)})`,
+                }}
+              >
+                {previewUrl ? (
+                  <img
+                    src={previewUrl}
+                    alt={`${print.name} map print`}
+                    className="absolute inset-0 h-full w-full object-fill"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center bg-[#07122a]/8">
+                    <span className="text-[10px] uppercase tracking-[1.4px] text-[#999]">
+                      Go back to generate preview
+                    </span>
+                  </div>
+                )}
+              </div>
+              <p className="mt-3 text-center text-[10px] uppercase tracking-[1.4px] text-[#aaa]">
+                Unframed · {selected.dimensionStr}
+              </p>
+            </div>
           )}
         </div>
 
-        {/* Right: options panel */}
+        {/* ── Right: options ── */}
         <div className="w-full lg:max-w-[360px] flex flex-col gap-7">
 
-          {/* Print name */}
+          {/* Print title */}
           <div>
             <h1 className="font-display text-3xl font-light leading-tight">{print.name}</h1>
             {print.defaultSubtitle && (
@@ -151,7 +174,7 @@ export function SizePickerClient() {
           <PanelSection title="Size">
             <div className="grid grid-cols-2 gap-2">
               {SIZE_LABELS.map((s) => {
-                const opt = sizes[s];
+                const opt    = sizes[s];
                 const active = size === s;
                 return (
                   <button
@@ -181,7 +204,7 @@ export function SizePickerClient() {
                 return (
                   <button
                     key={f.value}
-                    onClick={() => setFrame(f.value)}
+                    onClick={() => handleFrameChange(f.value)}
                     className={`flex items-center gap-3 border p-3 text-left transition-all ${
                       active
                         ? 'border-[#111] bg-[#f4f0e8] shadow-[inset_0_0_0_1px_#111]'
@@ -194,7 +217,7 @@ export function SizePickerClient() {
                         f.value === 'none'
                           ? {
                               background:
-                                'repeating-linear-gradient(45deg, #ccc 0, #ccc 1px, #fff 0, #fff 50%) 0/6px 6px',
+                                'repeating-linear-gradient(45deg,#ccc 0,#ccc 1px,#fff 0,#fff 50%) 0/6px 6px',
                             }
                           : { backgroundColor: f.swatchColor }
                       }
@@ -208,16 +231,40 @@ export function SizePickerClient() {
             </div>
           </PanelSection>
 
-          {/* Price summary */}
+          {/* Mat — only when framed */}
+          {isFramed && (
+            <PanelSection title="Mat">
+              <div className="flex overflow-hidden rounded border border-[#d8d1c4]">
+                {[false, true].map((m) => (
+                  <button
+                    key={String(m)}
+                    onClick={() => { setMat(m); setScene(0); }}
+                    className={`flex-1 py-2.5 text-[10px] uppercase tracking-[1.2px] transition-all ${
+                      m ? 'border-l border-[#d8d1c4]' : ''
+                    } ${
+                      mat === m
+                        ? 'bg-[#111] text-white'
+                        : 'bg-white text-[#777] hover:bg-[#f4f0e8]'
+                    }`}
+                  >
+                    {m ? `Snow White +${formatPrice(MAT_UPCHARGE)}` : 'None'}
+                  </button>
+                ))}
+              </div>
+            </PanelSection>
+          )}
+
+          {/* Price */}
           <div className="border-t border-[#ddd6c8] pt-6">
             <div className="flex items-baseline justify-between">
-              <span className="text-[10px] uppercase tracking-[1.6px] text-[#888]">Print Total</span>
+              <span className="text-[10px] uppercase tracking-[1.6px] text-[#888]">Total</span>
               <span className="font-display text-3xl font-light">{formatPrice(total)}</span>
             </div>
-            {hasFrame && (
-              <div className="mt-1 flex items-baseline justify-between text-[10px] text-[#aaa]">
-                <span>Includes {activeFrame.label.toLowerCase()} frame</span>
-              </div>
+            {isFramed && (
+              <p className="mt-1 text-right text-[10px] text-[#aaa]">
+                Includes {activeFrame.label.toLowerCase()} frame
+                {mat ? ' · snow white mat' : ''}
+              </p>
             )}
             <p className="mt-1.5 text-right text-[9px] uppercase tracking-[1px] text-[#bbb]">
               + shipping · calculated at checkout
@@ -227,16 +274,14 @@ export function SizePickerClient() {
           {/* CTA */}
           <button
             className="w-full bg-[#07122a] py-4 text-[11px] font-medium uppercase tracking-[2.5px] text-white transition-opacity hover:opacity-80"
-            onClick={() => {
-              // Placeholder — Stripe checkout wired up in a later step
-              alert('Checkout coming soon — Stripe integration in progress.');
-            }}
+            onClick={() => alert('Checkout coming soon — Stripe integration in progress.')}
           >
             Proceed to Checkout
           </button>
           <p className="text-center text-[9px] uppercase tracking-[1.2px] text-[#bbb]">
             Secure checkout · Printed &amp; ships in 3–5 days
           </p>
+
         </div>
       </div>
     </div>
