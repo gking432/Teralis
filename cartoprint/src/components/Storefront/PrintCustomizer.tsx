@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import {
   COLOR_SCHEMES,
@@ -18,6 +19,7 @@ import {
 } from '@/lib/print/titleLayouts';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey, colorCacheKey, bakeTitleBlock, ORIENTATION_RATIO, type Orientation } from '@/lib/print/printSnapshot';
+import { SESSION_PREVIEW_KEY, SESSION_CUSTOMIZATION_KEY } from '@/lib/print/sizeCatalog';
 import { type PrintDetailSettings, type Density, type BorderWeight, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
 
 interface PrintCustomizerProps {
@@ -41,6 +43,8 @@ const STATE_ROADS_OPTIONS: { value: Density; label: string }[] = [
 ];
 
 export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustomizerProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [colors, setColors] = useState<PreviewColorSettings>(DEFAULT_COLOR_SCHEME.colors);
   const [titleBlock, setTitleBlock] = useState<TitleBlockSettings>(() =>
     defaultTitleBlock(
@@ -185,6 +189,15 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
     } finally {
       setDownloading(false);
     }
+  }
+
+  function handleNext() {
+    try {
+      if (previewUrl) sessionStorage.setItem(SESSION_PREVIEW_KEY, previewUrl);
+      sessionStorage.setItem(SESSION_CUSTOMIZATION_KEY, JSON.stringify({ colors, titleBlock, detail }));
+    } catch {}
+    const params = new URLSearchParams(searchParams.toString());
+    router.push(`/size?${params.toString()}`);
   }
 
   function setColor(channel: 'land' | 'water' | 'roads', value: string) {
@@ -420,8 +433,11 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
 
             {/* Actions */}
             <div className="flex flex-col gap-3 border-t border-[#ddd6c8] pt-6">
-              <button className="w-full bg-[#07122a] py-4 text-[11px] font-medium uppercase tracking-[2px] text-white transition-opacity hover:opacity-85">
-                Add to Cart — From $49
+              <button
+                onClick={handleNext}
+                className="w-full bg-[#07122a] py-4 text-[11px] font-medium uppercase tracking-[2px] text-white transition-opacity hover:opacity-85"
+              >
+                Next: Size &amp; Frame →
               </button>
               <button
                 onClick={handleDownload}
