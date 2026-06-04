@@ -217,7 +217,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
               <img
                 src={previewUrl}
                 alt={`${print.name} customizable map print`}
-                className="absolute inset-0 h-full w-full object-cover"
+                className="absolute inset-0 h-full w-full object-fill"
               />
             )}
             {!previewUrl && (
