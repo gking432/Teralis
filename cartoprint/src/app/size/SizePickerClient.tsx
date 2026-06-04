@@ -13,6 +13,7 @@ import {
   SESSION_PREVIEW_KEY,
   type SizeLabel, type FrameOption,
 } from '@/lib/print/sizeCatalog';
+import { MOCKUP_AREAS } from '@/lib/print/mockupAreas.generated';
 
 export function SizePickerClient() {
   const searchParams = useSearchParams();
@@ -65,6 +66,8 @@ export function SizePickerClient() {
   const total       = getSizePrice(size, frame, mat);
   const mockupUrl   = getMockupUrl(frame, orientation, mat, scene);
   const isFramed    = frame !== 'none';
+  // Bbox of the print area inside the mockup (normalised 0–1)
+  const mockupArea  = mockupUrl ? MOCKUP_AREAS[mockupUrl.split('/').pop()!] : null;
 
   const backParams = new URLSearchParams(searchParams.toString());
   const backUrl    = `/customize?${backParams.toString()}`;
@@ -94,12 +97,28 @@ export function SizePickerClient() {
             /* Wall lifestyle mockup */
             <div className="relative w-full max-w-[680px]">
               <div className="relative overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.22)]">
+                {/* User's actual map preview, positioned behind the
+                    transparent print-area cutout in the mockup PNG. */}
+                {previewUrl && mockupArea && (
+                  <img
+                    src={previewUrl}
+                    alt=""
+                    aria-hidden
+                    className="absolute object-fill"
+                    style={{
+                      left:   `${mockupArea.x * 100}%`,
+                      top:    `${mockupArea.y * 100}%`,
+                      width:  `${mockupArea.w * 100}%`,
+                      height: `${mockupArea.h * 100}%`,
+                    }}
+                  />
+                )}
                 <Image
                   src={mockupUrl}
                   alt={`${print.name} — ${activeFrame.label} frame${mat ? ' with mat' : ''}`}
                   width={1200}
                   height={900}
-                  className="h-auto w-full object-cover transition-opacity duration-300"
+                  className="relative h-auto w-full object-cover transition-opacity duration-300"
                   priority
                 />
               </div>
