@@ -56,6 +56,21 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   const [detail, setDetail] = useState<PrintDetailSettings>(DEFAULT_DETAIL_SETTINGS);
   const [downloading, setDownloading] = useState(false);
 
+  // Restore state when navigating back from Step 3
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem(SESSION_CUSTOMIZATION_KEY);
+      if (!stored) return;
+      const data = JSON.parse(stored);
+      if (data.slug === print.slug && data.orientation === orientation) {
+        if (data.colors)     setColors(data.colors);
+        if (data.titleBlock) setTitleBlock(data.titleBlock);
+        if (data.detail)     setDetail(data.detail);
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [geometry, setGeometry] = useState<GeoJSON.Geometry | null>(
     () => getCachedBoundary(print.slug)?.geometry ?? null
   );
@@ -194,7 +209,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   function handleNext() {
     try {
       if (previewUrl) sessionStorage.setItem(SESSION_PREVIEW_KEY, previewUrl);
-      sessionStorage.setItem(SESSION_CUSTOMIZATION_KEY, JSON.stringify({ colors, titleBlock, detail }));
+      sessionStorage.setItem(SESSION_CUSTOMIZATION_KEY, JSON.stringify({ slug: print.slug, orientation, colors, titleBlock, detail }));
     } catch {}
     const params = new URLSearchParams(searchParams.toString());
     router.push(`/size?${params.toString()}`);
@@ -683,7 +698,12 @@ function DraggableTitle({
   }, [onChange, containerRef]);
 
   const bgColor = block.style === 'inverted' ? ink : land;
-  const textFill = trans ? glassColor : (block.style === 'standard' ? ink : land);
+  // Glass: glassColor is the frosted background tint; text always contrasts against it.
+  // glassFill='land' → light frosted bg → dark (ink) text
+  // glassFill='ink'  → dark frosted bg  → light (land) text
+  const textFill = trans
+    ? (block.glassFill === 'ink' ? land : ink)
+    : (block.style === 'standard' ? ink : land);
   const hasSubtitle = Boolean(block.subtitle.trim());
   const hasDetail = Boolean(block.detail.trim());
   const isLong = block.title.length > 10;
@@ -712,8 +732,12 @@ function DraggableTitle({
       } as React.CSSProperties}
       onMouseDown={onBodyMouseDown}
     >
+      {/* Solid background for standard/inverted; frosted-glass tint for translucent */}
       {!trans && (
         <div style={{ position: 'absolute', inset: 0, backgroundColor: bgColor }} />
+      )}
+      {trans && (
+        <div style={{ position: 'absolute', inset: 0, backgroundColor: glassColor, opacity: 0.55 }} />
       )}
 
       <div

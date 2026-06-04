@@ -693,10 +693,16 @@ export function bakeTitleBlock(
   ctx.translate(px + pw / 2, py + ph / 2);
   ctx.rotate((block.rotation * Math.PI) / 180);
 
-  // Background — translucent skips fill entirely (clear glass).
+  // Background. Translucent draws a semi-transparent frosted tint.
   if (!trans) {
     ctx.fillStyle = block.style === 'inverted' ? ink : land;
     ctx.fillRect(-pw / 2, -ph / 2, pw, ph);
+  } else {
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = block.glassFill === 'ink' ? ink : land;
+    ctx.fillRect(-pw / 2, -ph / 2, pw, ph);
+    ctx.restore();
   }
 
   ctx.textAlign = 'center';
@@ -738,8 +744,10 @@ export function bakeTitleBlock(
 
   function drawTextLine(text: string, y: number) {
     if (trans) {
-      const glassColor = block.glassFill === 'ink' ? ink : (colors.land || '#ffffff');
-      ctx.fillStyle = glassColor;
+      // Text contrasts against the frosted background tint:
+      // glassFill='ink' → dark bg → light (land) text
+      // glassFill='land' → light bg → dark (ink) text
+      ctx.fillStyle = block.glassFill === 'ink' ? land : ink;
     } else {
       ctx.fillStyle = block.style === 'standard' ? ink : land;
     }
