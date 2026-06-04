@@ -687,7 +687,6 @@ export function bakeTitleBlock(
   const isLong = title.length > 10;
   const isVeryLong = title.length > 16;
   const isExtreme = title.length > 24;
-  const fitRatio = Math.min(1, 11 / Math.max(title.length, 1));
   const trans = block.style === 'translucent';
 
   ctx.save();
@@ -702,42 +701,66 @@ export function bakeTitleBlock(
 
   ctx.textAlign = 'center';
 
-  const titleSize = Math.round(ph * (lineCount === 1 ? 0.46 : lineCount === 2 ? 0.38 : 0.32) * fitRatio);
-  const subSize = Math.round(ph * 0.17);
-  const detSize = Math.round(ph * 0.13);
-  const gap = Math.round(ph * 0.05);
+  // 4% horizontal padding matches the HTML overlay's padding: '0 4%'
+  const maxTextW = pw * 0.92;
 
+  // Shrink a font size to fit `text` within maxW, using measureText().
+  // letterSpacing isn't reflected in measureText across all canvas impls, so
+  // add a small approximation based on the em value parsed from `ls`.
+  function fitSize(text: string, baseSize: number, fontDecl: (px: number) => string, ls: string): number {
+    let size = baseSize;
+    ctx.font = fontDecl(size);
+    (ctx as any).letterSpacing = ls;
+    const lsEm = parseFloat(ls) || 0;
+    const measured = ctx.measureText(text).width + size * lsEm * Math.max(0, text.length - 1);
+    if (measured > maxTextW) {
+      size = Math.max(8, Math.floor(size * (maxTextW / measured)));
+      ctx.font = fontDecl(size);
+    }
+    return size;
+  }
+
+  const titleFontDecl = (s: number) => `300 ${s}px "Cormorant Garamond", serif`;
+  const subFontDecl   = (s: number) => `400 ${s}px "DM Sans", sans-serif`;
+  const ls = isExtreme ? '0.07em' : isVeryLong ? '0.12em' : isLong ? '0.18em' : '0.24em';
+
+  const titleBase = Math.round(ph * (lineCount === 1 ? 0.46 : lineCount === 2 ? 0.38 : 0.32));
+  const subBase   = Math.round(ph * 0.17);
+  const detBase   = Math.round(ph * 0.13);
+
+  const titleSize = fitSize(title,    titleBase, titleFontDecl, ls);
+  const subSize   = hasSub ? fitSize(subtitle, subBase, subFontDecl, '0.22em') : 0;
+  const detSize   = hasDet ? fitSize(detail,   detBase, subFontDecl, '0.14em') : 0;
+
+  const gap = Math.round(ph * 0.05);
   const totalH = titleSize + (hasSub ? gap + subSize : 0) + (hasDet ? gap * 0.7 + detSize : 0);
   let cursor = -totalH / 2 + titleSize * 0.82;
 
-  function drawTextLine(text: string, y: number, _strokeW: number) {
+  function drawTextLine(text: string, y: number) {
     if (trans) {
-      // Resolve the user's glassFill choice to the actual hex color.
       const glassColor = block.glassFill === 'ink' ? ink : (colors.land || '#ffffff');
       ctx.fillStyle = glassColor;
-      ctx.fillText(text, 0, y);
     } else {
       ctx.fillStyle = block.style === 'standard' ? ink : land;
-      ctx.fillText(text, 0, y);
     }
+    ctx.fillText(text, 0, y);
   }
 
-  const ls = isExtreme ? '0.07em' : isVeryLong ? '0.12em' : isLong ? '0.18em' : '0.24em';
-  ctx.font = `300 ${titleSize}px "Cormorant Garamond", serif`;
+  ctx.font = titleFontDecl(titleSize);
   (ctx as any).letterSpacing = ls;
-  drawTextLine(title, cursor, Math.max(2, titleSize * 0.06));
+  drawTextLine(title, cursor);
 
   if (hasSub) {
     cursor += titleSize * 0.18 + gap + subSize;
-    ctx.font = `400 ${subSize}px "DM Sans", sans-serif`;
+    ctx.font = subFontDecl(subSize);
     (ctx as any).letterSpacing = '0.22em';
-    drawTextLine(subtitle, cursor, Math.max(1.5, subSize * 0.06));
+    drawTextLine(subtitle, cursor);
   }
   if (hasDet) {
     cursor += subSize * 0.2 + gap * 0.7 + detSize;
-    ctx.font = `400 ${detSize}px "DM Sans", sans-serif`;
+    ctx.font = subFontDecl(detSize);
     (ctx as any).letterSpacing = '0.14em';
-    drawTextLine(detail, cursor, Math.max(1.5, detSize * 0.06));
+    drawTextLine(detail, cursor);
   }
 
   ctx.restore();

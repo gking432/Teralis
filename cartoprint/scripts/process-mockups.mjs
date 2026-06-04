@@ -30,12 +30,8 @@ function pinkScore(r, g, b) {
   return (r + b) - 2 * g;
 }
 function isPink(r, g, b) {
-  // Strict: definite pink interior — RGB averages ~(255, 0, 200) → score 710
+  // Definite pink interior — RGB averages ~(255, 0, 200) → score 710
   return pinkScore(r, g, b) > 200 && b > 100;
-}
-function isPinkHalo(r, g, b) {
-  // Loose: anti-aliased edge pixels mixed with frame colour
-  return pinkScore(r, g, b) > 60 && b > 50;
 }
 
 async function processOne(filename) {
@@ -65,31 +61,40 @@ async function processOne(filename) {
     }
   }
 
-  // Pass 2 — within bbox, sweep any halo pixel adjacent to a transparent
-  // neighbour. Three iterations handles up to a 3-px wide anti-alias ring.
+  // Pass 2 — unconditional dilation. Expand the transparent mask N pixels
+  // outward regardless of colour, deliberately eating into the frame so no
+  // pink halo can survive. The user's preview will fill the slightly
+  // enlarged area, which reads as the print sitting flush behind the frame.
+  const DILATE_PX = 5;
   if (pinkCount > 0) {
-    for (let iter = 0; iter < 3; iter++) {
+    for (let iter = 0; iter < DILATE_PX; iter++) {
       const additions = [];
-      for (let y = minY; y <= maxY; y++) {
-        for (let x = minX; x <= maxX; x++) {
+      const yLo = Math.max(0, minY - 1);
+      const yHi = Math.min(height - 1, maxY + 1);
+      const xLo = Math.max(0, minX - 1);
+      const xHi = Math.min(width - 1, maxX + 1);
+      for (let y = yLo; y <= yHi; y++) {
+        for (let x = xLo; x <= xHi; x++) {
           const idx = y * width + x;
           if (transparentMask[idx]) continue;
-          // Has at least one transparent neighbour?
           const neigh =
-            (x > 0       && transparentMask[idx - 1]) ||
-            (x < width-1 && transparentMask[idx + 1]) ||
-            (y > 0       && transparentMask[idx - width]) ||
-            (y < height-1 && transparentMask[idx + width]);
-          if (!neigh) continue;
-          const i = idx * channels;
-          const r = data[i], g = data[i + 1], b = data[i + 2];
-          if (isPinkHalo(r, g, b)) additions.push(idx);
+            (x > 0          && transparentMask[idx - 1]) ||
+            (x < width - 1  && transparentMask[idx + 1]) ||
+            (y > 0          && transparentMask[idx - width]) ||
+            (y < height - 1 && transparentMask[idx + width]);
+          if (neigh) additions.push(idx);
         }
       }
       if (additions.length === 0) break;
       for (const idx of additions) {
         transparentMask[idx] = 1;
         data[idx * channels + 3] = 0;
+        const yy = Math.floor(idx / width);
+        const xx = idx - yy * width;
+        if (xx < minX) minX = xx;
+        if (xx > maxX) maxX = xx;
+        if (yy < minY) minY = yy;
+        if (yy > maxY) maxY = yy;
       }
     }
   }

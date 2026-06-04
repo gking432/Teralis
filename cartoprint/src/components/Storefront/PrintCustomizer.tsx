@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { CatalogPrint } from '@/lib/catalog/prints';
@@ -207,8 +207,11 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   return (
     <div className="min-h-screen bg-[#ece7dd]">
       <div className="flex items-center justify-between border-b border-[#ddd6c8] bg-[#f4f0e8] px-6 py-4">
-        <Link href="/" className="text-[11px] uppercase tracking-[1.8px] text-[#555] transition-colors hover:text-[#111]">
-          ← Back to Catalog
+        <Link
+          href={`/design?${searchParams.toString()}`}
+          className="text-[11px] uppercase tracking-[1.8px] text-[#555] transition-colors hover:text-[#111]"
+        >
+          ← Back to Orientation
         </Link>
         <div className="text-[11px] uppercase tracking-[2px] text-[#999]">
           Step 2 of 3 · Customize · <span className="text-[#555]">{orientation}</span>
@@ -529,6 +532,41 @@ function ColorSwatch({ colors }: { colors: PreviewColorSettings }) {
   );
 }
 
+// Measures the rendered text against its parent's width and returns a uniform
+// scale that makes the text fit horizontally. scrollWidth is unaffected by
+// CSS transforms, so applying transform: scale() doesn't fight the measurement.
+function useFitText(deps: unknown[]): {
+  textRef: React.RefObject<HTMLDivElement>;
+  scaleStyle: React.CSSProperties;
+} {
+  const textRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  useLayoutEffect(() => {
+    const el = textRef.current;
+    const parent = el?.parentElement;
+    if (!el || !parent) return;
+
+    function measure() {
+      if (!el || !parent) return;
+      const textW = el.scrollWidth;
+      const parentW = parent.clientWidth;
+      const next = textW > 0 && textW > parentW ? parentW / textW : 1;
+      setScale((prev) => (Math.abs(prev - next) > 0.001 ? next : prev));
+    }
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(parent);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+
+  return {
+    textRef,
+    scaleStyle: { transform: `scale(${scale})`, transformOrigin: 'center' },
+  };
+}
+
 type DragHandle = 'body' | 'tl' | 'tr' | 'bl' | 'br' | 'rotate';
 
 function DraggableTitle({
@@ -644,14 +682,18 @@ function DraggableTitle({
     };
   }, [onChange, containerRef]);
 
-  if (!block.enabled) return null;
-
   const bgColor = block.style === 'inverted' ? ink : land;
   const textFill = trans ? glassColor : (block.style === 'standard' ? ink : land);
   const hasSubtitle = Boolean(block.subtitle.trim());
   const hasDetail = Boolean(block.detail.trim());
   const isLong = block.title.length > 10;
   const isVeryLong = block.title.length > 16;
+
+  const titleFit    = useFitText([block.title,    hasSubtitle, hasDetail, block.w, block.h]);
+  const subtitleFit = useFitText([block.subtitle, hasDetail,              block.w, block.h]);
+  const detailFit   = useFitText([block.detail,                           block.w, block.h]);
+
+  if (!block.enabled) return null;
 
   return (
     <div
@@ -688,46 +730,49 @@ function DraggableTitle({
           padding: '0 4%',
         } as React.CSSProperties}
       >
-        <div style={{
-          color: textFill,
-          fontFamily: '"Cormorant Garamond", Georgia, serif',
-          fontWeight: 300,
-          fontSize: `${(hasSubtitle || hasDetail) ? 28 : 36}cqh`,
-          letterSpacing: isVeryLong ? '0.1em' : isLong ? '0.16em' : '0.22em',
-          whiteSpace: 'nowrap',
-          maxWidth: '100%',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}>
+        <div
+          ref={titleFit.textRef}
+          style={{
+            color: textFill,
+            fontFamily: '"Cormorant Garamond", Georgia, serif',
+            fontWeight: 300,
+            fontSize: `${(hasSubtitle || hasDetail) ? 28 : 36}cqh`,
+            letterSpacing: isVeryLong ? '0.1em' : isLong ? '0.16em' : '0.22em',
+            whiteSpace: 'nowrap',
+            ...titleFit.scaleStyle,
+          }}
+        >
           {block.title.trim().toUpperCase()}
         </div>
         {hasSubtitle && (
-          <div style={{
-            color: textFill,
-            fontFamily: '"DM Sans", sans-serif',
-            fontWeight: 400,
-            fontSize: '14cqh',
-            letterSpacing: '0.22em',
-            whiteSpace: 'nowrap',
-            maxWidth: '100%',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}>
+          <div
+            ref={subtitleFit.textRef}
+            style={{
+              color: textFill,
+              fontFamily: '"DM Sans", sans-serif',
+              fontWeight: 400,
+              fontSize: '14cqh',
+              letterSpacing: '0.22em',
+              whiteSpace: 'nowrap',
+              ...subtitleFit.scaleStyle,
+            }}
+          >
             {block.subtitle.trim().toUpperCase()}
           </div>
         )}
         {hasDetail && (
-          <div style={{
-            color: textFill,
-            fontFamily: '"DM Sans", sans-serif',
-            fontWeight: 400,
-            fontSize: '11cqh',
-            letterSpacing: '0.14em',
-            whiteSpace: 'nowrap',
-            maxWidth: '100%',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}>
+          <div
+            ref={detailFit.textRef}
+            style={{
+              color: textFill,
+              fontFamily: '"DM Sans", sans-serif',
+              fontWeight: 400,
+              fontSize: '11cqh',
+              letterSpacing: '0.14em',
+              whiteSpace: 'nowrap',
+              ...detailFit.scaleStyle,
+            }}
+          >
             {block.detail.trim().toUpperCase()}
           </div>
         )}
