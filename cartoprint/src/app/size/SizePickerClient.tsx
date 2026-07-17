@@ -113,6 +113,22 @@ export function SizePickerClient() {
                     }}
                   />
                 )}
+                {!previewUrl && mockupArea && (
+                  <div
+                    className="absolute flex flex-col items-center justify-center bg-[#f7f2e8] px-4 text-center"
+                    style={{
+                      left:   `${mockupArea.x * 100}%`,
+                      top:    `${mockupArea.y * 100}%`,
+                      width:  `${mockupArea.w * 100}%`,
+                      height: `${mockupArea.h * 100}%`,
+                    }}
+                  >
+                    <div className="font-display text-xl font-light text-[#07122a]">{print.name}</div>
+                    <p className="mt-3 max-w-[180px] text-[10px] leading-4 text-[#888]">
+                      Generate the artwork preview in Step 2 to place it inside this frame.
+                    </p>
+                  </div>
+                )}
                 <Image
                   src={mockupUrl}
                   alt={`${print.name} — ${activeFrame.label} frame${mat ? ' with mat' : ''}`}
@@ -161,10 +177,22 @@ export function SizePickerClient() {
                     className="absolute inset-0 h-full w-full object-fill"
                   />
                 ) : (
-                  <div className="absolute inset-0 flex items-center justify-center bg-[#07122a]/8">
-                    <span className="text-[10px] uppercase tracking-[1.4px] text-[#999]">
-                      Go back to generate preview
-                    </span>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#f7f2e8] px-8 text-center">
+                    <div className="font-display text-2xl font-light text-[#07122a]">{print.name}</div>
+                    {print.defaultSubtitle && (
+                      <div className="mt-1 text-xs uppercase tracking-[2px] text-[#07122a]/45">
+                        {print.defaultSubtitle}
+                      </div>
+                    )}
+                    <p className="mt-5 max-w-[220px] text-xs leading-5 text-[#888]">
+                      Your generated artwork preview will appear here after Step 2.
+                    </p>
+                    <Link
+                      href={backUrl}
+                      className="mt-5 border border-[#07122a] px-4 py-2 text-[10px] uppercase tracking-[1.4px] text-[#07122a] transition-colors hover:bg-[#07122a] hover:text-white"
+                    >
+                      Generate Preview
+                    </Link>
                   </div>
                 )}
               </div>
@@ -276,7 +304,7 @@ export function SizePickerClient() {
           {/* Price */}
           <div className="border-t border-[#ddd6c8] pt-6">
             <div className="flex items-baseline justify-between">
-              <span className="text-[10px] uppercase tracking-[1.6px] text-[#888]">Total</span>
+              <span className="text-[10px] uppercase tracking-[1.6px] text-[#888]">Demo Total</span>
               <span className="font-display text-3xl font-light">{formatPrice(total)}</span>
             </div>
             {isFramed && (
@@ -286,19 +314,22 @@ export function SizePickerClient() {
               </p>
             )}
             <p className="mt-1.5 text-right text-[9px] uppercase tracking-[1px] text-[#bbb]">
-              + shipping · calculated at checkout
+              No payment collected in this demo
             </p>
           </div>
 
           {/* CTA */}
           <button
             className="w-full bg-[#07122a] py-4 text-[11px] font-medium uppercase tracking-[2.5px] text-white transition-opacity hover:opacity-80"
-            onClick={() => alert('Checkout coming soon — Stripe integration in progress.')}
+            onClick={() => {
+              // Placeholder — Stripe checkout can be wired up after the demo.
+              alert('Demo only — checkout is not connected yet.');
+            }}
           >
-            Proceed to Checkout
+            Demo Checkout Coming Soon
           </button>
           <p className="text-center text-[9px] uppercase tracking-[1.2px] text-[#bbb]">
-            Secure checkout · Printed &amp; ships in 3–5 days
+            Ordering disabled · final checkout comes later
           </p>
 
         </div>

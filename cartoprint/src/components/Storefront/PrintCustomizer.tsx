@@ -83,6 +83,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   const isCountry = kind === 'country';
   const activePreset = COLOR_SCHEMES.find((s) => sameColorSettings(s.colors, colors))?.value ?? 'custom';
   const isFreeform = titleBlock.layout === 'freeform';
+  const canContinue = Boolean(previewUrl) && !loading;
   // Print height/width ratio comes from orientation alone. The title footer
   // (if any) is carved out of the canvas — the canvas itself never grows.
   const printRatio = ORIENTATION_RATIO[orientation];
@@ -266,8 +267,14 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
               <div className="pointer-events-none absolute inset-0 animate-pulse bg-white/25" />
             )}
             {loading && !previewUrl && (
-              <div className="absolute inset-0 flex items-center justify-center">
+              <div className="absolute inset-0 flex flex-col items-center justify-center px-8 text-center">
                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#07122a]/20 border-t-[#07122a]" />
+                <div className="mt-5 text-[10px] uppercase tracking-[1.6px] text-[#07122a]/70">
+                  Rendering your print preview
+                </div>
+                <p className="mt-2 max-w-[260px] text-xs leading-5 text-[#07122a]/45">
+                  We are drawing the streets, water, border, and title exactly as they will appear in the demo artwork.
+                </p>
               </div>
             )}
             {isFreeform && titleBlock.enabled && (
@@ -280,8 +287,10 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
             )}
           </div>
           <p className="mt-4 text-center text-[10px] uppercase tracking-[1.4px] text-[#999]">
-            {loading
-              ? 'Updating preview…'
+            {!geometry
+              ? 'Finding map boundary…'
+              : loading
+                ? 'Rendering print preview…'
               : isFreeform
                 ? 'Click label to select · drag to reposition'
                 : 'Live print preview'}
@@ -453,10 +462,16 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
             <div className="flex flex-col gap-3 border-t border-[#ddd6c8] pt-6">
               <button
                 onClick={handleNext}
-                className="w-full bg-[#07122a] py-4 text-[11px] font-medium uppercase tracking-[2px] text-white transition-opacity hover:opacity-85"
+                disabled={!canContinue}
+                className="w-full bg-[#07122a] py-4 text-[11px] font-medium uppercase tracking-[2px] text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-35"
               >
-                Next: Size &amp; Frame →
+                {canContinue ? 'Next: Size & Frame →' : 'Rendering Preview…'}
               </button>
+              {!canContinue && (
+                <p className="text-center text-[10px] leading-5 text-[#999]">
+                  Hang tight for a moment. Size and frame unlock as soon as the artwork preview is ready.
+                </p>
+              )}
               <button
                 onClick={handleDownload}
                 disabled={!geometry || downloading}
