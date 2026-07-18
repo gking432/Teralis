@@ -75,11 +75,11 @@ export function CustomizePageClient() {
       });
 
     return () => { cancelled = true; };
-  }, [catalogPrint, placePrint, freeQuery, router]);
+  }, [catalogPrint, placePrint, freeQuery, orientation, router]);
 
   const print = catalogPrint || placePrint;
   if (print) {
-    return <PrintCustomizer print={print} orientation={orientation} />;
+    return <PrintCustomizer key={print.slug} print={print} orientation={orientation} />;
   }
 
   if (resolving) {

@@ -16,12 +16,32 @@ export interface PrintDetailSettings {
   places: Density;   // cities & towns
   roads: Density;    // highways & main roads
   border: BorderWeight; // outer print frame
+  rivers: boolean;
+  counties: boolean;
+  states: boolean;
+  labels: {
+    cities: boolean;
+    towns: boolean;
+    roads: boolean;
+    water: boolean;
+    rivers: boolean;
+  };
 }
 
 export const DEFAULT_DETAIL_SETTINGS: PrintDetailSettings = {
   places: 'neutral',
   roads: 'neutral',
   border: 'medium',
+  rivers: true,
+  counties: false,
+  states: false,
+  labels: {
+    cities: false,
+    towns: false,
+    roads: false,
+    water: false,
+    rivers: false,
+  },
 };
 
 // Border thickness as a fraction of the rendered width. Picked so medium
@@ -104,8 +124,8 @@ export function buildPrintLayerState(
   // Places: none < less (major cities) < neutral (+towns) < more (every town).
   // The base style ranks city/town labels by importance, so "less" naturally
   // surfaces only the largest cities.
-  const cities = p !== 'none';
-  const towns = p === 'neutral' || p === 'more';
+  const cities = detail.labels?.cities ?? (p !== 'none');
+  const towns = detail.labels?.towns ?? (p === 'neutral' || p === 'more');
 
   // Roads: none < less (highways) < neutral (+main roads) < more (+streets).
   const highways = r !== 'none';
@@ -120,6 +140,13 @@ export function buildPrintLayerState(
       capitals: true,
       cities,
       towns,
+      statelabels: false,
+      roadlabels: detail.labels?.roads ?? false,
+      waterlabels: detail.labels?.water ?? false,
+      riverlabels: detail.labels?.rivers ?? false,
+      rivers: detail.rivers ?? true,
+      counties: detail.counties ?? false,
+      states: detail.states ?? true,
       highways,
       mainroads,
       allroads,
@@ -136,6 +163,12 @@ export function buildPrintLayerState(
       highways,
       mainroads,
       allroads,
+      roadlabels: detail.labels?.roads ?? false,
+      waterlabels: detail.labels?.water ?? false,
+      riverlabels: detail.labels?.rivers ?? false,
+      rivers: detail.rivers ?? true,
+      counties: false,
+      states: false,
     };
   }
 
@@ -148,6 +181,12 @@ export function buildPrintLayerState(
     highways,
     mainroads,
     allroads: false,
+    roadlabels: detail.labels?.roads ?? false,
+    waterlabels: detail.labels?.water ?? false,
+    riverlabels: detail.labels?.rivers ?? false,
+    rivers: detail.rivers ?? true,
+    counties: detail.counties ?? false,
+    states: detail.states ?? false,
   };
 }
 
@@ -189,9 +228,16 @@ function applyPrintPreviewOverrides(
       return;
     }
 
-    // County borders: always hidden.
+    // County borders are opt-in and useful mainly for state gazetteers.
     if (/admin.*(5|6|7|8)|boundary.*(county|5|6|7|8)/.test(id)) {
-      try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
+      try {
+        map.setLayoutProperty(id, 'visibility', layers.counties ? 'visible' : 'none');
+        if (layers.counties && layer.type === 'line') {
+          map.setLayerZoomRange(id, 3, 24);
+          map.setPaintProperty(id, 'line-opacity', 0.28);
+          map.setPaintProperty(id, 'line-width', 0.65);
+        }
+      } catch {}
       return;
     }
 
@@ -207,17 +253,17 @@ function applyPrintPreviewOverrides(
       return;
     }
 
-    // Hide water + river + road name labels.
+    // Labels remain off by default and are independently opt-in.
     if (/water_name_(point|line)_label/.test(id)) {
-      try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
+      try { map.setLayoutProperty(id, 'visibility', layers.waterlabels ? 'visible' : 'none'); } catch {}
       return;
     }
     if (/waterway.*label/.test(id)) {
-      try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
+      try { map.setLayoutProperty(id, 'visibility', layers.riverlabels ? 'visible' : 'none'); } catch {}
       return;
     }
     if (/highway-name|road.*label|road_name|street_name|transportation_name/.test(id)) {
-      try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
+      try { map.setLayoutProperty(id, 'visibility', layers.roadlabels ? 'visible' : 'none'); } catch {}
       return;
     }
 

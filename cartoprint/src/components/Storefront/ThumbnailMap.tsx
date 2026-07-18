@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { DEFAULT_COLOR_SCHEME } from '@/lib/print/colorSchemes';
-import { DEFAULT_TITLE_LAYOUT } from '@/lib/print/titleLayouts';
+import { DEFAULT_COLOR_SCHEME, type PreviewColorSettings } from '@/lib/print/colorSchemes';
+import { DEFAULT_TITLE_LAYOUT, type PreviewTitleLayout } from '@/lib/print/titleLayouts';
+import type { PrintDetailSettings } from '@/lib/print/printRender';
 import { getCachedBoundary } from '@/lib/print/boundaryCache';
 import {
   renderPrintSnapshot,
@@ -10,6 +11,7 @@ import {
   getPreviewCacheKey,
   colorCacheKey,
   DEFAULT_DETAIL_SETTINGS,
+  type Orientation,
 } from '@/lib/print/printSnapshot';
 
 interface ThumbnailMapProps {
@@ -21,31 +23,62 @@ interface ThumbnailMapProps {
   subtitle: string;
   detail: string;
   className?: string;
+  orientation?: Orientation;
+  colors?: PreviewColorSettings;
+  mapDetail?: PrintDetailSettings;
+  titleEnabled?: boolean;
+  titleLayout?: PreviewTitleLayout;
+  cacheId?: string;
+  disableStatic?: boolean;
 }
 
 // Shared snapshot cache — exported so downstream code can read rendered URLs
 export const SNAPSHOT_CACHE = new Map<string, string>();
 
-function defaultPreviewKey(slug: string): string {
+function previewKey(
+  slug: string,
+  colors: PreviewColorSettings,
+  layout: PreviewTitleLayout,
+  detail: PrintDetailSettings,
+  orientation: Orientation,
+  cacheId: string,
+): string {
   return getPreviewCacheKey(
     slug,
-    colorCacheKey(DEFAULT_COLOR_SCHEME.colors),
-    DEFAULT_TITLE_LAYOUT,
-    DEFAULT_DETAIL_SETTINGS,
+    colorCacheKey(colors),
+    `${orientation}:${layout}:${cacheId}`,
+    detail,
   );
 }
 
-export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail, className }: ThumbnailMapProps) {
+export function ThumbnailMap({
+  slug,
+  bbox,
+  center,
+  kind,
+  title,
+  subtitle,
+  detail,
+  className,
+  orientation = 'portrait',
+  colors = DEFAULT_COLOR_SCHEME.colors,
+  mapDetail = DEFAULT_DETAIL_SETTINGS,
+  titleEnabled = true,
+  titleLayout = DEFAULT_TITLE_LAYOUT,
+  cacheId = 'default',
+  disableStatic = false,
+}: ThumbnailMapProps) {
+  const cacheKey = previewKey(slug, colors, titleLayout, mapDetail, orientation, cacheId);
   // When a pre-generated static PNG exists at /thumbnails/slug.png, use it
   // immediately — no MapLibre, no tile loading, just a CDN fetch.
   // staticOk starts true (optimistic). If the image 404s, staticOk goes false
   // and we fall through to the live render pipeline below.
-  const [staticOk, setStaticOk] = useState(true);
+  const [staticOk, setStaticOk] = useState(!disableStatic && orientation === 'portrait' && cacheId === 'default');
   const [staticLoaded, setStaticLoaded] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [dataUrl, setDataUrl] = useState<string | null>(
-    () => PREVIEW_SNAPSHOT_CACHE.get(defaultPreviewKey(slug)) ?? SNAPSHOT_CACHE.get(slug) ?? null
+    () => PREVIEW_SNAPSHOT_CACHE.get(cacheKey) ?? (cacheId === 'default' ? SNAPSHOT_CACHE.get(slug) : null) ?? null
   );
   const [shouldRender, setShouldRender] = useState(false);
 
@@ -78,14 +111,16 @@ export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail
 
     renderPrintSnapshot(
       slug, bbox, center, kind,
-      DEFAULT_COLOR_SCHEME.colors,
-      { enabled: true, title, subtitle, detail, layout: DEFAULT_TITLE_LAYOUT, inverted: false },
+      colors,
+      { enabled: titleEnabled, title, subtitle, detail, layout: titleLayout, inverted: false },
       geometry,
       controller.signal,
-      DEFAULT_DETAIL_SETTINGS,
+      mapDetail,
+      420,
+      orientation,
     ).then((url) => {
-      PREVIEW_SNAPSHOT_CACHE.set(defaultPreviewKey(slug), url);
-      SNAPSHOT_CACHE.set(slug, url);
+      PREVIEW_SNAPSHOT_CACHE.set(cacheKey, url);
+      if (cacheId === 'default') SNAPSHOT_CACHE.set(slug, url);
       setDataUrl(url);
     }).catch((err) => {
       if (err?.message !== 'aborted') console.warn('Thumbnail render failed', err);
@@ -93,14 +128,14 @@ export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail
 
     return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldRender, dataUrl, slug]);
+  }, [shouldRender, dataUrl, slug, cacheKey, orientation]);
 
   // --- Render ---
 
   // Static PNG path: show immediately. onError falls back to live render.
   if (staticOk && !dataUrl) {
     return (
-      <div className={`relative ${className ?? ''}`} style={{ aspectRatio: '3/4' }}>
+      <div className={`relative ${className ?? ''}`} style={{ aspectRatio: orientation === 'portrait' ? '3/4' : orientation === 'landscape' ? '4/3' : '1/1' }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={`/thumbnails/${slug}.png`}
@@ -117,7 +152,7 @@ export function ThumbnailMap({ slug, bbox, center, kind, title, subtitle, detail
 
   // Live render path (dataUrl already set from cache, or pipeline running)
   return (
-    <div ref={containerRef} className={className} style={{ aspectRatio: '3/4' }}>
+    <div ref={containerRef} className={className} style={{ aspectRatio: orientation === 'portrait' ? '3/4' : orientation === 'landscape' ? '4/3' : '1/1' }}>
       {dataUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={dataUrl} alt="" className="h-full w-full object-cover" loading="lazy" />

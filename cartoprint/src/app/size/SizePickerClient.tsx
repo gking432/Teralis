@@ -11,9 +11,10 @@ import { isValidOrientation, ORIENTATION_RATIO, type Orientation } from '@/lib/p
 import {
   SIZE_CATALOG, SIZE_LABELS, FRAME_OPTIONS,
   getSizePrice, formatPrice, getMockupUrl, MAT_UPCHARGE,
-  SESSION_PREVIEW_KEY,
+  SESSION_PREVIEW_KEY, SESSION_FINISH_KEY,
   type SizeLabel, type FrameOption,
 } from '@/lib/print/sizeCatalog';
+import { readStoredScene, type PrintScene } from '@/lib/print/scene';
 import { MOCKUP_AREAS } from '@/lib/print/mockupAreas.generated';
 
 export function SizePickerClient() {
@@ -34,20 +35,45 @@ export function SizePickerClient() {
   const [size,  setSize]  = useState<SizeLabel>('medium');
   const [frame, setFrame] = useState<FrameOption>('none');
   const [mat,   setMat]   = useState(false);
-  const [scene, setScene] = useState<0 | 1>(0);
+  const [wallScene, setWallScene] = useState<0 | 1>(0);
+  const [printScene, setPrintScene] = useState<PrintScene | null>(null);
+  const [ordering, setOrdering] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [demoOrder, setDemoOrder] = useState<{ orderId: string; status: string } | null>(null);
 
   useEffect(() => {
     try {
       const stored = sessionStorage.getItem(SESSION_PREVIEW_KEY);
       if (stored) setPreviewUrl(stored);
+      const storedScene = readStoredScene(print ?? undefined);
+      if (storedScene) setPrintScene(storedScene);
+      const finishRaw = sessionStorage.getItem(SESSION_FINISH_KEY);
+      if (finishRaw) {
+        const finish = JSON.parse(finishRaw) as { slug?: string; size?: SizeLabel; frame?: FrameOption; mat?: boolean };
+        if (finish.slug === print?.slug) {
+          if (finish.size && SIZE_LABELS.includes(finish.size)) setSize(finish.size);
+          if (finish.frame && FRAME_OPTIONS.some((option) => option.value === finish.frame)) setFrame(finish.frame);
+          if (typeof finish.mat === 'boolean') setMat(finish.mat);
+        }
+      }
     } catch {}
-  }, []);
+  // The slug is stable even when a custom-place object is reconstructed from
+  // URL parameters during render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [print?.slug]);
+
+  useEffect(() => {
+    if (!print) return;
+    try {
+      sessionStorage.setItem(SESSION_FINISH_KEY, JSON.stringify({ slug: print.slug, size, frame, mat }));
+    } catch {}
+  }, [print, size, frame, mat]);
 
   // Reset mat + scene when frame changes
   function handleFrameChange(f: FrameOption) {
     setFrame(f);
     if (f === 'none') setMat(false);
-    setScene(0);
+    setWallScene(0);
   }
 
   if (!print) {
@@ -65,13 +91,44 @@ export function SizePickerClient() {
   const selected    = sizes[size];
   const activeFrame = FRAME_OPTIONS.find((f) => f.value === frame)!;
   const total       = getSizePrice(size, frame, mat);
-  const mockupUrl   = getMockupUrl(frame, orientation, mat, scene);
+  const mockupUrl   = getMockupUrl(frame, orientation, mat, wallScene);
   const isFramed    = frame !== 'none';
   // Bbox of the print area inside the mockup (normalised 0–1)
   const mockupArea  = mockupUrl ? MOCKUP_AREAS[mockupUrl.split('/').pop()!] : null;
 
   const backParams = new URLSearchParams(searchParams.toString());
   const backUrl    = `/customize?${backParams.toString()}`;
+
+  async function handleCreateDemoOrder() {
+    if (!printScene || ordering) return;
+    setOrdering(true);
+    setOrderError(null);
+    try {
+      const response = await fetch('/api/order', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          scene: printScene,
+          printConfig: {
+            size,
+            dimensions: selected.dimensionStr,
+            frame,
+            mat,
+            orientation,
+            sku: selected.prodigiSku,
+            total,
+          },
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to create the demo order.');
+      setDemoOrder({ orderId: result.orderId, status: result.status });
+    } catch (error) {
+      setOrderError(error instanceof Error ? error.message : 'Unable to create the demo order.');
+    } finally {
+      setOrdering(false);
+    }
+  }
 
   return (
     <div className="studio-topography min-h-screen bg-[#14201d] text-[#14201d]">
@@ -135,10 +192,10 @@ export function SizePickerClient() {
                 {([0, 1] as const).map((s) => (
                   <button
                     key={s}
-                    onClick={() => setScene(s)}
+                    onClick={() => setWallScene(s)}
                     aria-label={`Scene ${s + 1}`}
                     className={`h-1.5 rounded-full transition-all duration-200 ${
-                      scene === s ? 'w-6 bg-[#333]' : 'w-1.5 bg-[#bbb] hover:bg-[#888]'
+                      wallScene === s ? 'w-6 bg-[#333]' : 'w-1.5 bg-[#bbb] hover:bg-[#888]'
                     }`}
                   />
                 ))}
@@ -277,7 +334,7 @@ export function SizePickerClient() {
                 {[false, true].map((m) => (
                   <button
                     key={String(m)}
-                    onClick={() => { setMat(m); setScene(0); }}
+                    onClick={() => { setMat(m); setWallScene(0); }}
                     className={`flex-1 py-2.5 text-[10px] uppercase tracking-[1.2px] transition-all ${
                       m ? 'border-l border-[#d8d9d3]' : ''
                     } ${
@@ -310,19 +367,26 @@ export function SizePickerClient() {
             </p>
           </div>
 
-          {/* CTA */}
-          <button
-            className="w-full bg-[#173f35] py-4 text-[10px] font-medium uppercase tracking-[0.21em] text-white transition-colors hover:bg-[#c66b4e]"
-            onClick={() => {
-              // Placeholder — Stripe checkout can be wired up after the demo.
-              alert('Demo only — checkout is not connected yet.');
-            }}
-          >
-            Demo Checkout Coming Soon
-          </button>
-          <p className="text-center text-[9px] uppercase tracking-[1.2px] text-[#bbb]">
-            Ordering disabled · final checkout comes later
-          </p>
+          {demoOrder ? (
+            <div className="border border-[#173f35] bg-[#eef1ed] p-5 text-center">
+              <div className="text-[8px] uppercase tracking-[0.2em] text-[#c66b4e]">Demo order created</div>
+              <div className="mt-2 font-display text-3xl font-light text-[#173f35]">{demoOrder.orderId}</div>
+              <p className="mt-2 text-[10px] leading-5 text-[#68726c]">The artwork scene, crop, size, and finish were handed to the order endpoint successfully. No payment was collected.</p>
+              <Link href="/" className="mt-4 inline-block text-[9px] uppercase tracking-[0.16em] underline underline-offset-4">Create another print</Link>
+            </div>
+          ) : (
+            <>
+              <button
+                className="w-full bg-[#173f35] py-4 text-[10px] font-medium uppercase tracking-[0.21em] text-white transition-colors hover:bg-[#c66b4e] disabled:cursor-not-allowed disabled:opacity-45"
+                onClick={handleCreateDemoOrder}
+                disabled={!printScene || ordering}
+              >
+                {ordering ? 'Creating Demo Order…' : printScene ? 'Create Demo Order' : 'Artwork Scene Missing'}
+              </button>
+              {orderError && <p role="alert" className="text-center text-[10px] leading-5 text-[#a14f3c]">{orderError}</p>}
+              <p className="text-center text-[9px] uppercase tracking-[1.2px] text-[#bbb]">Demo handoff only · no payment or fulfillment</p>
+            </>
+          )}
 
         </aside>
       </div>

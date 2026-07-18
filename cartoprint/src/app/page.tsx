@@ -1,8 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { LocationSearch } from '@/components/Storefront/LocationSearch';
 import { StudioHeader } from '@/components/Storefront/StudioHeader';
+import { getFeaturedCatalogPrint, getStateCatalogPrints } from '@/lib/catalog/prints';
 
 const POPULAR_CITIES = [
   'Chicago', 'New York', 'Los Angeles', 'Austin', 'Nashville',
@@ -20,6 +22,13 @@ const CONTOUR_PATHS = [
 ];
 
 export default function StorefrontPage() {
+  const [catalogQuery, setCatalogQuery] = useState('');
+  const [showAll, setShowAll] = useState(false);
+  const featuredPrint = getFeaturedCatalogPrint();
+  const states = getStateCatalogPrints();
+  const filteredStates = states.filter((print) => print.name.toLowerCase().includes(catalogQuery.trim().toLowerCase()));
+  const visibleStates = catalogQuery || showAll ? filteredStates : filteredStates.slice(0, 12);
+
   return (
     <main className="min-h-screen bg-[#14201d] text-[#f7f4eb]">
       <section className="studio-topography relative min-h-screen overflow-hidden">
@@ -42,7 +51,16 @@ export default function StorefrontPage() {
               Turn any city, state, or hometown into a considered piece of cartographic art. Choose the place; then tune every road, color, and label.
             </p>
 
-            <div id="studio-search" className="mt-9 max-w-2xl scroll-mt-24">
+            <div className="mt-8 flex flex-wrap gap-3">
+              <a href="#collection" className="bg-[#f7f4eb] px-6 py-3.5 text-[9px] font-medium uppercase tracking-[0.2em] text-[#14201d] transition-colors hover:bg-[#c66b4e] hover:text-white">
+                Select a print
+              </a>
+              <a href="#studio-search" className="border border-white/25 px-6 py-3.5 text-[9px] font-medium uppercase tracking-[0.2em] text-white transition-colors hover:border-white/60 hover:bg-white/10">
+                Make your own
+              </a>
+            </div>
+
+            <div id="studio-search" className="mt-7 max-w-2xl scroll-mt-24">
               <LocationSearch placeholder="Search a city, state, or town" />
               <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-[#dce2dd]/52">
                 <span className="mr-1 text-[9px] uppercase tracking-[0.2em] text-[#c66b4e]">Try</span>
@@ -101,6 +119,99 @@ export default function StorefrontPage() {
         <div className="absolute bottom-7 right-8 hidden items-center gap-3 text-[9px] uppercase tracking-[0.2em] text-white/35 xl:flex">
           <span className="h-px w-10 bg-white/25" />
           Designed on your screen · printed for your wall
+        </div>
+      </section>
+
+      <section id="collection" className="studio-paper-grid scroll-mt-0 bg-[#f2efe7] px-5 py-20 text-[#14201d] md:px-10 lg:px-16 lg:py-28">
+        <div className="mx-auto max-w-[1460px]">
+          <div className="grid gap-8 border-b border-[#14201d]/15 pb-10 lg:grid-cols-[1fr_0.8fr] lg:items-end">
+            <div>
+              <div className="studio-kicker">The state collection</div>
+              <h2 className="mt-5 max-w-3xl font-display text-[clamp(3.4rem,6vw,6.6rem)] font-light leading-[0.82] tracking-[-0.04em]">
+                Start with a place <span className="italic text-[#65716a]">you already know.</span>
+              </h2>
+            </div>
+            <div className="max-w-lg lg:justify-self-end">
+              <p className="text-[14px] leading-7 text-[#66706a]">Each study opens with six complete cartographic directions. Pick one, then refine the crop, detail, color, and typography.</p>
+              <label className="mt-6 block border-b border-[#14201d]/35 pb-2">
+                <span className="sr-only">Filter state prints</span>
+                <input
+                  type="search"
+                  value={catalogQuery}
+                  onChange={(event) => setCatalogQuery(event.target.value)}
+                  placeholder="Find a state"
+                  className="w-full bg-transparent text-sm outline-none placeholder:text-[#89918b]"
+                />
+              </label>
+            </div>
+          </div>
+
+          <Link
+            href={`/design?print=${featuredPrint.slug}`}
+            className="group mt-10 grid overflow-hidden border border-[#14201d]/15 bg-[#173f35] text-white transition-transform duration-300 hover:-translate-y-1 lg:grid-cols-[1.15fr_0.85fr]"
+          >
+            <div className="relative min-h-[360px] overflow-hidden border-b border-white/15 p-8 lg:min-h-[430px] lg:border-b-0 lg:border-r lg:p-12">
+              <div className="absolute inset-0 opacity-25" aria-hidden>
+                <svg className="h-full w-full" viewBox="0 0 800 460" fill="none">
+                  {CONTOUR_PATHS.map((path, index) => <path key={`${path}-${index}`} d={path} stroke="#f7f4eb" strokeWidth="1" transform={`scale(1.3 ${0.8 + index * 0.025})`} />)}
+                </svg>
+              </div>
+              <div className="relative flex h-full flex-col justify-between">
+                <span className="text-[8px] uppercase tracking-[0.22em] text-white/50">Featured national study</span>
+                <div>
+                  <div className="font-display text-[clamp(3.5rem,7vw,7.4rem)] font-light leading-[0.8]">United<br /><span className="italic text-[#cbd4cc]">States.</span></div>
+                  <p className="mt-8 max-w-md text-[12px] leading-6 text-white/60">A continental composition ready for state lines, capitals, highway detail, and a palette of your own.</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex min-h-[260px] flex-col justify-between bg-[#f8f6ef] p-8 text-[#14201d] lg:p-12">
+              <div className="grid grid-cols-2 gap-6 text-[8px] uppercase tracking-[0.17em] text-[#77817b]">
+                <span>Country study</span><span className="text-right">Est. 1776</span>
+                <span>Six compositions</span><span className="text-right">Fully editable</span>
+              </div>
+              <div className="mt-14 flex items-end justify-between border-t border-[#14201d]/15 pt-6">
+                <div>
+                  <div className="font-display text-3xl font-light">Customize this print</div>
+                  <div className="mt-2 text-[9px] uppercase tracking-[0.18em] text-[#c66b4e]">Open the studio</div>
+                </div>
+                <span className="text-3xl transition-transform group-hover:translate-x-1">+</span>
+              </div>
+            </div>
+          </Link>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {visibleStates.map((print, index) => (
+              <Link
+                key={print.slug}
+                href={`/design?print=${print.slug}`}
+                className="group flex min-h-[180px] flex-col justify-between border border-[#14201d]/15 bg-[#fbfaf6] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-[#173f35] hover:shadow-[0_15px_35px_rgba(20,32,29,0.1)]"
+              >
+                <div className="flex items-start justify-between text-[8px] uppercase tracking-[0.18em] text-[#849087]">
+                  <span>{String(index + 1).padStart(2, '0')}</span>
+                  <span>{print.establishedYear ? `Est. ${print.establishedYear}` : 'State study'}</span>
+                </div>
+                <div>
+                  <h3 className="font-display text-[28px] font-light leading-none">{print.name}</h3>
+                  <div className="mt-3 flex items-center justify-between border-t border-[#14201d]/10 pt-3 text-[8px] uppercase tracking-[0.14em] text-[#77817b]">
+                    <span>{print.slogan || 'United States'}</span>
+                    <span className="text-[#c66b4e] transition-transform group-hover:translate-x-1">Open +</span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          {!catalogQuery && !showAll && (
+            <button
+              onClick={() => setShowAll(true)}
+              className="mx-auto mt-8 block border border-[#173f35] px-7 py-3.5 text-[9px] uppercase tracking-[0.19em] transition-colors hover:bg-[#173f35] hover:text-white"
+            >
+              View all 50 states + DC
+            </button>
+          )}
+          {catalogQuery && filteredStates.length === 0 && (
+            <p className="border border-[#14201d]/15 bg-[#fbfaf6] p-8 text-center text-sm text-[#66706a]">No state print matches “{catalogQuery}”. Try the custom place search above.</p>
+          )}
         </div>
       </section>
     </main>

@@ -6,7 +6,6 @@ import { StudioHeader } from '@/components/Storefront/StudioHeader';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import {
   COLOR_SCHEMES,
-  DEFAULT_COLOR_SCHEME,
   getPrintInkColor,
   sameColorSettings,
   type PreviewColorSettings,
@@ -15,61 +14,116 @@ import {
   TITLE_LAYOUTS,
   type TitleBlockSettings,
   type TitleStyle,
-  defaultTitleBlock,
 } from '@/lib/print/titleLayouts';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 import { renderPrintSnapshot, PREVIEW_SNAPSHOT_CACHE, getPreviewCacheKey, colorCacheKey, bakeTitleBlock, ORIENTATION_RATIO, type Orientation } from '@/lib/print/printSnapshot';
 import { SESSION_PREVIEW_KEY, SESSION_CUSTOMIZATION_KEY } from '@/lib/print/sizeCatalog';
-import { type PrintDetailSettings, type Density, type BorderWeight, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
+import { type PrintDetailSettings, type Density, type BorderWeight } from '@/lib/print/printRender';
+import { COMPOSITION_PRESETS, DETAIL_LEVELS, applyCompositionPreset, getCompositionPreset } from '@/lib/print/presets';
+import {
+  createPrintScene,
+  panViewportByPixels,
+  readStoredScene,
+  sceneCacheTag,
+  storeScene,
+  transformViewport,
+  type CompositionPresetId,
+  type PrintScene,
+} from '@/lib/print/scene';
 
 interface PrintCustomizerProps {
   print: CatalogPrint;
   orientation?: Orientation;
 }
 
-const DENSITY_OPTIONS: { value: Density; label: string }[] = [
-  { value: 'none', label: 'None' },
-  { value: 'less', label: 'Less' },
-  { value: 'neutral', label: 'Neutral' },
-  { value: 'more', label: 'More' },
-];
+type StudioTab = 'map' | 'color' | 'type' | 'finish';
 
-// State-level roads: no residential streets. "More" maps to highways + main
-// roads (the old 'neutral' tier).
-const STATE_ROADS_OPTIONS: { value: Density; label: string }[] = [
-  { value: 'none', label: 'None' },
-  { value: 'less', label: 'Less' },
-  { value: 'neutral', label: 'More' },
+const STUDIO_TABS: { value: StudioTab; label: string; number: string }[] = [
+  { value: 'map', label: 'Map', number: '01' },
+  { value: 'color', label: 'Color', number: '02' },
+  { value: 'type', label: 'Type', number: '03' },
+  { value: 'finish', label: 'Finish', number: '04' },
 ];
 
 export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustomizerProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [colors, setColors] = useState<PreviewColorSettings>(DEFAULT_COLOR_SCHEME.colors);
-  const [titleBlock, setTitleBlock] = useState<TitleBlockSettings>(() =>
-    defaultTitleBlock(
-      print.defaultTitle,
-      print.defaultSubtitle,
-      print.establishedYear ? `EST. ${print.establishedYear}` : '',
-    )
+  const requestedPreset = getCompositionPreset(searchParams.get('style'));
+  const [scene, setScene] = useState<PrintScene>(() =>
+    applyCompositionPreset(createPrintScene(print, orientation, requestedPreset.id), requestedPreset.id)
   );
-  const [detail, setDetail] = useState<PrintDetailSettings>(DEFAULT_DETAIL_SETTINGS);
+  const [activeTab, setActiveTab] = useState<StudioTab>('map');
   const [downloading, setDownloading] = useState(false);
+  const [restored, setRestored] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const cropDragRef = useRef<{ x: number; y: number } | null>(null);
+  const undoStackRef = useRef<PrintScene[]>([]);
+  const redoStackRef = useRef<PrintScene[]>([]);
 
-  // Restore state when navigating back from Step 3
+  // Restore the exact scene when returning from finish. Choosing another
+  // composition from Step 1 intentionally starts a fresh scene.
   useEffect(() => {
-    try {
-      const stored = sessionStorage.getItem(SESSION_CUSTOMIZATION_KEY);
-      if (!stored) return;
-      const data = JSON.parse(stored);
-      if (data.slug === print.slug && data.orientation === orientation) {
-        if (data.colors)     setColors(data.colors);
-        if (data.titleBlock) setTitleBlock(data.titleBlock);
-        if (data.detail)     setDetail(data.detail);
-      }
-    } catch {}
+    const stored = readStoredScene(print);
+    if (stored && stored.composition === requestedPreset.id) setScene(stored);
+    setRestored(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (restored) storeScene(scene);
+  }, [scene, restored]);
+
+  const colors = scene.colors;
+  const titleBlock = scene.title;
+  const detail = scene.detail;
+  const currentOrientation = scene.orientation;
+
+  function updateScene(updater: (current: PrintScene) => PrintScene) {
+    setScene((current) => {
+      undoStackRef.current = [...undoStackRef.current.slice(-29), current];
+      redoStackRef.current = [];
+      return { ...updater(current), updatedAt: Date.now() };
+    });
+  }
+
+  function undo() {
+    const previous = undoStackRef.current.pop();
+    if (!previous) return;
+    setScene((current) => {
+      redoStackRef.current.push(current);
+      return previous;
+    });
+  }
+
+  function redo() {
+    const next = redoStackRef.current.pop();
+    if (!next) return;
+    setScene((current) => {
+      undoStackRef.current.push(current);
+      return next;
+    });
+  }
+
+  function setColors(next: PreviewColorSettings | ((current: PreviewColorSettings) => PreviewColorSettings)) {
+    updateScene((current) => ({
+      ...current,
+      colors: typeof next === 'function' ? next(current.colors) : next,
+    }));
+  }
+
+  function setTitleBlock(next: TitleBlockSettings | ((current: TitleBlockSettings) => TitleBlockSettings)) {
+    updateScene((current) => ({
+      ...current,
+      title: typeof next === 'function' ? next(current.title) : next,
+    }));
+  }
+
+  function setDetail(next: PrintDetailSettings | ((current: PrintDetailSettings) => PrintDetailSettings)) {
+    updateScene((current) => ({
+      ...current,
+      detail: typeof next === 'function' ? next(current.detail) : next,
+    }));
+  }
 
   // Start identically on the server and client. Pulling the module cache inside
   // the state initializer caused the status text to differ during hydration.
@@ -86,7 +140,8 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   const canContinue = Boolean(previewUrl) && !loading;
   // Print height/width ratio comes from orientation alone. The title footer
   // (if any) is carved out of the canvas — the canvas itself never grows.
-  const printRatio = ORIENTATION_RATIO[orientation];
+  const printRatio = ORIENTATION_RATIO[currentOrientation];
+  const originalViewport = { bbox: print.bbox, center: print.center };
 
   useEffect(() => {
     if (geometry) return;
@@ -107,7 +162,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   // canvas with a footer). For freeform the snapshot is identical regardless
   // of title position. Orientation changes the canvas shape too.
   const glassTag = titleBlock.style === 'translucent' ? `:${titleBlock.glassFill}` : '';
-  const previewLayoutKey = `${orientation}:${isFreeform ? 'freeform' : `${titleBlock.layout}:${titleBlock.style}${glassTag}:${titleBlock.enabled ? 'on' : 'off'}`}`;
+  const previewLayoutKey = `${sceneCacheTag(scene)}:${isFreeform ? 'freeform' : `${titleBlock.layout}:${titleBlock.style}${glassTag}:${titleBlock.enabled ? 'on' : 'off'}`}:${titleBlock.title}:${titleBlock.subtitle}:${titleBlock.detail}`;
 
   useEffect(() => {
     if (!geometry) return;
@@ -121,7 +176,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
     setLoading(true);
 
     renderPrintSnapshot(
-      print.slug, print.bbox, print.center, kind,
+      print.slug, scene.viewport.bbox, scene.viewport.center, kind,
       colors,
       {
         enabled: titleBlock.enabled,
@@ -139,7 +194,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
       controller.signal,
       detail,
       undefined,
-      orientation,
+      currentOrientation,
     ).then((url) => {
       if (controller.signal.aborted) return;
       PREVIEW_SNAPSHOT_CACHE.set(cacheKey, url);
@@ -151,7 +206,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
 
     return () => { controller.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [print.slug, colors, detail, geometry, previewLayoutKey, titleBlock.enabled, orientation]);
+  }, [print.slug, colors, detail, geometry, previewLayoutKey, titleBlock.enabled, currentOrientation]);
 
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
@@ -162,7 +217,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
       const DOWNLOAD_W = 3600;
       const DOWNLOAD_H = Math.round(DOWNLOAD_W * printRatio);
       const mapUrl = await renderPrintSnapshot(
-        print.slug, print.bbox, print.center, kind,
+        print.slug, scene.viewport.bbox, scene.viewport.center, kind,
         colors,
         {
           enabled: titleBlock.enabled,
@@ -177,7 +232,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
             : (colors.land || '#ffffff'),
         },
         geometry,
-        undefined, detail, DOWNLOAD_W, orientation,
+        undefined, detail, DOWNLOAD_W, currentOrientation,
       );
 
       let finalDataUrl: string;
@@ -203,7 +258,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
 
       const a = document.createElement('a');
       a.href = finalDataUrl;
-      a.download = `${print.slug}-map-print-${orientation}.png`;
+      a.download = `${print.slug}-map-print-${currentOrientation}.png`;
       a.click();
     } catch (err) {
       console.warn('Download failed', err);
@@ -215,9 +270,12 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   function handleNext() {
     try {
       if (previewUrl) sessionStorage.setItem(SESSION_PREVIEW_KEY, previewUrl);
-      sessionStorage.setItem(SESSION_CUSTOMIZATION_KEY, JSON.stringify({ slug: print.slug, orientation, colors, titleBlock, detail }));
+      storeScene(scene);
+      sessionStorage.setItem(SESSION_CUSTOMIZATION_KEY, JSON.stringify({ slug: print.slug, orientation: currentOrientation, colors, titleBlock, detail }));
     } catch {}
     const params = new URLSearchParams(searchParams.toString());
+    params.set('o', currentOrientation);
+    params.set('style', scene.composition);
     router.push(`/size?${params.toString()}`);
   }
 
@@ -225,37 +283,88 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
     setColors((c) => ({ land: c.land, water: c.water, roads: c.roads, [channel]: value }));
   }
 
+  function chooseComposition(id: CompositionPresetId) {
+    updateScene((current) => applyCompositionPreset(current, id));
+  }
+
+  function setDetailLevel(value: Density) {
+    setDetail((current) => ({
+      ...current,
+      places: kind === 'city' ? 'none' : value,
+      roads: kind === 'state' && value === 'more' ? 'neutral' : value,
+    }));
+  }
+
+  function toggleLabel(label: keyof PrintDetailSettings['labels']) {
+    setDetail((current) => ({
+      ...current,
+      labels: { ...current.labels, [label]: !current.labels[label] },
+    }));
+  }
+
+  function moveViewport(operation: Parameters<typeof transformViewport>[1]) {
+    updateScene((current) => ({
+      ...current,
+      viewport: transformViewport(current.viewport, operation, originalViewport),
+    }));
+  }
+
+  function onCropPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    cropDragRef.current = { x: event.clientX, y: event.clientY };
+    setDragOffset({ x: 0, y: 0 });
+  }
+
+  function onCropPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    const start = cropDragRef.current;
+    if (!start) return;
+    setDragOffset({ x: event.clientX - start.x, y: event.clientY - start.y });
+  }
+
+  function onCropPointerUp(event: React.PointerEvent<HTMLDivElement>) {
+    const start = cropDragRef.current;
+    if (!start) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    cropDragRef.current = null;
+    setDragOffset({ x: 0, y: 0 });
+    if (Math.abs(dx) + Math.abs(dy) < 4) return;
+    updateScene((current) => ({
+      ...current,
+      viewport: panViewportByPixels(current.viewport, dx, dy, rect.width, rect.height),
+    }));
+  }
+
   return (
     <div className="studio-topography min-h-screen bg-[#14201d] text-[#14201d]">
       <StudioHeader
         step={2}
         backHref={`/design?${searchParams.toString()}`}
-        backLabel="Format"
+        backLabel="Design"
         context={print.name}
       />
 
-      <div className="mx-auto flex max-w-[1500px] flex-col gap-8 px-4 py-6 md:px-8 lg:px-10 lg:py-10 min-[1380px]:flex-row min-[1380px]:items-start min-[1380px]:gap-12">
-
-        {/* Left: large preview */}
-        <div className="relative flex min-h-[calc(100vh-150px)] flex-1 flex-col items-center justify-center rounded-sm border border-white/10 bg-white/[0.035] px-3 py-9 lg:px-8 min-[1380px]:sticky min-[1380px]:top-6 min-[1380px]:self-start">
-          <div className="absolute left-5 top-5 text-[8px] uppercase tracking-[0.22em] text-white/35">
-            Live composition · {orientation}
+      <div className="mx-auto flex max-w-[1540px] flex-col gap-7 px-4 py-5 md:px-8 lg:px-10 lg:py-8 min-[1320px]:flex-row min-[1320px]:items-start min-[1320px]:gap-10">
+        <main className="relative flex min-h-[calc(100vh-135px)] flex-1 flex-col items-center justify-center rounded-sm border border-white/10 bg-white/[0.035] px-3 py-16 lg:px-8 min-[1320px]:sticky min-[1320px]:top-5 min-[1320px]:self-start">
+          <div className="absolute left-5 top-5 flex items-center gap-3 text-[8px] uppercase tracking-[0.22em] text-white/40">
+            <span>Live artwork</span>
+            <span className="h-px w-6 bg-[#c66b4e]" />
+            <span>{getCompositionPreset(scene.composition).name}</span>
           </div>
-          <div className="absolute right-5 top-5 hidden text-right text-[8px] uppercase leading-4 tracking-[0.18em] text-white/25 sm:block">
-            {print.center[1].toFixed(3)}° N<br />{Math.abs(print.center[0]).toFixed(3)}° W
+          <div className="absolute right-5 top-5 hidden text-right text-[8px] uppercase leading-4 tracking-[0.18em] text-white/30 sm:block">
+            {scene.viewport.center[1].toFixed(3)}° N<br />{Math.abs(scene.viewport.center[0]).toFixed(3)}° W
           </div>
           <div
             ref={previewContainerRef}
-            className="relative overflow-hidden ring-1 ring-black/10 shadow-[0_35px_90px_rgba(0,0,0,0.48)]"
+            className="relative overflow-hidden bg-white ring-1 ring-black/10 shadow-[0_35px_90px_rgba(0,0,0,0.48)]"
             style={{
-              // Explicit width AND height — no aspect-ratio fallback math.
-              // Width uses min() so the preview shrinks on narrow viewports;
-              // height tracks width via the same min() multiplied by printRatio,
-              // so container ratio is mathematically guaranteed to equal image ratio.
-              width: orientation === 'landscape' ? 'min(740px, 90vw)' : 'min(540px, 90vw)',
-              height: orientation === 'landscape'
-                ? `calc(min(740px, 90vw) * ${printRatio.toFixed(4)})`
-                : `calc(min(540px, 90vw) * ${printRatio.toFixed(4)})`,
+              width: currentOrientation === 'landscape' ? 'min(760px, 90vw)' : currentOrientation === 'square' ? 'min(610px, 90vw)' : 'min(520px, 90vw)',
+              height: currentOrientation === 'landscape'
+                ? `calc(min(760px, 90vw) * ${printRatio.toFixed(4)})`
+                : currentOrientation === 'square'
+                  ? `calc(min(610px, 90vw) * ${printRatio.toFixed(4)})`
+                  : `calc(min(520px, 90vw) * ${printRatio.toFixed(4)})`,
             }}
           >
             {previewUrl && (
@@ -263,11 +372,13 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
                 src={previewUrl}
                 alt={`${print.name} customizable map print`}
                 className="absolute inset-0 h-full w-full object-fill"
+                style={{
+                  transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)`,
+                  transition: cropDragRef.current ? 'none' : 'transform 180ms ease-out',
+                }}
               />
             )}
-            {!previewUrl && (
-              <div className="absolute inset-0 bg-[#07122a]/8" />
-            )}
+            {!previewUrl && <div className="absolute inset-0 bg-[#07122a]/8" />}
             {loading && previewUrl && (
               <div className="pointer-events-none absolute inset-0 animate-pulse bg-white/25" />
             )}
@@ -282,7 +393,23 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
                 </p>
               </div>
             )}
-            {isFreeform && titleBlock.enabled && (
+            {activeTab === 'map' && (
+              <div
+                className="absolute inset-0 z-20 touch-none cursor-grab active:cursor-grabbing"
+                onPointerDown={onCropPointerDown}
+                onPointerMove={onCropPointerMove}
+                onPointerUp={onCropPointerUp}
+                onPointerCancel={onCropPointerUp}
+                aria-label="Drag artwork to adjust crop"
+              >
+                <div className="pointer-events-none absolute inset-3 border border-dashed border-white/65 shadow-[0_0_0_999px_rgba(20,32,29,0.07)]" />
+                <div className="pointer-events-none absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2">
+                  <span className="absolute left-1/2 top-0 h-full w-px bg-white/70" />
+                  <span className="absolute left-0 top-1/2 h-px w-full bg-white/70" />
+                </div>
+              </div>
+            )}
+            {activeTab === 'type' && isFreeform && titleBlock.enabled && (
               <DraggableTitle
                 block={titleBlock}
                 onChange={setTitleBlock}
@@ -291,75 +418,124 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
               />
             )}
           </div>
-          <p className="mt-5 text-center text-[9px] uppercase tracking-[0.17em] text-white/55">
-            {!geometry
-              ? 'Finding map boundary…'
-              : loading
-                ? 'Rendering print preview…'
-              : isFreeform
-                ? 'Click label to select · drag to reposition'
-                : 'Live print preview'}
+          {activeTab === 'map' && (
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+              <CropButton label="Zoom out" onClick={() => moveViewport('zoom-out')}>−</CropButton>
+              <CropButton label="Zoom in" onClick={() => moveViewport('zoom-in')}>+</CropButton>
+              <CropButton label="Undo" onClick={undo}>Undo</CropButton>
+              <CropButton label="Redo" onClick={redo}>Redo</CropButton>
+              <CropButton label="Reset crop" onClick={() => moveViewport('reset')}>Reset crop</CropButton>
+            </div>
+          )}
+          <p className="mt-4 text-center text-[9px] uppercase tracking-[0.17em] text-white/55">
+            {!geometry ? 'Finding map boundary…' : loading ? 'Loading preview…' : activeTab === 'map' ? 'Drag the artwork to crop · use − / + to zoom' : isFreeform && activeTab === 'type' ? 'Drag the title directly on the artwork' : 'Every change updates the artwork live'}
           </p>
           <p className="mt-1 text-center text-[8px] uppercase tracking-[0.16em] text-white/25">
-            Print ratio · {(1 / printRatio).toFixed(2)} : 1.00
+            {currentOrientation} · print ratio {(1 / printRatio).toFixed(2)} : 1.00
           </p>
-        </div>
+        </main>
 
-        {/* Right: controls */}
-        <aside className="studio-panel w-full p-5 sm:p-7 min-[1380px]:w-[420px] min-[1380px]:flex-none">
+        <aside className="studio-panel w-full overflow-hidden min-[1320px]:w-[440px] min-[1320px]:flex-none">
+          <div className="px-5 pb-5 pt-6 sm:px-7">
           <div className="studio-kicker">
             {isCountry ? 'National study' : print.kind === 'state' ? 'State study' : 'City study'}
           </div>
-          <h1 className="mt-4 font-display text-[44px] font-light leading-[0.95] tracking-[-0.025em]">{print.name}</h1>
+          <h1 className="mt-3 font-display text-[42px] font-light leading-[0.95] tracking-[-0.025em]">Build your {print.name} print</h1>
           <div className="mt-3 flex items-center gap-3 text-[9px] uppercase tracking-[0.18em] text-[#77817b]">
-            {print.defaultSubtitle && <span>{print.defaultSubtitle}</span>}
+            <span>{getCompositionPreset(scene.composition).name}</span>
             <span className="h-1 w-1 rounded-full bg-[#c66b4e]" />
-            <span>{orientation} format</span>
+            <span>{currentOrientation}</span>
+          </div>
           </div>
 
-          <div className="mt-7 flex flex-col gap-6">
+          <div className="grid grid-cols-4 border-y border-[#d8d9d3] bg-[#f4f2eb]">
+            {STUDIO_TABS.map((tab) => (
+              <button
+                key={tab.value}
+                onClick={() => setActiveTab(tab.value)}
+                aria-current={activeTab === tab.value ? 'step' : undefined}
+                className={`border-r border-[#d8d9d3] px-2 py-3 text-left last:border-r-0 ${activeTab === tab.value ? 'bg-[#173f35] text-white' : 'text-[#68726c] hover:bg-white'}`}
+              >
+                <span className="block text-[7px] tracking-[0.18em] opacity-55">{tab.number}</span>
+                <span className="mt-1 block text-[9px] uppercase tracking-[0.14em]">{tab.label}</span>
+              </button>
+            ))}
+          </div>
 
-            {/* Map detail */}
-            <Section title="Map Detail">
-              {isCountry && (
-                <p className="mb-3 text-[10px] leading-relaxed text-[#999]">
-                  Always includes state outlines + state capitals. Toggles add more on top.
-                </p>
-              )}
-              {kind !== 'city' && (
-                <SegRow
-                  label="Cities & Towns"
-                  hint="Less = major cities · More = every town"
-                  options={DENSITY_OPTIONS}
-                  value={detail.places}
-                  onChange={(v) => setDetail((d) => ({ ...d, places: v }))}
-                />
-              )}
-              <SegRow
-                label="Roads"
-                hint={kind === 'state' ? 'Less = highways · More = main roads' : 'Less = highways · More = streets'}
-                options={kind === 'state' ? STATE_ROADS_OPTIONS : DENSITY_OPTIONS}
-                value={detail.roads}
-                onChange={(v) => setDetail((d) => ({ ...d, roads: v }))}
-              />
-              {kind === 'city' && (
-                <SegRow<BorderWeight>
-                  label="Border"
-                  hint="Ink frame around the map"
-                  options={[
-                    { value: 'none', label: 'Off' },
-                    { value: 'thin', label: 'Thin' },
-                    { value: 'medium', label: 'Medium' },
-                    { value: 'thick', label: 'Thick' },
-                  ]}
-                  value={detail.border}
-                  onChange={(v) => setDetail((d) => ({ ...d, border: v }))}
-                />
-              )}
-            </Section>
+          <div className="flex flex-col gap-6 px-5 py-6 sm:px-7">
+            {activeTab === 'map' && (
+              <>
+                <Section title="Composition">
+                  <div className="grid grid-cols-2 gap-2">
+                    {COMPOSITION_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        onClick={() => chooseComposition(preset.id)}
+                        className={`min-h-[86px] border p-3 text-left transition-all ${scene.composition === preset.id ? 'border-[#173f35] bg-[#eef1ed] shadow-[inset_0_0_0_1px_#173f35]' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'}`}
+                      >
+                        <span className="block text-[10px] font-medium uppercase tracking-[0.13em]">{preset.shortName}</span>
+                        <span className="mt-1.5 block text-[9px] leading-4 text-[#8a918d]">{preset.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                </Section>
 
-            {/* Color scheme presets */}
-            <Section title="Color Scheme">
+                <Section title="Map Detail">
+                  <div className="grid grid-cols-2 gap-2">
+                    {DETAIL_LEVELS.map((level) => {
+                      const currentLevel = kind === 'city' ? detail.roads : detail.places;
+                      return (
+                        <button
+                          key={level.value}
+                          onClick={() => setDetailLevel(level.value)}
+                          className={`border px-3 py-2.5 text-left ${currentLevel === level.value ? 'border-[#173f35] bg-[#173f35] text-white' : 'border-[#d8d9d3] bg-white text-[#59645e] hover:border-[#849587]'}`}
+                        >
+                          <span className="block text-[9px] uppercase tracking-[0.13em]">{level.label}</span>
+                          <span className="mt-1 block text-[8px] opacity-60">{level.description}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Section>
+
+                <Section title="Map Features">
+                  <p className="mb-3 text-[10px] leading-4 text-[#8a918d]">Map features stay visible. Turn their printed names on only when they help the composition.</p>
+                  <div className="flex flex-wrap gap-2">
+                    {kind !== 'city' && <ToggleChip label="City names" active={detail.labels.cities} onClick={() => toggleLabel('cities')} />}
+                    {kind !== 'city' && <ToggleChip label="Town names" active={detail.labels.towns} onClick={() => toggleLabel('towns')} />}
+                    <ToggleChip label="Street names" active={detail.labels.roads} onClick={() => toggleLabel('roads')} />
+                    <ToggleChip label="Lake names" active={detail.labels.water} onClick={() => toggleLabel('water')} />
+                    <ToggleChip label="River names" active={detail.labels.rivers} onClick={() => toggleLabel('rivers')} />
+                    <ToggleChip label="Rivers" active={detail.rivers} onClick={() => setDetail((d) => ({ ...d, rivers: !d.rivers }))} />
+                    {kind === 'state' && <ToggleChip label="County lines" active={detail.counties} onClick={() => setDetail((d) => ({ ...d, counties: !d.counties }))} />}
+                    {kind === 'country' && <ToggleChip label="State lines" active={detail.states} onClick={() => setDetail((d) => ({ ...d, states: !d.states }))} />}
+                  </div>
+                  {kind === 'city' && (
+                    <details className="mt-4 border-t border-[#e0ddd4] pt-3">
+                      <summary className="cursor-pointer text-[9px] uppercase tracking-[0.14em] text-[#68726c]">Advanced details</summary>
+                      <div className="mt-4">
+                        <SegRow<BorderWeight>
+                          label="City boundary"
+                          options={[
+                            { value: 'none', label: 'None' },
+                            { value: 'thin', label: 'Thin' },
+                            { value: 'medium', label: 'Medium' },
+                            { value: 'thick', label: 'Bold' },
+                          ]}
+                          value={detail.border}
+                          onChange={(border) => setDetail((d) => ({ ...d, border }))}
+                        />
+                      </div>
+                    </details>
+                  )}
+                </Section>
+              </>
+            )}
+
+            {activeTab === 'color' && (
+              <>
+                <Section title="Palette">
+                  <p className="mb-4 text-[10px] leading-4 text-[#8a918d]">Start with a studio palette, then tune any surface independently.</p>
               <div className="grid grid-cols-3 gap-2">
                 {COLOR_SCHEMES.map((s) => (
                   <button
@@ -374,24 +550,23 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
                   </button>
                 ))}
               </div>
-            </Section>
+                </Section>
+                <Section title="Custom Color">
+                  <div className="flex flex-col gap-2">
+                    <ColorField label="Land" value={colors.land} onChange={(v) => setColor('land', v)} />
+                    <ColorField label="Water" value={colors.water} onChange={(v) => setColor('water', v)} />
+                    <ColorField label="Roads & Type" value={colors.roads} onChange={(v) => setColor('roads', v)} />
+                  </div>
+                  <p className="mt-2 text-[10px] leading-relaxed text-[#999]">{activePreset === 'custom' ? 'Your custom palette is active.' : 'Selecting a custom color creates your own palette.'}</p>
+                </Section>
+              </>
+            )}
 
-            {/* Custom colors — any color for land + water (+ roads) */}
-            <Section title="Custom Colors">
-              <div className="flex flex-col gap-2">
-                <ColorField label="Land" value={colors.land} onChange={(v) => setColor('land', v)} />
-                <ColorField label="Water" value={colors.water} onChange={(v) => setColor('water', v)} />
-                <ColorField label="Roads & Labels" value={colors.roads} onChange={(v) => setColor('roads', v)} />
-              </div>
-              <p className="mt-2 text-[10px] leading-relaxed text-[#999]">
-                Pick any color for land and water. {activePreset === 'custom' && 'Custom palette active.'}
-              </p>
-            </Section>
-
-            {/* Title Label */}
-            <Section title="Title Label">
-              <SegRow
-                label="Label"
+            {activeTab === 'type' && (
+              <>
+                <Section title="Title Treatment">
+                  <SegRow
+                label="Add a title"
                 options={[
                   { value: 'on', label: 'On' },
                   { value: 'off', label: 'Off' },
@@ -400,7 +575,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
                 onChange={(v) => setTitleBlock((b) => ({ ...b, enabled: v === 'on' }))}
               />
               {titleBlock.enabled && (
-                <div className="mb-5 grid gap-2">
+                <div className="mb-5 grid gap-2 border-t border-[#e0ddd4] pt-4">
                   <TextField label="Title" value={titleBlock.title} placeholder={print.defaultTitle} onChange={(title) => setTitleBlock((b) => ({ ...b, title }))} />
                   <TextField label="Subtitle" value={titleBlock.subtitle} placeholder="Optional" onChange={(subtitle) => setTitleBlock((b) => ({ ...b, subtitle }))} />
                   <TextField label="Small line" value={titleBlock.detail} placeholder="Coordinates or established date" onChange={(detailValue) => setTitleBlock((b) => ({ ...b, detail: detailValue }))} />
@@ -469,23 +644,61 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
               )}
               {isFreeform && (
                 <p className="mt-1 text-[10px] leading-relaxed text-[#999]">
-                  Click label to select · drag to move · corners to resize · circle to rotate · click away to deselect
+                  Drag the title directly on the artwork. Use its handles to resize or rotate it.
                 </p>
               )}
-            </Section>
+                </Section>
+              </>
+            )}
 
-            {/* Actions */}
-            <div className="flex flex-col gap-3 border-t border-[#ddd6c8] pt-6">
+            {activeTab === 'finish' && (
+              <>
+                <Section title="Orientation">
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['portrait', 'landscape', 'square'] as Orientation[]).map((option) => (
+                      <button
+                        key={option}
+                        onClick={() => updateScene((current) => ({ ...current, orientation: option }))}
+                        className={`flex min-h-[86px] flex-col items-center justify-center border px-2 py-3 ${currentOrientation === option ? 'border-[#173f35] bg-[#eef1ed] shadow-[inset_0_0_0_1px_#173f35]' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'}`}
+                      >
+                        <span className={`mb-3 block border border-current ${option === 'portrait' ? 'h-8 w-5' : option === 'landscape' ? 'h-5 w-8' : 'h-7 w-7'}`} />
+                        <span className="text-[8px] uppercase tracking-[0.13em]">{option}</span>
+                      </button>
+                    ))}
+                  </div>
+                </Section>
+                <Section title="Artwork Summary">
+                  <dl className="divide-y divide-[#e0ddd4] border-y border-[#e0ddd4] text-[10px]">
+                    <SummaryRow label="Place" value={print.name} />
+                    <SummaryRow label="Composition" value={getCompositionPreset(scene.composition).name} />
+                    <SummaryRow label="Detail" value={DETAIL_LEVELS.find((item) => item.value === (kind === 'city' ? detail.roads : detail.places))?.label ?? 'Custom'} />
+                    <SummaryRow label="Title" value={titleBlock.enabled ? titleBlock.title || 'Untitled' : 'None'} />
+                  </dl>
+                  <p className="mt-3 text-[10px] leading-4 text-[#8a918d]">The next step places this exact artwork into real print proportions and frame mockups.</p>
+                </Section>
+              </>
+            )}
+
+            <div className="flex flex-col gap-3 border-t border-[#ddd6c8] pt-5">
+              {activeTab !== 'finish' ? (
+                <button
+                  onClick={() => setActiveTab(activeTab === 'map' ? 'color' : activeTab === 'color' ? 'type' : 'finish')}
+                  className="w-full bg-[#173f35] py-4 text-[10px] font-medium uppercase tracking-[0.2em] text-white transition-all hover:bg-[#c66b4e]"
+                >
+                  Next: {activeTab === 'map' ? 'Color' : activeTab === 'color' ? 'Type' : 'Finish'} →
+                </button>
+              ) : (
               <button
                 onClick={handleNext}
                 disabled={!canContinue}
                 className="w-full bg-[#173f35] py-4 text-[10px] font-medium uppercase tracking-[0.2em] text-white transition-all hover:bg-[#c66b4e] disabled:cursor-not-allowed disabled:opacity-35"
               >
-                {canContinue ? 'Next: Size & Frame →' : 'Rendering Preview…'}
+                {canContinue ? 'Choose Size & Frame →' : 'Loading Preview…'}
               </button>
+              )}
               {!canContinue && (
                 <p className="text-center text-[10px] leading-5 text-[#999]">
-                  Hang tight for a moment. Size and frame unlock as soon as the artwork preview is ready.
+                  Size and frame unlock as soon as the artwork is ready.
                 </p>
               )}
               <button
@@ -496,13 +709,48 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
                 {downloading ? (
                   <><div className="h-3 w-3 animate-spin rounded-full border border-[#555] border-t-transparent" /> Generating…</>
                 ) : (
-                  'Download 12×16 (300 DPI)'
+                  'Download Demo Artwork'
                 )}
               </button>
             </div>
           </div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+function CropButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className="min-w-10 border border-white/15 bg-white/[0.06] px-3 py-2 text-[9px] uppercase tracking-[0.12em] text-white/70 transition-colors hover:border-white/40 hover:bg-white/[0.12] hover:text-white"
+    >
+      {children}
+    </button>
+  );
+}
+
+function ToggleChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`border px-3 py-2 text-[9px] uppercase tracking-[0.12em] transition-all ${active ? 'border-[#173f35] bg-[#173f35] text-white' : 'border-[#d8d9d3] bg-white text-[#68726c] hover:border-[#849587]'}`}
+    >
+      <span className="mr-1.5">{active ? 'On' : 'Off'}</span>{label}
+    </button>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <dt className="uppercase tracking-[0.13em] text-[#8a918d]">{label}</dt>
+      <dd className="text-right font-medium text-[#26332f]">{value}</dd>
     </div>
   );
 }

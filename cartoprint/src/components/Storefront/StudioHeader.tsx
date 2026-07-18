@@ -10,7 +10,7 @@ interface StudioHeaderProps {
   tone?: 'ink' | 'paper';
 }
 
-const STEPS = ['Format', 'Compose', 'Finish'];
+const STEPS = ['Design', 'Compose', 'Finish'];
 
 export function StudioHeader({
   step,

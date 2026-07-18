@@ -44,7 +44,23 @@ export function getPreviewCacheKey(
   detail?: PrintDetailSettings,
 ): string {
   const d = detail ?? DEFAULT_DETAIL_SETTINGS;
-  return `${slug}:${colorScheme}:${layout}:${d.places}:${d.roads}:b${d.border}`;
+  const labels = d.labels ?? DEFAULT_DETAIL_SETTINGS.labels;
+  return [
+    slug,
+    colorScheme,
+    layout,
+    d.places,
+    d.roads,
+    `b${d.border}`,
+    d.rivers ? 'rv1' : 'rv0',
+    d.counties ? 'ct1' : 'ct0',
+    d.states ? 'st1' : 'st0',
+    labels.cities ? 'lc1' : 'lc0',
+    labels.towns ? 'lt1' : 'lt0',
+    labels.roads ? 'lr1' : 'lr0',
+    labels.water ? 'lw1' : 'lw0',
+    labels.rivers ? 'lrv1' : 'lrv0',
+  ].join(':');
 }
 
 // Footer band height as a fraction of the TOTAL canvas height. The total

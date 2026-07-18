@@ -105,3 +105,4 @@ export function getMockupUrl(
 // Session storage keys for Step 2 → Step 3 handoff
 export const SESSION_PREVIEW_KEY       = 'teralis:preview';
 export const SESSION_CUSTOMIZATION_KEY = 'teralis:customization';
+export const SESSION_FINISH_KEY        = 'teralis:finish';
