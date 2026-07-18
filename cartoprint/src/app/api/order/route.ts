@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     const { scene, printConfig } = body;
 
     if (
-      scene?.version !== 1 ||
+      scene?.version !== 2 ||
       !scene.place?.slug ||
       !scene.place.name ||
       !Array.isArray(scene.viewport?.bbox) ||

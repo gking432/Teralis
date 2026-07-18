@@ -3,14 +3,14 @@
 import Link from 'next/link';
 
 interface StudioHeaderProps {
-  step?: 1 | 2 | 3;
+  step?: 1 | 2;
   backHref?: string;
   backLabel?: string;
   context?: string;
   tone?: 'ink' | 'paper';
 }
 
-const STEPS = ['Design', 'Compose', 'Finish'];
+const STEPS = ['Create', 'Finish'];
 
 export function StudioHeader({
   step,

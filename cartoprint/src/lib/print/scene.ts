@@ -4,16 +4,10 @@ import { defaultTitleBlock, type TitleBlockSettings } from '@/lib/print/titleLay
 import { DEFAULT_DETAIL_SETTINGS, type PrintDetailSettings } from '@/lib/print/printRender';
 import type { Orientation } from '@/lib/print/printSnapshot';
 
-export const PRINT_SCENE_VERSION = 1;
+export const PRINT_SCENE_VERSION = 2;
 export const SESSION_SCENE_KEY = 'teralis:print-scene';
 
-export type CompositionPresetId =
-  | 'minimal'
-  | 'street-grid'
-  | 'atlas'
-  | 'local-detail'
-  | 'gazetteer'
-  | 'waterways';
+export type CompositionPresetId = 'city-detail';
 
 export interface PrintViewport {
   bbox: [string, string, string, string];
@@ -55,7 +49,7 @@ function coordinateLine([longitude, latitude]: [number, number]): string {
 export function createPrintScene(
   print: CatalogPrint,
   orientation: Orientation = 'portrait',
-  composition: CompositionPresetId = 'minimal',
+  composition: CompositionPresetId = 'city-detail',
 ): PrintScene {
   return {
     version: PRINT_SCENE_VERSION,

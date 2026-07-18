@@ -132,7 +132,7 @@ export function SizePickerClient() {
 
   return (
     <div className="studio-topography min-h-screen bg-[#14201d] text-[#14201d]">
-      <StudioHeader step={3} backHref={backUrl} backLabel="Compose" context={print.name} />
+      <StudioHeader step={2} backHref={backUrl} backLabel="Edit map" context={print.name} />
 
       <div className="mx-auto flex max-w-[1480px] flex-col gap-8 px-4 py-6 md:px-8 lg:px-10 lg:py-10 min-[1380px]:flex-row min-[1380px]:items-start min-[1380px]:gap-12">
 
