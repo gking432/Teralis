@@ -93,7 +93,9 @@ export function applyLayerVisibility(map: MaplibreMap, layers: LayerState): void
     }
   });
 
-  try {
-    map.setLayoutProperty('hillshade-layer', 'visibility', layers.terrain ? 'visible' : 'none');
-  } catch {}
+  if (map.getLayer('hillshade-layer')) {
+    try {
+      map.setLayoutProperty('hillshade-layer', 'visibility', layers.terrain ? 'visible' : 'none');
+    } catch {}
+  }
 }

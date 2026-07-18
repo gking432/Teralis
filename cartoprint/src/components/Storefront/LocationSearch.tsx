@@ -134,7 +134,7 @@ export function LocationSearch({ autoFocus = false, placeholder = 'Type a state,
     <div ref={containerRef} className="relative w-full">
       <div className="relative">
         <svg
-          className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-[#aaa]"
+          className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-[#173f35]"
           width="18" height="18" viewBox="0 0 18 18" fill="none"
         >
           <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.6" />
@@ -148,11 +148,14 @@ export function LocationSearch({ autoFocus = false, placeholder = 'Type a state,
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKey}
-          className="w-full border border-[#cfc1aa] bg-white py-5 pl-14 pr-5 text-lg outline-none transition-colors placeholder:text-[#aaa] focus:border-text"
+          className="w-full rounded-sm border border-white/25 bg-[#f8f6ef] py-[19px] pl-14 pr-20 text-[16px] text-[#14201d] shadow-[0_18px_50px_rgba(0,0,0,0.16)] outline-none transition-all placeholder:text-[#77817b] focus:border-[#c66b4e] focus:shadow-[0_22px_60px_rgba(0,0,0,0.26)]"
         />
+        <div className="pointer-events-none absolute right-5 top-1/2 hidden -translate-y-1/2 items-center gap-2 text-[8px] uppercase tracking-[0.16em] text-[#7a847e] sm:flex">
+          Begin map <span className="text-sm text-[#c66b4e]">↗</span>
+        </div>
         {loading && (
-          <div className="absolute right-5 top-1/2 -translate-y-1/2">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#ddd] border-t-[#555]" />
+          <div className="absolute right-5 top-1/2 -translate-y-1/2 bg-[#f8f6ef] pl-3 sm:right-28">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#d4d8d3] border-t-[#173f35]" />
           </div>
         )}
       </div>
@@ -160,7 +163,7 @@ export function LocationSearch({ autoFocus = false, placeholder = 'Type a state,
       {open && query.trim().length >= 2 && results.length > 0 && (
         <ul
           role="listbox"
-          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-[420px] overflow-y-auto border border-[#cfc1aa] bg-white shadow-[0_20px_60px_rgba(67,48,29,0.15)]"
+          className="absolute left-0 right-0 top-full z-30 mt-2 max-h-[420px] overflow-y-auto border border-[#c9cec8] bg-[#fbfaf6] text-[#14201d] shadow-[0_24px_70px_rgba(0,0,0,0.3)]"
         >
           {results.map((r, i) => (
             <li
@@ -169,17 +172,17 @@ export function LocationSearch({ autoFocus = false, placeholder = 'Type a state,
               aria-selected={i === activeIndex}
               onMouseDown={(e) => { e.preventDefault(); pick(r); }}
               onMouseEnter={() => setActiveIndex(i)}
-              className={`flex cursor-pointer items-baseline justify-between gap-4 border-b border-[#ece2cf] px-5 py-3 last:border-b-0 ${
-                i === activeIndex ? 'bg-[#f6efe1]' : 'bg-white'
+              className={`flex cursor-pointer items-baseline justify-between gap-4 border-b border-[#e4e5df] px-5 py-3.5 last:border-b-0 ${
+                i === activeIndex ? 'bg-[#e9ede8]' : 'bg-[#fbfaf6]'
               }`}
             >
               <div className="min-w-0 flex-1">
-                <div className="truncate text-base">{r.primary}</div>
+                <div className="truncate font-display text-lg">{r.primary}</div>
                 {r.secondary && (
-                  <div className="truncate text-[12px] text-[#888]">{r.secondary}</div>
+                  <div className="truncate text-[11px] text-[#6f7973]">{r.secondary}</div>
                 )}
               </div>
-              <div className="flex-shrink-0 text-[10px] uppercase tracking-[1.4px] text-[#999]">
+              <div className="flex-shrink-0 rounded-full border border-[#cad0cb] px-2 py-1 text-[8px] uppercase tracking-[1.4px] text-[#65716a]">
                 {r.kind === 'country' ? 'Country' : r.kind === 'state' ? 'State' : 'City'}
               </div>
             </li>
@@ -188,7 +191,7 @@ export function LocationSearch({ autoFocus = false, placeholder = 'Type a state,
       )}
 
       {open && query.trim().length >= 2 && !loading && results.length === 0 && (
-        <div className="absolute left-0 right-0 top-full z-30 mt-1 border border-[#cfc1aa] bg-white px-5 py-4 text-sm text-[#888] shadow-[0_20px_60px_rgba(67,48,29,0.15)]">
+        <div className="absolute left-0 right-0 top-full z-30 mt-2 border border-[#c9cec8] bg-[#fbfaf6] px-5 py-4 text-sm text-[#6f7973] shadow-[0_24px_70px_rgba(0,0,0,0.3)]">
           No places found. Try a different spelling or a nearby city.
         </div>
       )}

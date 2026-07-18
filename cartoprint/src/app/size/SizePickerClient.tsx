@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
+import { StudioHeader } from '@/components/Storefront/StudioHeader';
 import { getCatalogPrint } from '@/lib/catalog/prints';
 import { placeFromSearchParams } from '@/lib/catalog/placeFromQuery';
 import { isValidOrientation, ORIENTATION_RATIO, type Orientation } from '@/lib/print/printSnapshot';
@@ -73,26 +74,16 @@ export function SizePickerClient() {
   const backUrl    = `/customize?${backParams.toString()}`;
 
   return (
-    <div className="min-h-screen bg-[#ece7dd]">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-[#ddd6c8] bg-[#f4f0e8] px-6 py-4">
-        <Link
-          href={backUrl}
-          className="text-[11px] uppercase tracking-[1.8px] text-[#555] transition-colors hover:text-[#111]"
-        >
-          ← Back
-        </Link>
-        <div className="text-[11px] uppercase tracking-[2px] text-[#999]">
-          Step 3 of 3 · Size &amp; Frame ·{' '}
-          <span className="text-[#555]">{print.name}</span>
-        </div>
-        <div className="w-[80px]" />
-      </div>
+    <div className="studio-topography min-h-screen bg-[#14201d] text-[#14201d]">
+      <StudioHeader step={3} backHref={backUrl} backLabel="Compose" context={print.name} />
 
-      <div className="mx-auto flex max-w-[1280px] flex-col gap-10 px-6 py-8 lg:flex-row lg:items-start lg:py-14">
+      <div className="mx-auto flex max-w-[1480px] flex-col gap-8 px-4 py-6 md:px-8 lg:px-10 lg:py-10 min-[1380px]:flex-row min-[1380px]:items-start min-[1380px]:gap-12">
 
         {/* ── Left: preview ── */}
-        <div className="flex flex-1 flex-col items-center lg:sticky lg:top-10 lg:self-start">
+        <div className="relative flex min-h-[calc(100vh-150px)] flex-1 flex-col items-center justify-center rounded-sm border border-white/10 bg-white/[0.035] px-3 py-10 lg:px-8 min-[1380px]:sticky min-[1380px]:top-6 min-[1380px]:self-start">
+          <div className="absolute left-5 top-5 text-[8px] uppercase tracking-[0.22em] text-white/35">
+            Wall preview · {selected.dimensionStr}
+          </div>
           {isFramed && mockupUrl ? (
             /* Wall lifestyle mockup */
             <div className="relative w-full max-w-[680px]">
@@ -153,7 +144,7 @@ export function SizePickerClient() {
                 ))}
               </div>
 
-              <p className="mt-3 text-center text-[10px] uppercase tracking-[1.4px] text-[#aaa]">
+              <p className="mt-3 text-center text-[9px] uppercase tracking-[0.15em] text-white/45">
                 {activeFrame.label} frame{mat ? ' · Snow White mat' : ''} · {selected.dimensionStr}
               </p>
             </div>
@@ -196,7 +187,7 @@ export function SizePickerClient() {
                   </div>
                 )}
               </div>
-              <p className="mt-3 text-center text-[10px] uppercase tracking-[1.4px] text-[#aaa]">
+              <p className="mt-3 text-center text-[9px] uppercase tracking-[0.15em] text-white/45">
                 Unframed · {selected.dimensionStr}
               </p>
             </div>
@@ -204,16 +195,17 @@ export function SizePickerClient() {
         </div>
 
         {/* ── Right: options ── */}
-        <div className="w-full lg:max-w-[360px] flex flex-col gap-7">
+        <aside className="studio-panel flex w-full flex-col gap-6 p-5 sm:p-7 min-[1380px]:w-[410px] min-[1380px]:flex-none">
 
           {/* Print title */}
           <div>
-            <h1 className="font-display text-3xl font-light leading-tight">{print.name}</h1>
+            <div className="studio-kicker">Finish the piece</div>
+            <h1 className="mt-4 font-display text-[42px] font-light leading-[0.95] tracking-[-0.02em]">{print.name}</h1>
             {print.defaultSubtitle && (
               <p className="mt-1 text-sm text-[#888]">{print.defaultSubtitle}</p>
             )}
-            <p className="mt-1 text-[10px] uppercase tracking-[1.4px] text-[#aaa]">
-              {orientation} · fine art print
+            <p className="mt-3 text-[9px] uppercase tracking-[0.17em] text-[#77817b]">
+              {orientation} format · archival art print
             </p>
           </div>
 
@@ -229,8 +221,8 @@ export function SizePickerClient() {
                     onClick={() => setSize(s)}
                     className={`flex flex-col items-start gap-0.5 border p-3 text-left transition-all ${
                       active
-                        ? 'border-[#111] bg-[#f4f0e8] shadow-[inset_0_0_0_1px_#111]'
-                        : 'border-[#d8d1c4] bg-white hover:border-[#999]'
+                        ? 'border-[#173f35] bg-[#eef1ed] shadow-[inset_0_0_0_1px_#173f35]'
+                        : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
                     }`}
                   >
                     <span className="text-[11px] font-medium uppercase tracking-[1.4px]">
@@ -254,8 +246,8 @@ export function SizePickerClient() {
                     onClick={() => handleFrameChange(f.value)}
                     className={`flex items-center gap-3 border p-3 text-left transition-all ${
                       active
-                        ? 'border-[#111] bg-[#f4f0e8] shadow-[inset_0_0_0_1px_#111]'
-                        : 'border-[#d8d1c4] bg-white hover:border-[#999]'
+                        ? 'border-[#173f35] bg-[#eef1ed] shadow-[inset_0_0_0_1px_#173f35]'
+                        : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
                     }`}
                   >
                     <span
@@ -281,17 +273,17 @@ export function SizePickerClient() {
           {/* Mat — only when framed */}
           {isFramed && (
             <PanelSection title="Mat">
-              <div className="flex overflow-hidden rounded border border-[#d8d1c4]">
+              <div className="flex overflow-hidden rounded-sm border border-[#d8d9d3]">
                 {[false, true].map((m) => (
                   <button
                     key={String(m)}
                     onClick={() => { setMat(m); setScene(0); }}
                     className={`flex-1 py-2.5 text-[10px] uppercase tracking-[1.2px] transition-all ${
-                      m ? 'border-l border-[#d8d1c4]' : ''
+                      m ? 'border-l border-[#d8d9d3]' : ''
                     } ${
                       mat === m
-                        ? 'bg-[#111] text-white'
-                        : 'bg-white text-[#777] hover:bg-[#f4f0e8]'
+                        ? 'bg-[#173f35] text-white'
+                        : 'bg-white text-[#66706a] hover:bg-[#eef1ed]'
                     }`}
                   >
                     {m ? `Snow White +${formatPrice(MAT_UPCHARGE)}` : 'None'}
@@ -302,7 +294,7 @@ export function SizePickerClient() {
           )}
 
           {/* Price */}
-          <div className="border-t border-[#ddd6c8] pt-6">
+          <div className="border-t border-[#14201d]/15 pt-6">
             <div className="flex items-baseline justify-between">
               <span className="text-[10px] uppercase tracking-[1.6px] text-[#888]">Demo Total</span>
               <span className="font-display text-3xl font-light">{formatPrice(total)}</span>
@@ -320,7 +312,7 @@ export function SizePickerClient() {
 
           {/* CTA */}
           <button
-            className="w-full bg-[#07122a] py-4 text-[11px] font-medium uppercase tracking-[2.5px] text-white transition-opacity hover:opacity-80"
+            className="w-full bg-[#173f35] py-4 text-[10px] font-medium uppercase tracking-[0.21em] text-white transition-colors hover:bg-[#c66b4e]"
             onClick={() => {
               // Placeholder — Stripe checkout can be wired up after the demo.
               alert('Demo only — checkout is not connected yet.');
@@ -332,7 +324,7 @@ export function SizePickerClient() {
             Ordering disabled · final checkout comes later
           </p>
 
-        </div>
+        </aside>
       </div>
     </div>
   );
@@ -340,8 +332,8 @@ export function SizePickerClient() {
 
 function PanelSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div>
-      <div className="mb-3 text-[10px] uppercase tracking-[2px] text-[#777]">{title}</div>
+    <div className="studio-control-section">
+      <div className="studio-control-title">{title}</div>
       {children}
     </div>
   );

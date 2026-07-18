@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { StudioHeader } from '@/components/Storefront/StudioHeader';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import {
   COLOR_SCHEMES,
@@ -71,9 +71,9 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [geometry, setGeometry] = useState<GeoJSON.Geometry | null>(
-    () => getCachedBoundary(print.slug)?.geometry ?? null
-  );
+  // Start identically on the server and client. Pulling the module cache inside
+  // the state initializer caused the status text to differ during hydration.
+  const [geometry, setGeometry] = useState<GeoJSON.Geometry | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
@@ -90,6 +90,11 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
 
   useEffect(() => {
     if (geometry) return;
+    const cached = getCachedBoundary(print.slug)?.geometry;
+    if (cached) {
+      setGeometry(cached);
+      return;
+    }
     let cancelled = false;
     fetchBoundary(print.slug, print.center, kind).then((record) => {
       if (!cancelled && record?.geometry) setGeometry(record.geometry);
@@ -221,36 +226,36 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   }
 
   return (
-    <div className="min-h-screen bg-[#ece7dd]">
-      <div className="flex items-center justify-between border-b border-[#ddd6c8] bg-[#f4f0e8] px-6 py-4">
-        <Link
-          href={`/design?${searchParams.toString()}`}
-          className="text-[11px] uppercase tracking-[1.8px] text-[#555] transition-colors hover:text-[#111]"
-        >
-          ← Back to Orientation
-        </Link>
-        <div className="text-[11px] uppercase tracking-[2px] text-[#999]">
-          Step 2 of 3 · Customize · <span className="text-[#555]">{orientation}</span>
-        </div>
-        <div className="w-[120px]" />
-      </div>
+    <div className="studio-topography min-h-screen bg-[#14201d] text-[#14201d]">
+      <StudioHeader
+        step={2}
+        backHref={`/design?${searchParams.toString()}`}
+        backLabel="Format"
+        context={print.name}
+      />
 
-      <div className="mx-auto flex max-w-[1440px] flex-col gap-8 px-6 py-8 lg:flex-row lg:py-12">
+      <div className="mx-auto flex max-w-[1500px] flex-col gap-8 px-4 py-6 md:px-8 lg:px-10 lg:py-10 min-[1380px]:flex-row min-[1380px]:items-start min-[1380px]:gap-12">
 
         {/* Left: large preview */}
-        <div className="flex flex-1 flex-col items-center justify-start lg:sticky lg:top-4 lg:self-start">
+        <div className="relative flex min-h-[calc(100vh-150px)] flex-1 flex-col items-center justify-center rounded-sm border border-white/10 bg-white/[0.035] px-3 py-9 lg:px-8 min-[1380px]:sticky min-[1380px]:top-6 min-[1380px]:self-start">
+          <div className="absolute left-5 top-5 text-[8px] uppercase tracking-[0.22em] text-white/35">
+            Live composition · {orientation}
+          </div>
+          <div className="absolute right-5 top-5 hidden text-right text-[8px] uppercase leading-4 tracking-[0.18em] text-white/25 sm:block">
+            {print.center[1].toFixed(3)}° N<br />{Math.abs(print.center[0]).toFixed(3)}° W
+          </div>
           <div
             ref={previewContainerRef}
-            className="relative overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.28)]"
+            className="relative overflow-hidden ring-1 ring-black/10 shadow-[0_35px_90px_rgba(0,0,0,0.48)]"
             style={{
               // Explicit width AND height — no aspect-ratio fallback math.
               // Width uses min() so the preview shrinks on narrow viewports;
               // height tracks width via the same min() multiplied by printRatio,
               // so container ratio is mathematically guaranteed to equal image ratio.
-              width: orientation === 'landscape' ? 'min(880px, 90vw)' : 'min(600px, 90vw)',
+              width: orientation === 'landscape' ? 'min(740px, 90vw)' : 'min(540px, 90vw)',
               height: orientation === 'landscape'
-                ? `calc(min(880px, 90vw) * ${printRatio.toFixed(4)})`
-                : `calc(min(600px, 90vw) * ${printRatio.toFixed(4)})`,
+                ? `calc(min(740px, 90vw) * ${printRatio.toFixed(4)})`
+                : `calc(min(540px, 90vw) * ${printRatio.toFixed(4)})`,
             }}
           >
             {previewUrl && (
@@ -286,7 +291,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
               />
             )}
           </div>
-          <p className="mt-4 text-center text-[10px] uppercase tracking-[1.4px] text-[#999]">
+          <p className="mt-5 text-center text-[9px] uppercase tracking-[0.17em] text-white/55">
             {!geometry
               ? 'Finding map boundary…'
               : loading
@@ -295,20 +300,24 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
                 ? 'Click label to select · drag to reposition'
                 : 'Live print preview'}
           </p>
-          <p className="mt-1 text-center text-[10px] uppercase tracking-[1.4px] text-[#bbb]">
+          <p className="mt-1 text-center text-[8px] uppercase tracking-[0.16em] text-white/25">
             Print ratio · {(1 / printRatio).toFixed(2)} : 1.00
           </p>
         </div>
 
         {/* Right: controls */}
-        <div className="w-full lg:w-[400px]">
-          <div className="mb-1 text-[10px] uppercase tracking-[2px] text-[#999]">
-            {isCountry ? 'National Print' : print.kind === 'state' ? 'State Print' : 'City Print'}
+        <aside className="studio-panel w-full p-5 sm:p-7 min-[1380px]:w-[420px] min-[1380px]:flex-none">
+          <div className="studio-kicker">
+            {isCountry ? 'National study' : print.kind === 'state' ? 'State study' : 'City study'}
           </div>
-          <h1 className="font-display text-4xl font-light leading-tight">{print.name}</h1>
-          {print.defaultSubtitle && <p className="mt-1 text-sm text-[#777]">{print.defaultSubtitle}</p>}
+          <h1 className="mt-4 font-display text-[44px] font-light leading-[0.95] tracking-[-0.025em]">{print.name}</h1>
+          <div className="mt-3 flex items-center gap-3 text-[9px] uppercase tracking-[0.18em] text-[#77817b]">
+            {print.defaultSubtitle && <span>{print.defaultSubtitle}</span>}
+            <span className="h-1 w-1 rounded-full bg-[#c66b4e]" />
+            <span>{orientation} format</span>
+          </div>
 
-          <div className="mt-8 flex flex-col gap-7">
+          <div className="mt-7 flex flex-col gap-6">
 
             {/* Map detail */}
             <Section title="Map Detail">
@@ -357,7 +366,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
                     key={s.value}
                     onClick={() => setColors(s.colors)}
                     className={`flex flex-col items-start gap-2 border p-2.5 text-left transition-all ${
-                      activePreset === s.value ? 'border-[#111] shadow-[inset_0_0_0_1px_#111]' : 'border-[#d8d1c4] hover:border-[#aaa]'
+                      activePreset === s.value ? 'border-[#173f35] bg-[#eef1ed] shadow-[inset_0_0_0_1px_#173f35]' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
                     }`}
                   >
                     <ColorSwatch colors={s.colors} />
@@ -390,6 +399,13 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
                 value={titleBlock.enabled ? 'on' : 'off'}
                 onChange={(v) => setTitleBlock((b) => ({ ...b, enabled: v === 'on' }))}
               />
+              {titleBlock.enabled && (
+                <div className="mb-5 grid gap-2">
+                  <TextField label="Title" value={titleBlock.title} placeholder={print.defaultTitle} onChange={(title) => setTitleBlock((b) => ({ ...b, title }))} />
+                  <TextField label="Subtitle" value={titleBlock.subtitle} placeholder="Optional" onChange={(subtitle) => setTitleBlock((b) => ({ ...b, subtitle }))} />
+                  <TextField label="Small line" value={titleBlock.detail} placeholder="Coordinates or established date" onChange={(detailValue) => setTitleBlock((b) => ({ ...b, detail: detailValue }))} />
+                </div>
+              )}
               <div className="mb-4">
                 <div className="mb-2 text-[11px] font-medium uppercase tracking-[1.2px] text-[#444]">Layout</div>
                 <div className="grid grid-cols-2 gap-2">
@@ -400,8 +416,8 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
                       disabled={!titleBlock.enabled}
                       className={`flex flex-col items-start gap-0.5 border px-3 py-2 text-left transition-all disabled:opacity-40 ${
                         titleBlock.layout === opt.value
-                          ? 'border-[#111] bg-[#f4f0e8]'
-                          : 'border-[#d8d1c4] bg-white hover:border-[#aaa]'
+                          ? 'border-[#173f35] bg-[#eef1ed]'
+                          : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
                       }`}
                     >
                       <span className="text-[10px] uppercase tracking-[1.2px] text-[#222]">{opt.label}</span>
@@ -437,8 +453,8 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
                         onClick={() => setTitleBlock((b) => ({ ...b, glassFill: fill }))}
                         className={`flex items-center gap-2 border px-3 py-2 text-[10px] uppercase tracking-[1.2px] transition-all ${
                           titleBlock.glassFill === fill
-                            ? 'border-[#111] bg-[#f4f0e8]'
-                            : 'border-[#d8d1c4] bg-white hover:border-[#aaa]'
+                            ? 'border-[#173f35] bg-[#eef1ed]'
+                            : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
                         }`}
                       >
                         <span
@@ -463,7 +479,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
               <button
                 onClick={handleNext}
                 disabled={!canContinue}
-                className="w-full bg-[#07122a] py-4 text-[11px] font-medium uppercase tracking-[2px] text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-35"
+                className="w-full bg-[#173f35] py-4 text-[10px] font-medium uppercase tracking-[0.2em] text-white transition-all hover:bg-[#c66b4e] disabled:cursor-not-allowed disabled:opacity-35"
               >
                 {canContinue ? 'Next: Size & Frame →' : 'Rendering Preview…'}
               </button>
@@ -475,7 +491,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
               <button
                 onClick={handleDownload}
                 disabled={!geometry || downloading}
-                className="flex w-full items-center justify-center gap-2 border border-[#bbb] py-3.5 text-[11px] uppercase tracking-[1.6px] text-[#555] transition-colors hover:border-[#111] hover:text-[#111] disabled:opacity-40"
+                className="flex w-full items-center justify-center gap-2 border border-[#c9cec8] py-3.5 text-[9px] uppercase tracking-[0.16em] text-[#59645e] transition-colors hover:border-[#173f35] hover:text-[#173f35] disabled:opacity-40"
               >
                 {downloading ? (
                   <><div className="h-3 w-3 animate-spin rounded-full border border-[#555] border-t-transparent" /> Generating…</>
@@ -485,7 +501,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
               </button>
             </div>
           </div>
-        </div>
+        </aside>
       </div>
     </div>
   );
@@ -493,8 +509,8 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div>
-      <div className="mb-3 text-[10px] uppercase tracking-[2px] text-[#777]">{title}</div>
+    <div className="studio-control-section">
+      <div className="studio-control-title">{title}</div>
       {children}
     </div>
   );
@@ -519,13 +535,13 @@ function SegRow<T extends string>({
         <span className="text-[11px] font-medium uppercase tracking-[1.2px] text-[#444]">{label}</span>
         {hint && <span className="text-right text-[9px] text-[#aaa]">{hint}</span>}
       </div>
-      <div className="flex w-full overflow-hidden rounded border border-[#d8d1c4]">
+      <div className="flex w-full overflow-hidden rounded-sm border border-[#d8d9d3]">
         {options.map((opt, i) => (
           <button
             key={opt.value}
             onClick={() => onChange(opt.value)}
-            className={`flex-1 py-2 text-[10px] uppercase tracking-[1.2px] transition-all ${i > 0 ? 'border-l border-[#d8d1c4]' : ''} ${
-              value === opt.value ? 'bg-[#111] text-white' : 'bg-white text-[#777] hover:bg-[#f4f0e8]'
+            className={`flex-1 py-2.5 text-[9px] uppercase tracking-[0.13em] transition-all ${i > 0 ? 'border-l border-[#d8d9d3]' : ''} ${
+              value === opt.value ? 'bg-[#173f35] text-white' : 'bg-white text-[#66706a] hover:bg-[#eef1ed]'
             }`}
           >
             {opt.label}
@@ -538,7 +554,7 @@ function SegRow<T extends string>({
 
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
-    <label className="flex items-center justify-between gap-3 border border-[#d8d1c4] bg-white px-3 py-2">
+    <label className="flex items-center justify-between gap-3 border border-[#d8d9d3] bg-white px-3 py-2.5">
       <span>
         <span className="block text-[11px] text-[#444]">{label}</span>
         <span className="mt-0.5 block font-mono text-[10px] uppercase text-[#aaa]">{value}</span>
@@ -547,7 +563,32 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
         type="color"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-9 w-12 cursor-pointer border border-[#d8d1c4] bg-white p-0.5"
+        className="h-9 w-12 cursor-pointer border border-[#d8d9d3] bg-white p-0.5"
+      />
+    </label>
+  );
+}
+
+function TextField({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="grid grid-cols-[84px_1fr] items-center border border-[#d8d9d3] bg-white">
+      <span className="px-3 text-[8px] uppercase tracking-[0.15em] text-[#77817b]">{label}</span>
+      <input
+        type="text"
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="min-w-0 border-l border-[#d8d9d3] bg-transparent px-3 py-2.5 text-[11px] text-[#14201d] outline-none placeholder:text-[#a3aaa5] focus:bg-[#eef1ed]"
       />
     </label>
   );
