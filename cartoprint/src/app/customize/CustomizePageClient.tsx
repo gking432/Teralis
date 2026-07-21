@@ -15,6 +15,8 @@ interface NominatimResult {
   type?: string;
   addresstype?: string;
   boundingbox: [string, string, string, string];
+  lat: string;
+  lon: string;
 }
 
 export function CustomizePageClient() {
@@ -57,12 +59,14 @@ export function CustomizePageClient() {
           displayName: top.display_name,
           kind,
           bbox: bb,
+          center: [Number(top.lon), Number(top.lat)],
         });
 
         const next = new URLSearchParams({
           place: print.name,
           kind: print.kind,
           bbox: bb.join(','),
+          center: print.center.join(','),
           display: top.display_name,
           o: orientation,
         });

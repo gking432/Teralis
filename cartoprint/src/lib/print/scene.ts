@@ -4,10 +4,12 @@ import { defaultTitleBlock, type TitleBlockSettings } from '@/lib/print/titleLay
 import { DEFAULT_DETAIL_SETTINGS, type PrintDetailSettings } from '@/lib/print/printRender';
 import type { Orientation } from '@/lib/print/printSnapshot';
 
-export const PRINT_SCENE_VERSION = 2;
+export const PRINT_SCENE_VERSION = 3;
 export const SESSION_SCENE_KEY = 'teralis:print-scene';
 
 export type CompositionPresetId = 'city-detail';
+export type CityFramingId = 'city' | 'central' | 'downtown' | 'close-up';
+export type PrintFramingId = CityFramingId | 'custom';
 
 export interface PrintViewport {
   bbox: [string, string, string, string];
@@ -28,6 +30,7 @@ export interface PrintScene {
   place: PrintPlace;
   orientation: Orientation;
   composition: CompositionPresetId;
+  framing: PrintFramingId;
   viewport: PrintViewport;
   colors: PreviewColorSettings;
   detail: PrintDetailSettings;
@@ -63,6 +66,7 @@ export function createPrintScene(
     },
     orientation,
     composition,
+    framing: 'city',
     viewport: { bbox: [...print.bbox], center: [...print.center] },
     colors: { ...DEFAULT_COLOR_SCHEME.colors },
     detail: structuredClone(DEFAULT_DETAIL_SETTINGS),
@@ -108,6 +112,7 @@ export function sceneCacheTag(scene: PrintScene): string {
   return [
     scene.orientation,
     scene.composition,
+    scene.framing,
     scene.viewport.bbox.join(','),
     d.places,
     d.roads,
@@ -121,6 +126,37 @@ export function sceneCacheTag(scene: PrintScene): string {
     labels.water ? 'lw1' : 'lw0',
     labels.rivers ? 'lrv1' : 'lrv0',
   ].join(':');
+}
+
+const CITY_FRAME_FACTORS: Record<Exclude<CityFramingId, 'city'>, number> = {
+  central: 0.68,
+  downtown: 0.42,
+  'close-up': 0.24,
+};
+
+export function viewportForCityFraming(
+  original: PrintViewport,
+  cityCenter: [number, number],
+  framing: CityFramingId,
+): PrintViewport {
+  if (framing === 'city') {
+    const bbox = [...original.bbox] as PrintViewport['bbox'];
+    return { bbox, center: centerFromBbox(bbox) };
+  }
+
+  const [south, north, west, east] = original.bbox.map(Number);
+  const factor = CITY_FRAME_FACTORS[framing];
+  const latSpan = (north - south) * factor;
+  const lonSpan = (east - west) * factor;
+  const [longitude, latitude] = cityCenter;
+  const bbox = [
+    latitude - latSpan / 2,
+    latitude + latSpan / 2,
+    longitude - lonSpan / 2,
+    longitude + lonSpan / 2,
+  ].map(String) as PrintViewport['bbox'];
+
+  return { bbox, center: [longitude, latitude] };
 }
 
 export function transformViewport(

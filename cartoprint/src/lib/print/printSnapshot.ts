@@ -378,58 +378,6 @@ function addEveryTownLayer(
   } catch {}
 }
 
-// Clamp city/town bboxes so the resulting fitBounds zoom is high enough that
-// OpenFreeMap Liberty tiles include residential / subdivision streets.
-// Liberty serves residential roads only in z14+ tiles, so TARGET_ZOOM = 14.
-// Nominatim sometimes returns very wide bboxes (e.g. Madison's includes
-// Lakes Mendota/Monona and outlying suburbs); without clamping, fitBounds
-// would zoom out below z14, where the tiles don't carry residential geometry,
-// so the "More" roads toggle has nothing to enable.
-//
-// stableMapH must be the mapHeight when the title footer IS shown (worst case
-// — minimum effective height), so that the clamped bbox produces zoom >= 14
-// regardless of whether the footer is visible. With a constant padding of
-// rw * 0.12, the effective area is (rw - 2*pad) × (stableMapH - 2*pad).
-function clampCityBbox(
-  bbox: [string, string, string, string],
-  center: [number, number],
-  kind: 'country' | 'state' | 'city',
-  rw: number,
-  stableMapH: number,
-): [string, string, string, string] {
-  if (kind !== 'city') return bbox;
-
-  const TARGET_ZOOM = 14; // residential streets appear in Liberty tiles at z14+
-  const paddingPx = Math.round(rw * 0.12);
-  const usableW = rw - 2 * paddingPx;
-  const usableH = stableMapH - 2 * paddingPx;
-  const worldPx = 256 * Math.pow(2, TARGET_ZOOM);
-  const [clon, clat] = center;
-  const cosLat = Math.max(0.2, Math.cos((clat * Math.PI) / 180));
-  // Mercator: lon-degrees per pixel are constant, lat-degrees per pixel scale
-  // by cos(latitude) for small spans near `clat`.
-  const maxLonSpan = (usableW / worldPx) * 360;
-  const maxLatSpan = (usableH / worldPx) * 360 * cosLat;
-
-  const south = Number(bbox[0]);
-  const north = Number(bbox[1]);
-  const west = Number(bbox[2]);
-  const east = Number(bbox[3]);
-  const lonSpan = east - west;
-  const latSpan = north - south;
-
-  if (lonSpan <= maxLonSpan && latSpan <= maxLatSpan) return bbox;
-
-  const newLonSpan = Math.min(lonSpan, maxLonSpan);
-  const newLatSpan = Math.min(latSpan, maxLatSpan);
-  return [
-    String(clat - newLatSpan / 2),
-    String(clat + newLatSpan / 2),
-    String(clon - newLonSpan / 2),
-    String(clon + newLonSpan / 2),
-  ];
-}
-
 export async function renderPrintSnapshot(
   slug: string,
   bbox: [string, string, string, string],
@@ -629,16 +577,6 @@ export async function renderPrintSnapshot(
       });
     }
 
-    // stableMapHeight = mapHeight when the largest footer is visible (classic-
-    // bottom at 13.5% of rh). Passing this to clampCityBbox ensures the bbox
-    // clamp is computed for the worst-case (smallest) effective map area, so
-    // the fitBounds zoom reaches z14 regardless of whether the footer is shown.
-    //
-    // Padding is anchored to rw (not mapHeight) so it is constant across all
-    // orientations and title states — portrait, landscape, title on/off all
-    // get the same padding, the same clamped bbox, and therefore the same zoom.
-    const stableMapHeight = Math.round(rh * (1 - 0.135));
-    const cameraBbox = clampCityBbox(bbox, center, kind, rw, stableMapHeight);
     const map = new maplibregl.Map({
       container: mapDiv,
       style: STYLE_URL,
@@ -647,8 +585,8 @@ export async function renderPrintSnapshot(
       preserveDrawingBuffer: true,
       fadeDuration: 0,
       bounds: [
-        [Number(cameraBbox[2]), Number(cameraBbox[0])],
-        [Number(cameraBbox[3]), Number(cameraBbox[1])],
+        [Number(bbox[2]), Number(bbox[0])],
+        [Number(bbox[3]), Number(bbox[1])],
       ],
       fitBoundsOptions: {
         padding: Math.round(rw * 0.12),
@@ -662,7 +600,10 @@ export async function renderPrintSnapshot(
       applyPrintMaskColor(map, colorSettings);
       styleLoaded = true;
 
-      if (geom) {
+      if (kind === 'city') {
+        geometryReady = true;
+        loadEveryTownIfNeeded();
+      } else if (geom) {
         tryApplyMask();
       } else {
         fetchBoundary(slug, center, kind).then((record) => {

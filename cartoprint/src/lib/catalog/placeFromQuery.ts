@@ -35,9 +35,10 @@ export function buildPlaceCatalogPrint(input: {
   displayName?: string;
   kind: CatalogPrintKind;
   bbox: [number, number, number, number]; // south, north, west, east
+  center?: [number, number]; // longitude, latitude from the geocoder
 }): CatalogPrint {
   const [south, north, west, east] = input.bbox;
-  const center: [number, number] = [(west + east) / 2, (south + north) / 2];
+  const center: [number, number] = input.center ?? [(west + east) / 2, (south + north) / 2];
   const slug = input.slug || placeSlugFromName(input.displayName || input.name);
 
   // Pick a reasonable default zoom by area
@@ -82,11 +83,16 @@ export function placeFromSearchParams(params: URLSearchParams): CatalogPrint | n
 
   const kind = (params.get('kind') as CatalogPrintKind) || 'city';
   const displayName = params.get('display') || undefined;
+  const centerParts = params.get('center')?.split(',').map(Number);
+  const center = centerParts?.length === 2 && centerParts.every(Number.isFinite)
+    ? centerParts as [number, number]
+    : undefined;
 
   return buildPlaceCatalogPrint({
     name,
     displayName,
     kind,
     bbox: [south, north, west, east],
+    center,
   });
 }

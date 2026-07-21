@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { PRINT_SCENE_VERSION } from '@/lib/print/scene';
 
 interface DemoOrderBody {
   scene?: {
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
     const { scene, printConfig } = body;
 
     if (
-      scene?.version !== 2 ||
+      scene?.version !== PRINT_SCENE_VERSION ||
       !scene.place?.slug ||
       !scene.place.name ||
       !Array.isArray(scene.viewport?.bbox) ||

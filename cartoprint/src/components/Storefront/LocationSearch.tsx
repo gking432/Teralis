@@ -23,6 +23,7 @@ interface DisplayResult {
   secondary: string;     // "Wisconsin, United States"
   kind: CatalogPrintKind;
   bbox: [number, number, number, number];
+  center: [number, number];
   displayName: string;
 }
 
@@ -34,12 +35,17 @@ function toDisplay(r: NominatimResult): DisplayResult {
   const primary = r.name || parts[0] || r.display_name;
   const secondary = parts.length > 1 ? parts.slice(1).slice(-3).join(', ') : '';
   const bb = r.boundingbox.map(Number) as [number, number, number, number];
+  const longitude = Number(r.lon);
+  const latitude = Number(r.lat);
   return {
     key: `${r.place_id}`,
     primary,
     secondary,
     kind,
     bbox: bb,
+    center: Number.isFinite(longitude) && Number.isFinite(latitude)
+      ? [longitude, latitude]
+      : [(bb[2] + bb[3]) / 2, (bb[0] + bb[1]) / 2],
     displayName: r.display_name,
   };
 }
@@ -49,6 +55,7 @@ function navigateUrl(r: DisplayResult): string {
     place: r.primary,
     kind: r.kind,
     bbox: r.bbox.join(','),
+    center: r.center.join(','),
     display: r.displayName,
   });
   return `/customize?${params.toString()}`;

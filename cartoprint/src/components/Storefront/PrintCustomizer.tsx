@@ -24,6 +24,8 @@ import {
   sceneCacheTag,
   storeScene,
   transformViewport,
+  viewportForCityFraming,
+  type CityFramingId,
   type PrintScene,
 } from '@/lib/print/scene';
 
@@ -32,10 +34,19 @@ interface PrintCustomizerProps {
   orientation?: Orientation;
 }
 
+const CITY_FRAMES: Array<{ id: CityFramingId; title: string; description: string }> = [
+  { id: 'city', title: 'City', description: 'Entire city boundary' },
+  { id: 'central', title: 'Central', description: 'Downtown + neighborhoods' },
+  { id: 'downtown', title: 'Downtown', description: 'A tighter urban core' },
+  { id: 'close-up', title: 'Close-up', description: 'Maximum street detail' },
+];
+
 function createCityFirstScene(print: CatalogPrint, orientation: Orientation): PrintScene {
   const scene = createPrintScene(print, orientation, 'city-detail');
   return {
     ...scene,
+    framing: 'downtown',
+    viewport: viewportForCityFraming({ bbox: print.bbox, center: print.center }, print.center, 'downtown'),
     detail: {
       places: print.kind === 'city' ? 'none' : 'less',
       roads: print.kind === 'country' ? 'less' : print.kind === 'state' ? 'neutral' : 'more',
@@ -124,6 +135,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   const canContinue = Boolean(previewUrl) && !loading && !renderError;
   const activePalette = COLOR_SCHEMES.find((scheme) => sameColorSettings(scheme.colors, colors))?.value ?? 'custom';
   const originalViewport = { bbox: print.bbox, center: print.center };
+  const framingLabel = CITY_FRAMES.find((frame) => frame.id === scene.framing)?.title ?? 'Custom';
   const previewLayoutKey = `screen1200:${sceneCacheTag(scene)}:${titleBlock.enabled ? 'title' : 'map'}:${titleBlock.title}:${titleBlock.subtitle}:${titleBlock.detail}:${titleBlock.layout}`;
 
   useEffect(() => {
@@ -211,6 +223,14 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
     setDetail((current) => ({ ...current, roads: value === 'all' ? 'more' : 'neutral' }));
   }
 
+  function setFraming(framing: CityFramingId) {
+    updateScene((current) => ({
+      ...current,
+      framing,
+      viewport: viewportForCityFraming(originalViewport, print.center, framing),
+    }));
+  }
+
   function toggleLabel(label: keyof PrintDetailSettings['labels']) {
     setDetail((current) => ({
       ...current,
@@ -230,7 +250,10 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   function moveViewport(operation: Parameters<typeof transformViewport>[1]) {
     updateScene((current) => ({
       ...current,
-      viewport: transformViewport(current.viewport, operation, originalViewport),
+      framing: operation === 'reset' ? 'downtown' : 'custom',
+      viewport: operation === 'reset'
+        ? viewportForCityFraming(originalViewport, print.center, 'downtown')
+        : transformViewport(current.viewport, operation),
     }));
   }
 
@@ -257,6 +280,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
     if (Math.abs(dx) + Math.abs(dy) < 4) return;
     updateScene((current) => ({
       ...current,
+      framing: 'custom',
       viewport: panViewportByPixels(current.viewport, dx, dy, rect.width, rect.height),
     }));
   }
@@ -332,7 +356,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
           <div className="absolute left-5 top-5 flex items-center gap-3 text-[8px] uppercase tracking-[0.22em] text-white/40">
             <span>Live print</span>
             <span className="h-px w-6 bg-[#c66b4e]" />
-            <span>{detail.roads === 'more' ? 'Every street' : 'Main roads'}</span>
+            <span>{framingLabel} · {detail.roads === 'more' ? 'More streets' : 'Main roads'}</span>
           </div>
           <div className="absolute right-5 top-5 hidden text-right text-[8px] uppercase leading-4 tracking-[0.18em] text-white/28 sm:block">
             {scene.viewport.center[1].toFixed(4)}° N<br />{Math.abs(scene.viewport.center[0]).toFixed(4)}° W
@@ -387,10 +411,10 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
           <div className="mt-5 flex items-center justify-center gap-2">
             <MapButton label="Zoom out" onClick={() => moveViewport('zoom-out')}>−</MapButton>
             <MapButton label="Zoom in" onClick={() => moveViewport('zoom-in')}>+</MapButton>
-            <MapButton label="Reset map" onClick={() => moveViewport('reset')}>Reset</MapButton>
+            <MapButton label="Reset to recommended downtown view" onClick={() => moveViewport('reset')}>Reset</MapButton>
           </div>
           <p className="mt-3 text-center text-[8px] uppercase tracking-[0.17em] text-white/42">
-            Drag to position · zoom to frame the exact print
+            Pick a view, then drag or zoom to fine-tune it
           </p>
         </main>
 
@@ -399,10 +423,27 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
           <h1 className="mt-4 font-display text-[46px] font-light leading-[0.9] tracking-[-0.03em]">{print.name}</h1>
           {print.defaultSubtitle && <p className="mt-3 text-[11px] leading-5 text-[#77817b]">{print.defaultSubtitle}</p>}
           <p className="mt-4 border-l-2 border-[#c66b4e] pl-3 text-[10px] leading-5 text-[#68726c]">
-            Your complete street map is ready. Simplify it only if you want a quieter print.
+            Start with a balanced city view, then go wider or move closer with one click.
           </p>
 
           <div className="mt-7 flex flex-col gap-6">
+            <PanelSection title="Map Area">
+              <div className="grid grid-cols-2 gap-2">
+                {CITY_FRAMES.map((frame) => (
+                  <ChoiceCard
+                    key={frame.id}
+                    active={scene.framing === frame.id}
+                    title={frame.title}
+                    description={frame.description}
+                    onClick={() => setFraming(frame.id)}
+                  />
+                ))}
+              </div>
+              {scene.framing === 'custom' && (
+                <p className="mt-3 text-[9px] leading-4 text-[#68726c]">Custom view. Choose a preset above to recenter the map.</p>
+              )}
+            </PanelSection>
+
             <PanelSection title="Street Detail">
               <div className="grid grid-cols-2 gap-2">
                 <ChoiceCard
@@ -413,8 +454,8 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
                 />
                 <ChoiceCard
                   active={detail.roads === 'more'}
-                  title="Every street"
-                  description="Maximum city detail"
+                  title="More streets"
+                  description="A denser road network"
                   onClick={() => setStreetDetail('all')}
                 />
               </div>
