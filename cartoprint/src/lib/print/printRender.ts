@@ -68,7 +68,7 @@ const STATE_PRINT_LAYER_STATE: LayerState = {
   capitals: true,
   cities: true,
   towns: true,
-  statelabels: false,
+  statelabels: true,
   countrylabels: false,
   highways: true,
   mainroads: true,
@@ -91,7 +91,7 @@ const COUNTRY_PRINT_LAYER_STATE: LayerState = {
   capitals: true,
   cities: false,
   towns: false,
-  statelabels: true,
+  statelabels: false,
   countrylabels: false,
   highways: false,
   mainroads: false,
@@ -247,8 +247,8 @@ function applyPrintPreviewOverrides(
       return;
     }
 
-    // State names are automatic orientation labels on country prints. They
-    // stay hidden for state and city artwork, where the title names the place.
+    // Country maps use state/province names for orientation. They stay hidden
+    // on state and city artwork, where the title already identifies the place.
     if (/label_state|place.*(state|province)/.test(id)) {
       try {
         map.setLayoutProperty(id, 'visibility', layers.statelabels ? 'visible' : 'none');

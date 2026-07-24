@@ -17,14 +17,11 @@ interface NominatimResult {
   lon: string;
 }
 
-export type RequestedMapKind = 'country' | 'state' | 'city' | 'town';
-
-export interface LocationSearchResult {
+interface DisplayResult {
   key: string;
-  primary: string;
-  secondary: string;
+  primary: string;       // "Madison"
+  secondary: string;     // "Wisconsin, United States"
   kind: CatalogPrintKind;
-  rawType: string;
   bbox: [number, number, number, number];
   center: [number, number];
   displayName: string;
@@ -32,7 +29,7 @@ export interface LocationSearchResult {
 
 const SEARCH_DEBOUNCE_MS = 280;
 
-function toDisplay(r: NominatimResult): LocationSearchResult {
+function toDisplay(r: NominatimResult): DisplayResult {
   const kind = inferKind(r.addresstype, r.type);
   const parts = r.display_name.split(',').map((s) => s.trim()).filter(Boolean);
   const primary = r.name || parts[0] || r.display_name;
@@ -45,7 +42,6 @@ function toDisplay(r: NominatimResult): LocationSearchResult {
     primary,
     secondary,
     kind,
-    rawType: r.addresstype || r.type || '',
     bbox: bb,
     center: Number.isFinite(longitude) && Number.isFinite(latitude)
       ? [longitude, latitude]
@@ -54,44 +50,24 @@ function toDisplay(r: NominatimResult): LocationSearchResult {
   };
 }
 
-export function buildCustomizeUrl(
-  r: LocationSearchResult,
-  extras?: Record<string, string>,
-): string {
+function navigateUrl(r: DisplayResult): string {
   const params = new URLSearchParams({
     place: r.primary,
     kind: r.kind,
     bbox: r.bbox.join(','),
     center: r.center.join(','),
     display: r.displayName,
-    ...extras,
   });
   return `/customize?${params.toString()}`;
 }
 
-const TOWN_TYPES = new Set(['town', 'village', 'hamlet', 'municipality']);
-
-function matchesRequestedKind(result: LocationSearchResult, requestedKind?: RequestedMapKind): boolean {
-  if (!requestedKind) return true;
-  if (requestedKind === 'country' || requestedKind === 'state') return result.kind === requestedKind;
-  if (requestedKind === 'town') return result.kind === 'city' && TOWN_TYPES.has(result.rawType);
-  return result.kind === 'city' && !TOWN_TYPES.has(result.rawType);
-}
-
-export function LocationSearch({
-  autoFocus = false,
-  placeholder = 'Type a state, city, or town…',
-  requestedKind,
-  onSelect,
-}: {
+export function LocationSearch({ autoFocus = false, placeholder = 'Type a state, city, or town…' }: {
   autoFocus?: boolean;
   placeholder?: string;
-  requestedKind?: RequestedMapKind;
-  onSelect?: (result: LocationSearchResult) => void;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<LocationSearchResult[]>([]);
+  const [results, setResults] = useState<DisplayResult[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -113,8 +89,7 @@ export function LocationSearch({
         .then((data: NominatimResult[]) => {
           if (controller.signal.aborted) return;
           const mapped = (Array.isArray(data) ? data : [])
-            .map(toDisplay)
-            .filter((result) => matchesRequestedKind(result, requestedKind));
+            .map(toDisplay);
           setResults(mapped);
           setActiveIndex(0);
         })
@@ -123,7 +98,7 @@ export function LocationSearch({
     }, SEARCH_DEBOUNCE_MS);
 
     return () => { window.clearTimeout(t); controller.abort(); };
-  }, [query, requestedKind]);
+  }, [query]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -134,13 +109,8 @@ export function LocationSearch({
     return () => window.removeEventListener('mousedown', onClick);
   }, []);
 
-  function pick(r: LocationSearchResult) {
-    if (onSelect) {
-      onSelect(r);
-      setOpen(false);
-      return;
-    }
-    router.push(buildCustomizeUrl(r));
+  function pick(r: DisplayResult) {
+    router.push(navigateUrl(r));
   }
 
   function onKey(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -212,7 +182,7 @@ export function LocationSearch({
                 )}
               </div>
               <div className="flex-shrink-0 rounded-full border border-[#cad0cb] px-2 py-1 text-[8px] uppercase tracking-[1.4px] text-[#65716a]">
-                {r.kind === 'country' ? 'Country' : r.kind === 'state' ? 'State' : TOWN_TYPES.has(r.rawType) ? 'Town' : 'City'}
+                {r.kind === 'country' ? 'Country' : r.kind === 'state' ? 'State' : 'City'}
               </div>
             </li>
           ))}
@@ -221,7 +191,7 @@ export function LocationSearch({
 
       {open && query.trim().length >= 2 && !loading && results.length === 0 && (
         <div className="absolute left-0 right-0 top-full z-30 mt-2 border border-[#c9cec8] bg-[#fbfaf6] px-5 py-4 text-sm text-[#6f7973] shadow-[0_24px_70px_rgba(0,0,0,0.3)]">
-          No matching {requestedKind || 'places'} found. Try a different spelling.
+          No places found. Try a different spelling or a nearby place.
         </div>
       )}
     </div>

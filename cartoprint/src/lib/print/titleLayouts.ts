@@ -53,8 +53,8 @@ export interface TitleBlockSettings {
   layout: PreviewTitleLayout;
   style: TitleStyle;
   glassFill: 'land' | 'ink'; // which scheme color to use for glass/translucent text
-  textColor?: string; // optional override; otherwise follows the active palette
-  panelColor?: string; // optional label/glass color; otherwise follows the active palette
+  textColor?: string;
+  panelColor?: string;
   x: number;       // left edge, normalized [0,1] relative to print width (freeform only)
   y: number;       // top edge, normalized [0,1] relative to print height (freeform only)
   w: number;       // width, normalized [0,1] (freeform only)

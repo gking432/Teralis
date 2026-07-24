@@ -1,5 +1,10 @@
-import { MapSetupWizard } from '@/components/Storefront/MapSetupWizard';
+'use client';
+
+import Link from 'next/link';
+import { LocationSearch } from '@/components/Storefront/LocationSearch';
 import { StudioHeader } from '@/components/Storefront/StudioHeader';
+
+const POPULAR_CITIES = ['Madison', 'Chicago', 'Milwaukee', 'Austin', 'Denver', 'Portland'];
 
 const CITY_ROADS = [
   'M18 42H510', 'M8 78H530', 'M22 118H505', 'M-8 162H530', 'M12 206H514', 'M-10 254H530', 'M20 302H515', 'M-5 352H530',
@@ -17,17 +22,35 @@ export default function StorefrontPage() {
         <div className="pointer-events-none absolute -left-40 bottom-[-280px] h-[620px] w-[620px] rounded-full bg-[#29443c]/45 blur-3xl" aria-hidden />
 
         <div className="relative z-10 max-w-2xl">
-          <div className="studio-kicker">Modern topographic print studio</div>
+          <div className="studio-kicker">Detailed map prints</div>
           <h1 className="mt-7 font-display text-[clamp(4.2rem,7.6vw,8rem)] font-light leading-[0.79] tracking-[-0.045em]">
-            Your place.
-            <span className="block italic text-[#cbd4cc]">Made simple.</span>
+            Every street.
+            <span className="block italic text-[#cbd4cc]">Your city.</span>
           </h1>
           <p className="mt-9 max-w-xl text-[15px] font-light leading-7 text-[#dce2dd]/68 md:text-[17px]">
-            Tell us what place matters. We handle the map detail, then guide you through color, title, and print.
+            Search for any city, town, state, or country. Start with a detailed map, then refine the view, color, title, and print.
           </p>
 
           <div className="mt-9 max-w-2xl">
-            <MapSetupWizard />
+            <LocationSearch placeholder="Search for a city, town, state, or country" />
+            <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-[#dce2dd]/52">
+              <span className="mr-1 text-[9px] uppercase tracking-[0.2em] text-[#c66b4e]">Try</span>
+              {POPULAR_CITIES.map((city) => (
+                <Link
+                  key={city}
+                  href={`/customize?q=${encodeURIComponent(`${city}, United States`)}`}
+                  className="border-b border-transparent pb-0.5 transition-colors hover:border-[#dce2dd]/50 hover:text-[#f7f4eb]"
+                >
+                  {city}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-10 grid max-w-xl grid-cols-3 border-y border-white/12 py-4 text-[8px] uppercase leading-4 tracking-[0.17em] text-white/40">
+            <span>1. Find a place</span>
+            <span className="border-x border-white/12 px-4">2. Make it yours</span>
+            <span className="pl-4">3. Choose a print</span>
           </div>
         </div>
 
@@ -37,7 +60,7 @@ export default function StorefrontPage() {
             <div className="relative h-[490px] overflow-hidden bg-white">
               <svg className="absolute inset-0 h-full w-full" viewBox="0 0 520 400" preserveAspectRatio="none">
                 <rect width="520" height="400" fill="#fff" />
-                <g fill="none" stroke="#d34a32" strokeWidth="0.7" opacity="0.5">
+                <g fill="none" stroke="#07122a" strokeWidth="0.7" opacity="0.5">
                   {CITY_ROADS.map((road) => <path key={road} d={road} />)}
                 </g>
                 <g fill="#07122a">
@@ -45,7 +68,7 @@ export default function StorefrontPage() {
                   <path d="M292 142c42-24 89-8 97 28s-24 66-67 68-76-20-69-51 12-30 39-45Z" />
                   <path d="M392 285c35-15 75-1 82 31s-19 61-57 65-67-19-60-49 11-35 35-47Z" />
                 </g>
-                <g fill="none" stroke="#d34a32" strokeWidth="2.2" opacity="0.92">
+                <g fill="none" stroke="#07122a" strokeWidth="2.2" opacity="0.92">
                   <path d="M-10 335C84 290 142 291 214 238S360 138 535 92" />
                   <path d="M26 -10C82 76 123 144 206 197s190 78 330 73" />
                 </g>

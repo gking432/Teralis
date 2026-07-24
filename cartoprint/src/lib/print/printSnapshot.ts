@@ -115,7 +115,7 @@ function drawTitleBand(
   function endText() { ctx.restore(); }
   function fillPanel(x: number, y: number, panelWidth: number, panelHeight: number) {
     ctx.save();
-    ctx.globalAlpha = trans ? 0.62 : 1;
+    if (trans) ctx.globalAlpha = 0.62;
     ctx.fillStyle = resolvedPanelColor;
     ctx.fillRect(x, y, panelWidth, panelHeight);
     ctx.restore();
@@ -132,7 +132,7 @@ function drawTitleBand(
 
     fillPanel(0, bandTop, width, fh);
     if (!trans) {
-      ctx.strokeStyle = resolvedTextColor;
+      ctx.strokeStyle = ink;
       ctx.lineWidth = isClassic ? Math.max(3, width * 0.0012) : Math.max(2, width * 0.0008);
       ctx.beginPath();
       ctx.moveTo(0, bandTop);
