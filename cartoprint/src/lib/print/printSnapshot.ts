@@ -408,6 +408,13 @@ export async function renderPrintSnapshot(
   const titleVisible = titleSettings.enabled && titleSettings.layout !== 'freeform';
   const footerHeight = titleVisible ? getFooterHeight(titleSettings.layout, rh, titleStyle) : 0;
   const mapHeight = rh - footerHeight;
+  // The base vector source only includes the full residential network in its
+  // higher-zoom tiles. Render dense city previews on a larger hidden canvas,
+  // then downsample, so a wider city composition can still request those tiles
+  // without silently changing the user's chosen geographic bounds.
+  const denseRoadScale = detail?.roads === 'more' && rw < 2400 ? 2400 / rw : 1;
+  const mapRenderWidth = Math.round(rw * denseRoadScale);
+  const mapRenderHeight = Math.round(mapHeight * denseRoadScale);
   // The bordered region inside the map area. MapLibre always renders at the
   // FULL (rw × mapHeight) — independent of border thickness — so the camera
   // zoom level is identical regardless of border. We then draw the rendered
@@ -421,7 +428,7 @@ export async function renderPrintSnapshot(
     if (signal?.aborted) { reject(new Error('aborted')); return; }
 
     const mapDiv = document.createElement('div');
-    mapDiv.style.cssText = `position:fixed;left:-9999px;top:0;width:${rw}px;height:${mapHeight}px;`;
+    mapDiv.style.cssText = `position:fixed;left:-9999px;top:0;width:${mapRenderWidth}px;height:${mapRenderHeight}px;`;
     document.body.appendChild(mapDiv);
 
     let snapshotted = false;
@@ -589,7 +596,7 @@ export async function renderPrintSnapshot(
         [Number(bbox[3]), Number(bbox[1])],
       ],
       fitBoundsOptions: {
-        padding: Math.round(rw * 0.12),
+        padding: Math.round(mapRenderWidth * 0.12),
         animate: false,
       },
     });
