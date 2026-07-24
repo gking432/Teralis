@@ -4,7 +4,7 @@ import { defaultTitleBlock, type TitleBlockSettings } from '@/lib/print/titleLay
 import { DEFAULT_DETAIL_SETTINGS, type PrintDetailSettings } from '@/lib/print/printRender';
 import type { Orientation } from '@/lib/print/printSnapshot';
 
-export const PRINT_SCENE_VERSION = 4;
+export const PRINT_SCENE_VERSION = 5;
 export const SESSION_SCENE_KEY = 'teralis:print-scene';
 
 export type CompositionPresetId = 'city-detail';
@@ -110,6 +110,7 @@ export function sceneCacheTag(scene: PrintScene): string {
   const d = scene.detail;
   const labels = d.labels;
   return [
+    `v${scene.version}`,
     scene.orientation,
     scene.composition,
     scene.framing,

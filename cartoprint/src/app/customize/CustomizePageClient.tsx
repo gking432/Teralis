@@ -81,18 +81,6 @@ export function CustomizePageClient() {
     return () => { cancelled = true; };
   }, [catalogPrint, placePrint, freeQuery, orientation, router]);
 
-  useEffect(() => {
-    if (catalogPrint && catalogPrint.kind !== 'city') router.replace('/');
-  }, [catalogPrint, router]);
-
-  if (catalogPrint && catalogPrint.kind !== 'city') {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#14201d] text-[#f7f4eb]">
-        <p className="text-[9px] uppercase tracking-[0.2em] text-white/55">Opening city search</p>
-      </div>
-    );
-  }
-
   const print = catalogPrint || placePrint;
   if (print) {
     return <PrintCustomizer key={print.slug} print={print} orientation={orientation} />;

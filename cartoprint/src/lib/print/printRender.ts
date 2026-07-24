@@ -91,7 +91,7 @@ const COUNTRY_PRINT_LAYER_STATE: LayerState = {
   capitals: true,
   cities: false,
   towns: false,
-  statelabels: false,
+  statelabels: true,
   countrylabels: false,
   highways: false,
   mainroads: false,
@@ -247,9 +247,17 @@ function applyPrintPreviewOverrides(
       return;
     }
 
-    // Hide state/province point labels (state name goes in the title band).
+    // State names are automatic orientation labels on country prints. They
+    // stay hidden for state and city artwork, where the title names the place.
     if (/label_state|place.*(state|province)/.test(id)) {
-      try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
+      try {
+        map.setLayoutProperty(id, 'visibility', layers.statelabels ? 'visible' : 'none');
+        if (layers.statelabels && layer.type === 'symbol') {
+          map.setLayerZoomRange(id, 2, 24);
+          map.setLayoutProperty(id, 'text-size', ['interpolate', ['linear'], ['zoom'], 2, 8, 4, 11, 7, 14]);
+          map.setLayoutProperty(id, 'text-padding', 2);
+        }
+      } catch {}
       return;
     }
 

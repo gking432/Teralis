@@ -17,11 +17,14 @@ interface NominatimResult {
   lon: string;
 }
 
-interface DisplayResult {
+export type RequestedMapKind = 'country' | 'state' | 'city' | 'town';
+
+export interface LocationSearchResult {
   key: string;
-  primary: string;       // "Madison"
-  secondary: string;     // "Wisconsin, United States"
+  primary: string;
+  secondary: string;
   kind: CatalogPrintKind;
+  rawType: string;
   bbox: [number, number, number, number];
   center: [number, number];
   displayName: string;
@@ -29,7 +32,7 @@ interface DisplayResult {
 
 const SEARCH_DEBOUNCE_MS = 280;
 
-function toDisplay(r: NominatimResult): DisplayResult {
+function toDisplay(r: NominatimResult): LocationSearchResult {
   const kind = inferKind(r.addresstype, r.type);
   const parts = r.display_name.split(',').map((s) => s.trim()).filter(Boolean);
   const primary = r.name || parts[0] || r.display_name;
@@ -42,6 +45,7 @@ function toDisplay(r: NominatimResult): DisplayResult {
     primary,
     secondary,
     kind,
+    rawType: r.addresstype || r.type || '',
     bbox: bb,
     center: Number.isFinite(longitude) && Number.isFinite(latitude)
       ? [longitude, latitude]
@@ -50,24 +54,44 @@ function toDisplay(r: NominatimResult): DisplayResult {
   };
 }
 
-function navigateUrl(r: DisplayResult): string {
+export function buildCustomizeUrl(
+  r: LocationSearchResult,
+  extras?: Record<string, string>,
+): string {
   const params = new URLSearchParams({
     place: r.primary,
     kind: r.kind,
     bbox: r.bbox.join(','),
     center: r.center.join(','),
     display: r.displayName,
+    ...extras,
   });
   return `/customize?${params.toString()}`;
 }
 
-export function LocationSearch({ autoFocus = false, placeholder = 'Type a state, city, or town…' }: {
+const TOWN_TYPES = new Set(['town', 'village', 'hamlet', 'municipality']);
+
+function matchesRequestedKind(result: LocationSearchResult, requestedKind?: RequestedMapKind): boolean {
+  if (!requestedKind) return true;
+  if (requestedKind === 'country' || requestedKind === 'state') return result.kind === requestedKind;
+  if (requestedKind === 'town') return result.kind === 'city' && TOWN_TYPES.has(result.rawType);
+  return result.kind === 'city' && !TOWN_TYPES.has(result.rawType);
+}
+
+export function LocationSearch({
+  autoFocus = false,
+  placeholder = 'Type a state, city, or town…',
+  requestedKind,
+  onSelect,
+}: {
   autoFocus?: boolean;
   placeholder?: string;
+  requestedKind?: RequestedMapKind;
+  onSelect?: (result: LocationSearchResult) => void;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<DisplayResult[]>([]);
+  const [results, setResults] = useState<LocationSearchResult[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -90,7 +114,7 @@ export function LocationSearch({ autoFocus = false, placeholder = 'Type a state,
           if (controller.signal.aborted) return;
           const mapped = (Array.isArray(data) ? data : [])
             .map(toDisplay)
-            .filter((result) => result.kind === 'city');
+            .filter((result) => matchesRequestedKind(result, requestedKind));
           setResults(mapped);
           setActiveIndex(0);
         })
@@ -99,7 +123,7 @@ export function LocationSearch({ autoFocus = false, placeholder = 'Type a state,
     }, SEARCH_DEBOUNCE_MS);
 
     return () => { window.clearTimeout(t); controller.abort(); };
-  }, [query]);
+  }, [query, requestedKind]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -110,8 +134,13 @@ export function LocationSearch({ autoFocus = false, placeholder = 'Type a state,
     return () => window.removeEventListener('mousedown', onClick);
   }, []);
 
-  function pick(r: DisplayResult) {
-    router.push(navigateUrl(r));
+  function pick(r: LocationSearchResult) {
+    if (onSelect) {
+      onSelect(r);
+      setOpen(false);
+      return;
+    }
+    router.push(buildCustomizeUrl(r));
   }
 
   function onKey(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -183,7 +212,7 @@ export function LocationSearch({ autoFocus = false, placeholder = 'Type a state,
                 )}
               </div>
               <div className="flex-shrink-0 rounded-full border border-[#cad0cb] px-2 py-1 text-[8px] uppercase tracking-[1.4px] text-[#65716a]">
-                {r.kind === 'country' ? 'Country' : r.kind === 'state' ? 'State' : 'City'}
+                {r.kind === 'country' ? 'Country' : r.kind === 'state' ? 'State' : TOWN_TYPES.has(r.rawType) ? 'Town' : 'City'}
               </div>
             </li>
           ))}
@@ -192,7 +221,7 @@ export function LocationSearch({ autoFocus = false, placeholder = 'Type a state,
 
       {open && query.trim().length >= 2 && !loading && results.length === 0 && (
         <div className="absolute left-0 right-0 top-full z-30 mt-2 border border-[#c9cec8] bg-[#fbfaf6] px-5 py-4 text-sm text-[#6f7973] shadow-[0_24px_70px_rgba(0,0,0,0.3)]">
-          No places found. Try a different spelling or a nearby city.
+          No matching {requestedKind || 'places'} found. Try a different spelling.
         </div>
       )}
     </div>

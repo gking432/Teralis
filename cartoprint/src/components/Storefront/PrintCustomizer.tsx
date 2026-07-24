@@ -36,7 +36,7 @@ import {
   type Orientation,
 } from '@/lib/print/printSnapshot';
 import { SESSION_CUSTOMIZATION_KEY, SESSION_PREVIEW_KEY } from '@/lib/print/sizeCatalog';
-import type { BorderWeight, Density, PrintDetailSettings } from '@/lib/print/printRender';
+import type { BorderWeight, PrintDetailSettings } from '@/lib/print/printRender';
 import {
   createPrintScene,
   panViewportByPixels,
@@ -61,12 +61,6 @@ const CITY_FRAMES: Array<{ id: CityFramingId; title: string; description: string
   { id: 'close-up', title: 'Close-up', description: 'Maximum street detail' },
 ];
 
-const STREET_LEVELS: Array<{ value: Density; title: string; description: string }> = [
-  { value: 'less', title: 'Less', description: 'Major routes' },
-  { value: 'neutral', title: 'Balanced', description: 'Main streets' },
-  { value: 'more', title: 'More', description: 'Full road network' },
-];
-
 const BORDER_LEVELS: Array<{ value: BorderWeight; label: string }> = [
   { value: 'none', label: 'None' },
   { value: 'thin', label: 'Thin' },
@@ -74,32 +68,61 @@ const BORDER_LEVELS: Array<{ value: BorderWeight; label: string }> = [
   { value: 'thick', label: 'Wide' },
 ];
 
-function createCityFirstScene(print: CatalogPrint, orientation: Orientation): PrintScene {
+type EditorStage = 'view' | 'color' | 'title' | 'finish';
+type SetupTitleStyle = 'none' | 'footer' | 'glass';
+
+const EDITOR_STAGES: Array<{ value: EditorStage; label: string }> = [
+  { value: 'view', label: 'View' },
+  { value: 'color', label: 'Color' },
+  { value: 'title', label: 'Title' },
+  { value: 'finish', label: 'Finish' },
+];
+
+function createGuidedScene(
+  print: CatalogPrint,
+  orientation: Orientation,
+  paletteValue?: string | null,
+  setupTitleStyle?: string | null,
+): PrintScene {
   const scene = createPrintScene(print, orientation, 'city-detail');
+  const isCity = print.kind === 'city';
+  const isState = print.kind === 'state';
+  const palette = COLOR_SCHEMES.find((scheme) => scheme.value === paletteValue);
+  const titleStyle: SetupTitleStyle = setupTitleStyle === 'footer' || setupTitleStyle === 'glass'
+    ? setupTitleStyle
+    : 'none';
+
   return {
     ...scene,
-    framing: 'downtown',
-    viewport: viewportForCityFraming({ bbox: print.bbox, center: print.center }, print.center, 'downtown'),
+    framing: isCity ? 'downtown' : 'city',
+    viewport: isCity
+      ? viewportForCityFraming({ bbox: print.bbox, center: print.center }, print.center, 'downtown')
+      : { bbox: [...print.bbox], center: [...print.center] },
+    colors: palette ? { ...palette.colors } : scene.colors,
     detail: {
-      places: print.kind === 'city' ? 'none' : 'less',
-      roads: print.kind === 'country' ? 'less' : print.kind === 'state' ? 'neutral' : 'more',
+      places: isCity ? 'none' : isState ? 'neutral' : 'none',
+      roads: isCity ? 'more' : isState ? 'neutral' : 'none',
       border: 'thin',
       rivers: true,
       counties: false,
-      states: false,
+      states: print.kind === 'country',
       labels: {
-        cities: false,
-        towns: false,
-        roads: true,
+        cities: isState,
+        towns: isState,
+        roads: false,
         water: false,
         rivers: false,
       },
     },
     title: {
       ...scene.title,
-      enabled: false,
-      layout: 'compact-bottom',
-      style: 'standard',
+      enabled: titleStyle !== 'none',
+      layout: titleStyle === 'glass' ? 'freeform' : 'compact-bottom',
+      style: titleStyle === 'glass' ? 'translucent' : 'standard',
+      x: 0.07,
+      y: 0.07,
+      w: 0.62,
+      h: 0.13,
     },
   };
 }
@@ -107,7 +130,15 @@ function createCityFirstScene(print: CatalogPrint, orientation: Orientation): Pr
 export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustomizerProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [scene, setScene] = useState<PrintScene>(() => createCityFirstScene(print, orientation));
+  const hasFreshSetup = searchParams.get('setup') === '1';
+  const setupInitializationRef = useRef(hasFreshSetup);
+  const [scene, setScene] = useState<PrintScene>(() => createGuidedScene(
+    print,
+    orientation,
+    searchParams.get('palette'),
+    searchParams.get('titleStyle'),
+  ));
+  const [editorStage, setEditorStage] = useState<EditorStage>('view');
   const [restored, setRestored] = useState(false);
   const [geometry, setGeometry] = useState<GeoJSON.Geometry | null>(null);
   const [boundaryReady, setBoundaryReady] = useState(false);
@@ -123,9 +154,21 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   const previewContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const stored = readStoredScene(print);
-    if (stored) setScene(stored);
+    if (!setupInitializationRef.current) {
+      const stored = readStoredScene(print);
+      if (stored) setScene(stored);
+    } else {
+      setupInitializationRef.current = false;
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete('setup');
+      params.delete('palette');
+      params.delete('titleStyle');
+      params.delete('requestedKind');
+      router.replace(`/customize?${params.toString()}`, { scroll: false });
+    }
     setRestored(true);
+    // The onboarding parameters are consumed exactly once by the initial scene.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [print]);
 
   useEffect(() => {
@@ -171,11 +214,22 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   const activePalette = COLOR_SCHEMES.find((scheme) => sameColorSettings(scheme.colors, colors))?.value ?? 'custom';
   const originalViewport = { bbox: print.bbox, center: print.center };
   const framingLabel = CITY_FRAMES.find((frame) => frame.id === scene.framing)?.title ?? 'Custom';
-  const streetLevelLabel = STREET_LEVELS.find((level) => level.value === detail.roads)?.title ?? 'Custom';
+  const mapDetailLabel = kind === 'city'
+    ? 'Full street network'
+    : kind === 'state' ? 'Cities & towns' : 'States & capitals';
+  const titleTreatment: SetupTitleStyle = !titleBlock.enabled
+    ? 'none'
+    : titleBlock.style === 'translucent' ? 'glass' : 'footer';
+  const automaticTitleTextColor = titleBlock.style === 'inverted'
+    ? colors.land
+    : getPrintInkColor(colors);
+  const automaticTitlePanelColor = titleBlock.style === 'inverted'
+    ? getPrintInkColor(colors)
+    : colors.land;
   const isFreeformTitle = titleBlock.enabled && titleBlock.layout === 'freeform';
   const titleCacheTag = isFreeformTitle
     ? 'freeform-map'
-    : `${titleBlock.enabled ? 'title' : 'map'}:${titleBlock.title}:${titleBlock.subtitle}:${titleBlock.detail}:${titleBlock.layout}:${titleBlock.style}`;
+    : `${titleBlock.enabled ? 'title' : 'map'}:${titleBlock.title}:${titleBlock.subtitle}:${titleBlock.detail}:${titleBlock.layout}:${titleBlock.style}:${titleBlock.textColor || 'auto'}:${titleBlock.panelColor || 'auto'}`;
   const previewLayoutKey = `screen1200:${sceneCacheTag(scene)}:${titleCacheTag}`;
 
   useEffect(() => {
@@ -209,7 +263,8 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
         layout: titleBlock.layout,
         inverted: false,
         style: titleBlock.style,
-        glassTextColor: colors.land || '#ffffff',
+        textColor: titleBlock.textColor,
+        panelColor: titleBlock.panelColor,
       },
       geometry,
       controller.signal,
@@ -259,22 +314,11 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
     }));
   }
 
-  function setStreetDetail(value: Density) {
-    setDetail((current) => ({ ...current, roads: value }));
-  }
-
   function setFraming(framing: CityFramingId) {
     updateScene((current) => ({
       ...current,
       framing,
       viewport: viewportForCityFraming(originalViewport, print.center, framing),
-    }));
-  }
-
-  function toggleLabel(label: keyof PrintDetailSettings['labels']) {
-    setDetail((current) => ({
-      ...current,
-      labels: { ...current.labels, [label]: !current.labels[label] },
     }));
   }
 
@@ -290,11 +334,44 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
   function moveViewport(operation: Parameters<typeof transformViewport>[1]) {
     updateScene((current) => ({
       ...current,
-      framing: operation === 'reset' ? 'downtown' : 'custom',
+      framing: operation === 'reset' ? (kind === 'city' ? 'downtown' : 'city') : 'custom',
       viewport: operation === 'reset'
-        ? viewportForCityFraming(originalViewport, print.center, 'downtown')
+        ? kind === 'city'
+          ? viewportForCityFraming(originalViewport, print.center, 'downtown')
+          : { bbox: [...originalViewport.bbox], center: [...originalViewport.center] }
         : transformViewport(current.viewport, operation),
     }));
+  }
+
+  function setTitleTreatment(value: SetupTitleStyle) {
+    setTitle((current) => {
+      if (value === 'none') return { ...current, enabled: false };
+      if (value === 'glass') {
+        return {
+          ...current,
+          enabled: true,
+          layout: 'freeform',
+          style: 'translucent',
+          x: 0.07,
+          y: 0.07,
+          w: 0.62,
+          h: 0.13,
+          rotation: 0,
+        };
+      }
+      return {
+        ...current,
+        enabled: true,
+        layout: 'compact-bottom',
+        style: 'standard',
+        rotation: 0,
+      };
+    });
+  }
+
+  function goToStage(next: EditorStage) {
+    setEditorStage(next);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function onCropPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -363,7 +440,8 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
           layout: titleBlock.layout,
           inverted: false,
           style: titleBlock.style,
-          glassTextColor: colors.land || '#ffffff',
+          textColor: titleBlock.textColor,
+          panelColor: titleBlock.panelColor,
         },
         geometry,
         undefined,
@@ -416,14 +494,14 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
 
   return (
     <div className="studio-topography min-h-screen bg-[#14201d] text-[#14201d]">
-      <StudioHeader step={1} backHref="/" backLabel="New city" context={print.name} />
+      <StudioHeader step={1} backHref="/" backLabel="New map" context={print.name} />
 
       <div className="mx-auto flex max-w-[1520px] flex-col gap-7 px-4 py-5 md:px-8 lg:px-10 lg:py-8 min-[1260px]:flex-row min-[1260px]:items-start min-[1260px]:gap-10">
         <main className="relative flex min-h-[calc(100vh-135px)] flex-1 flex-col items-center justify-center rounded-sm border border-white/10 bg-white/[0.035] px-3 py-14 lg:px-8 min-[1260px]:sticky min-[1260px]:top-5">
           <div className="absolute left-5 top-5 flex items-center gap-3 text-[8px] uppercase tracking-[0.22em] text-white/40">
             <span>Live print</span>
             <span className="h-px w-6 bg-[#c66b4e]" />
-            <span>{framingLabel} · {streetLevelLabel} streets</span>
+            <span>{kind === 'city' ? framingLabel : print.kind} · {mapDetailLabel}</span>
           </div>
           <div className="absolute right-5 top-5 hidden text-right text-[8px] uppercase leading-4 tracking-[0.18em] text-white/28 sm:block">
             {scene.viewport.center[1].toFixed(4)}° N<br />{Math.abs(scene.viewport.center[0]).toFixed(4)}° W
@@ -441,7 +519,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={previewUrl}
-                alt={`${print.name} detailed city map print`}
+                alt={`${print.name} map print`}
                 className="absolute inset-0 h-full w-full object-fill"
                 style={{ transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)` }}
               />
@@ -470,7 +548,7 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
               <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-white/72 backdrop-blur-[1px]" aria-live="polite">
                 <div className="text-center">
                   <div className="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-[#173f35]/20 border-t-[#173f35]" />
-                  <div className="mt-4 text-[9px] uppercase tracking-[0.18em] text-[#173f35]/65">Drawing your city</div>
+                  <div className="mt-4 text-[9px] uppercase tracking-[0.18em] text-[#173f35]/65">Drawing your map</div>
                 </div>
               </div>
             )}
@@ -491,163 +569,200 @@ export function PrintCustomizer({ print, orientation = 'portrait' }: PrintCustom
             <MapButton label="Reset to recommended downtown view" onClick={() => moveViewport('reset')}>Reset</MapButton>
           </div>
           <p className="mt-3 text-center text-[8px] uppercase tracking-[0.17em] text-white/42">
-            Pick a view, then drag or zoom to fine-tune it
+            Drag or zoom to fine-tune the exact print area
           </p>
         </main>
 
         <aside className="studio-panel w-full p-5 sm:p-7 min-[1260px]:w-[420px] min-[1260px]:flex-none">
-          <div className="studio-kicker">Your city map</div>
+          <div className="studio-kicker">Guided print studio</div>
           <h1 className="mt-4 font-display text-[46px] font-light leading-[0.9] tracking-[-0.03em]">{print.name}</h1>
           {print.defaultSubtitle && <p className="mt-3 text-[11px] leading-5 text-[#77817b]">{print.defaultSubtitle}</p>}
           <p className="mt-4 border-l-2 border-[#c66b4e] pl-3 text-[10px] leading-5 text-[#68726c]">
-            Start with a balanced city view, then go wider or move closer with one click.
+            We chose the map detail for a {print.kind}. You only need to shape the view, color, and title.
           </p>
 
-          <div className="mt-7 flex flex-col gap-6">
-            <PanelSection title="Map Area">
-              <div className="grid grid-cols-2 gap-2">
-                {CITY_FRAMES.map((frame) => (
-                  <ChoiceCard
-                    key={frame.id}
-                    active={scene.framing === frame.id}
-                    title={frame.title}
-                    description={frame.description}
-                    onClick={() => setFraming(frame.id)}
-                  />
-                ))}
-              </div>
-              {scene.framing === 'custom' && (
-                <p className="mt-3 text-[9px] leading-4 text-[#68726c]">Custom view. Choose a preset above to recenter the map.</p>
-              )}
-            </PanelSection>
+          <nav className="mt-6 grid grid-cols-4 border border-[#d8d9d3]" aria-label="Print setup steps">
+            {EDITOR_STAGES.map((stage, index) => (
+              <button
+                key={stage.value}
+                type="button"
+                onClick={() => goToStage(stage.value)}
+                aria-pressed={editorStage === stage.value}
+                className={`border-r border-[#d8d9d3] px-1 py-3 text-[8px] uppercase tracking-[0.1em] last:border-r-0 ${editorStage === stage.value ? 'bg-[#173f35] text-white' : 'bg-white text-[#77817b] hover:bg-[#eef1ed]'}`}
+              >
+                {index + 1}. {stage.label}
+              </button>
+            ))}
+          </nav>
 
-            <PanelSection title="Street Detail">
-              <div className="grid grid-cols-3 gap-2">
-                {STREET_LEVELS.map((level) => (
-                  <CompactChoice
-                    key={level.value}
-                    active={detail.roads === level.value}
-                    title={level.title}
-                    description={level.description}
-                    onClick={() => setStreetDetail(level.value)}
-                  />
-                ))}
-              </div>
-              <p className="mt-3 text-[9px] leading-4 text-[#999]">More restores the full residential network. Buildings, airports, rail lines, arrows, and points of interest stay removed.</p>
-            </PanelSection>
-
-            <PanelSection title="Labels">
-              <div className="divide-y divide-[#e0ddd4] border-y border-[#e0ddd4]">
-                <ToggleRow label="Street names" active={detail.labels.roads} onClick={() => toggleLabel('roads')} />
-                <ToggleRow label="Lake names" active={detail.labels.water} onClick={() => toggleLabel('water')} />
-                <ToggleRow label="Rivers" active={detail.rivers} onClick={() => setDetail((current) => ({ ...current, rivers: !current.rivers }))} />
-                <ToggleRow label="River names" active={detail.labels.rivers} onClick={() => toggleLabel('rivers')} />
-              </div>
-            </PanelSection>
-
-            <PanelSection title="Print Border">
-              <SegmentedControl
-                options={BORDER_LEVELS}
-                value={detail.border}
-                onChange={(border) => setDetail((current) => ({ ...current, border }))}
-              />
-            </PanelSection>
-
-            <PanelSection title="Color">
-              <div className="grid grid-cols-2 gap-2">
-                {COLOR_SCHEMES.filter((scheme) => scheme.value !== 'map-default').map((scheme) => (
-                  <button
-                    key={scheme.value}
-                    type="button"
-                    onClick={() => setColors(scheme.colors)}
-                    className={`flex items-center gap-3 border p-2.5 text-left transition-colors ${activePalette === scheme.value ? 'border-[#173f35] bg-[#eef1ed] shadow-[inset_0_0_0_1px_#173f35]' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'}`}
-                  >
-                    <ColorSwatch colors={scheme.colors} />
-                    <span className="text-[9px] uppercase tracking-[0.13em]">{scheme.label}</span>
-                  </button>
-                ))}
-              </div>
-              <details className="mt-3 border-t border-[#e0ddd4] pt-3">
-                <summary className="cursor-pointer text-[9px] uppercase tracking-[0.14em] text-[#68726c]">Choose custom colors</summary>
-                <div className="mt-3 grid gap-2">
-                  <ColorField label="Land" value={colors.land} onChange={(value) => setColor('land', value)} />
-                  <ColorField label="Water" value={colors.water} onChange={(value) => setColor('water', value)} />
-                  <ColorField label="Streets" value={colors.roads} onChange={(value) => setColor('roads', value)} />
-                </div>
-              </details>
-            </PanelSection>
-
-            <PanelSection title="Title">
-              <ToggleRow
-                label="Add a title to the print"
-                active={titleBlock.enabled}
-                onClick={() => setTitle((current) => ({ ...current, enabled: !current.enabled }))}
-              />
-              {titleBlock.enabled && (
-                <>
-                  <div className="mt-3 grid gap-2">
-                    <TextField label="Title" value={titleBlock.title} onChange={(title) => setTitle((current) => ({ ...current, title }))} />
-                    <TextField label="Subtitle" value={titleBlock.subtitle} onChange={(subtitle) => setTitle((current) => ({ ...current, subtitle }))} />
-                    <TextField label="Small line" value={titleBlock.detail} onChange={(titleDetail) => setTitle((current) => ({ ...current, detail: titleDetail }))} />
-                  </div>
-                  <div className="mt-4">
-                    <div className="mb-2 text-[8px] uppercase tracking-[0.16em] text-[#77817b]">Title location</div>
+          <div className="mt-6">
+            {editorStage === 'view' && (
+              <div>
+                <StageHeading title="Does this view look right?" description="The artwork is exactly what appears on the left. Drag or zoom it at any time." />
+                {kind === 'city' ? (
+                  <PanelSection title="Map Area">
                     <div className="grid grid-cols-2 gap-2">
-                      {TITLE_LAYOUTS.map((layout) => (
-                        <TitleLayoutChoice
-                          key={layout.value}
-                          layout={layout.value}
-                          label={layout.label}
-                          description={layout.desc}
-                          active={titleBlock.layout === layout.value}
-                          onClick={() => setTitle((current) => ({ ...current, layout: layout.value }))}
+                      {CITY_FRAMES.map((frame) => (
+                        <ChoiceCard
+                          key={frame.id}
+                          active={scene.framing === frame.id}
+                          title={frame.title}
+                          description={frame.description}
+                          onClick={() => setFraming(frame.id)}
                         />
                       ))}
                     </div>
+                    {scene.framing === 'custom' && (
+                      <p className="mt-3 text-[9px] leading-4 text-[#68726c]">Custom view. Choose a preset above to recenter the map.</p>
+                    )}
+                  </PanelSection>
+                ) : (
+                  <div className="border border-[#d8d9d3] bg-[#eef1ed] p-4 text-[10px] leading-5 text-[#68726c]">
+                    This begins with the full {print.kind}. The map automatically includes {kind === 'state' ? 'cities and towns' : 'states and capitals'}.
                   </div>
-                  {isFreeformTitle && (
-                    <p className="mt-3 border-l-2 border-[#c66b4e] pl-3 text-[9px] leading-4 text-[#68726c]">
-                      Drag the title on the artwork. Use the corner handles to resize it and the round handle to rotate it.
-                    </p>
-                  )}
-                </>
-              )}
-            </PanelSection>
+                )}
 
-            <PanelSection title="Shape">
-              <div className="grid grid-cols-3 gap-2">
-                {(['portrait', 'landscape', 'square'] as Orientation[]).map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => updateScene((current) => ({ ...current, orientation: option }))}
-                    className={`flex min-h-[76px] flex-col items-center justify-center border px-2 py-3 transition-colors ${currentOrientation === option ? 'border-[#173f35] bg-[#eef1ed]' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'}`}
-                  >
-                    <span className={`mb-2 block border border-current ${option === 'portrait' ? 'h-7 w-[18px]' : option === 'landscape' ? 'h-[18px] w-7' : 'h-6 w-6'}`} />
-                    <span className="text-[8px] uppercase tracking-[0.12em]">{option}</span>
-                  </button>
-                ))}
+                <PanelSection title="Print Border">
+                  <SegmentedControl
+                    options={BORDER_LEVELS}
+                    value={detail.border}
+                    onChange={(border) => setDetail((current) => ({ ...current, border }))}
+                  />
+                </PanelSection>
+
+                <PanelSection title="Shape">
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['portrait', 'landscape', 'square'] as Orientation[]).map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => updateScene((current) => ({ ...current, orientation: option }))}
+                        className={`flex min-h-[76px] flex-col items-center justify-center border px-2 py-3 transition-colors ${currentOrientation === option ? 'border-[#173f35] bg-[#eef1ed]' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'}`}
+                      >
+                        <span className={`mb-2 block border border-current ${option === 'portrait' ? 'h-7 w-[18px]' : option === 'landscape' ? 'h-[18px] w-7' : 'h-6 w-6'}`} />
+                        <span className="text-[8px] uppercase tracking-[0.12em]">{option}</span>
+                      </button>
+                    ))}
+                  </div>
+                </PanelSection>
+                <StageActions next={() => goToStage('color')} nextLabel="Choose color" />
               </div>
-            </PanelSection>
+            )}
 
-            <div className="border-t border-[#14201d]/15 pt-5">
-              <button
-                type="button"
-                onClick={handleNext}
-                disabled={!canContinue || finishing}
-                className="w-full bg-[#173f35] py-4 text-[10px] font-medium uppercase tracking-[0.2em] text-white transition-colors hover:bg-[#c66b4e] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {finishing ? 'Preparing Exact Preview…' : canContinue ? 'Choose Print & Frame →' : 'Drawing Your Map…'}
-              </button>
-              <button
-                type="button"
-                onClick={handleDownload}
-                disabled={!boundaryReady || downloading}
-                className="mt-2 w-full border border-[#c9cec8] py-3 text-[9px] uppercase tracking-[0.15em] text-[#68726c] hover:border-[#173f35] hover:text-[#173f35] disabled:opacity-40"
-              >
-                {downloading ? 'Generating Artwork…' : 'Download Artwork'}
-              </button>
-            </div>
+            {editorStage === 'color' && (
+              <div>
+                <StageHeading title="Choose a color story" description="These modern palettes use separate colors for land, streets, and water." />
+                <div className="grid grid-cols-2 gap-2">
+                  {COLOR_SCHEMES.filter((scheme) => scheme.value !== 'map-default').map((scheme) => (
+                    <button
+                      key={scheme.value}
+                      type="button"
+                      onClick={() => setColors(scheme.colors)}
+                      className={`flex items-center gap-3 border p-2.5 text-left transition-colors ${activePalette === scheme.value ? 'border-[#173f35] bg-[#eef1ed] shadow-[inset_0_0_0_1px_#173f35]' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'}`}
+                    >
+                      <ColorSwatch colors={scheme.colors} />
+                      <span>
+                        <span className="block text-[8px] uppercase tracking-[0.12em]">{scheme.label}</span>
+                        <span className="mt-1 block text-[8px] leading-3 text-[#8a918d]">{scheme.desc}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <details className="mt-4 border-t border-[#e0ddd4] pt-4">
+                  <summary className="cursor-pointer text-[9px] uppercase tracking-[0.14em] text-[#68726c]">Edit any color</summary>
+                  <div className="mt-3 grid gap-2">
+                    <ColorField label="Land" value={colors.land} onChange={(value) => setColor('land', value)} />
+                    <ColorField label="Water" value={colors.water} onChange={(value) => setColor('water', value)} />
+                    <ColorField label="Streets" value={colors.roads} onChange={(value) => setColor('roads', value)} />
+                  </div>
+                </details>
+                <StageActions back={() => goToStage('view')} next={() => goToStage('title')} nextLabel="Choose title" />
+              </div>
+            )}
+
+            {editorStage === 'title' && (
+              <div>
+                <StageHeading title="Choose a title treatment" description="Keep the map clean, add a footer, or place a glass label directly over the geography." />
+                <div className="grid gap-2">
+                  <TitleTreatmentChoice label="Map only" description="No title or words" active={titleTreatment === 'none'} onClick={() => setTitleTreatment('none')} />
+                  <TitleTreatmentChoice label="Contemporary footer" description="A clean title below the map" active={titleTreatment === 'footer'} onClick={() => setTitleTreatment('footer')} />
+                  <TitleTreatmentChoice label="Glass label" description="A movable translucent label over the map" active={titleTreatment === 'glass'} onClick={() => setTitleTreatment('glass')} />
+                </div>
+
+                {titleBlock.enabled && (
+                  <>
+                    <div className="mt-4 grid gap-2">
+                      <TextField label="Title" value={titleBlock.title} onChange={(title) => setTitle((current) => ({ ...current, title }))} />
+                      <TextField label="Subtitle" value={titleBlock.subtitle} onChange={(subtitle) => setTitle((current) => ({ ...current, subtitle }))} />
+                      <TextField label="Small line" value={titleBlock.detail} onChange={(titleDetail) => setTitle((current) => ({ ...current, detail: titleDetail }))} />
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <ColorField
+                        label="Title text"
+                        value={titleBlock.textColor || automaticTitleTextColor}
+                        onChange={(textColor) => setTitle((current) => ({ ...current, textColor }))}
+                      />
+                      <ColorField
+                        label={titleBlock.style === 'translucent' ? 'Glass color' : 'Label color'}
+                        value={titleBlock.panelColor || automaticTitlePanelColor}
+                        onChange={(panelColor) => setTitle((current) => ({ ...current, panelColor }))}
+                      />
+                    </div>
+                    <details className="mt-4 border-t border-[#e0ddd4] pt-4">
+                      <summary className="cursor-pointer text-[9px] uppercase tracking-[0.14em] text-[#68726c]">More title placements</summary>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        {TITLE_LAYOUTS.map((layout) => (
+                          <TitleLayoutChoice
+                            key={layout.value}
+                            layout={layout.value}
+                            label={layout.label}
+                            description={layout.desc}
+                            active={titleBlock.layout === layout.value}
+                            onClick={() => setTitle((current) => ({ ...current, layout: layout.value }))}
+                          />
+                        ))}
+                      </div>
+                    </details>
+                    {isFreeformTitle && (
+                      <p className="mt-3 border-l-2 border-[#c66b4e] pl-3 text-[9px] leading-4 text-[#68726c]">
+                        Drag the label on the artwork. Use the corner handles to resize it and the round handle to rotate it.
+                      </p>
+                    )}
+                  </>
+                )}
+                <StageActions back={() => goToStage('color')} next={() => goToStage('finish')} nextLabel="Review print" />
+              </div>
+            )}
+
+            {editorStage === 'finish' && (
+              <div>
+                <StageHeading title="Your print is ready" description="The next screen is a demo size and frame handoff. No payment is collected." />
+                <div className="divide-y divide-[#e0ddd4] border-y border-[#e0ddd4] text-[9px]">
+                  <SummaryRow label="Map" value={`${print.name} ${print.kind}`} />
+                  <SummaryRow label="Detail" value={mapDetailLabel} />
+                  <SummaryRow label="Color" value={COLOR_SCHEMES.find((scheme) => scheme.value === activePalette)?.label || 'Custom'} />
+                  <SummaryRow label="Title" value={titleTreatment === 'none' ? 'None' : titleTreatment === 'glass' ? 'Glass label' : 'Contemporary footer'} />
+                  <SummaryRow label="Shape" value={currentOrientation} />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  disabled={!canContinue || finishing}
+                  className="mt-5 w-full bg-[#173f35] py-4 text-[10px] font-medium uppercase tracking-[0.2em] text-white transition-colors hover:bg-[#c66b4e] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {finishing ? 'Preparing Exact Preview…' : canContinue ? 'Choose Print & Frame →' : 'Drawing Your Map…'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  disabled={!boundaryReady || downloading}
+                  className="mt-2 w-full border border-[#c9cec8] py-3 text-[9px] uppercase tracking-[0.15em] text-[#68726c] hover:border-[#173f35] hover:text-[#173f35] disabled:opacity-40"
+                >
+                  {downloading ? 'Generating Artwork…' : 'Download Artwork'}
+                </button>
+                <StageActions back={() => goToStage('title')} />
+              </div>
+            )}
           </div>
         </aside>
       </div>
@@ -665,6 +780,73 @@ function MapButton({ label, onClick, children }: { label: string; onClick: () =>
     >
       {children}
     </button>
+  );
+}
+
+function StageHeading({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="mb-6">
+      <h2 className="font-display text-[30px] font-light leading-none tracking-[-0.02em]">{title}</h2>
+      <p className="mt-3 text-[10px] leading-5 text-[#77817b]">{description}</p>
+    </div>
+  );
+}
+
+function StageActions({
+  back,
+  next,
+  nextLabel,
+}: {
+  back?: () => void;
+  next?: () => void;
+  nextLabel?: string;
+}) {
+  return (
+    <div className="mt-6 flex items-center justify-between gap-3 border-t border-[#14201d]/15 pt-5">
+      {back ? (
+        <button type="button" onClick={back} className="text-[8px] uppercase tracking-[0.14em] text-[#77817b] hover:text-[#173f35]">
+          ← Back
+        </button>
+      ) : <span />}
+      {next && (
+        <button type="button" onClick={next} className="bg-[#173f35] px-5 py-3 text-[9px] uppercase tracking-[0.15em] text-white hover:bg-[#c66b4e]">
+          {nextLabel} →
+        </button>
+      )}
+    </div>
+  );
+}
+
+function TitleTreatmentChoice({
+  label,
+  description,
+  active,
+  onClick,
+}: {
+  label: string;
+  description: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`flex min-h-[62px] items-center justify-between gap-4 border p-3 text-left transition-colors ${active ? 'border-[#173f35] bg-[#173f35] text-white' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'}`}
+    >
+      <span className="text-[9px] uppercase tracking-[0.13em]">{label}</span>
+      <span className="max-w-[180px] text-right text-[9px] leading-4 opacity-60">{description}</span>
+    </button>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <span className="uppercase tracking-[0.12em] text-[#8a918d]">{label}</span>
+      <span className="text-right capitalize text-[#26332f]">{value}</span>
+    </div>
   );
 }
 
@@ -687,20 +869,6 @@ function ChoiceCard({ active, title, description, onClick }: { active: boolean; 
     >
       <span className="block text-[10px] uppercase tracking-[0.13em]">{title}</span>
       <span className="mt-2 block text-[9px] leading-4 opacity-60">{description}</span>
-    </button>
-  );
-}
-
-function CompactChoice({ active, title, description, onClick }: { active: boolean; title: string; description: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={`min-h-[76px] border px-2 py-3 text-center transition-colors ${active ? 'border-[#173f35] bg-[#173f35] text-white' : 'border-[#d8d9d3] bg-white text-[#14201d] hover:border-[#849587]'}`}
-    >
-      <span className="block text-[9px] uppercase tracking-[0.12em]">{title}</span>
-      <span className="mt-1.5 block text-[8px] leading-3 opacity-60">{description}</span>
     </button>
   );
 }
@@ -774,22 +942,11 @@ function TitleLayoutIcon({ layout }: { layout: PreviewTitleLayout }) {
   );
 }
 
-function ToggleRow({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick} aria-pressed={active} className="flex w-full items-center justify-between gap-4 py-3 text-left">
-      <span className="text-[10px] text-[#44504b]">{label}</span>
-      <span className={`relative h-5 w-9 rounded-full transition-colors ${active ? 'bg-[#173f35]' : 'bg-[#d4d7d2]'}`}>
-        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${active ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
-      </span>
-    </button>
-  );
-}
-
 function ColorSwatch({ colors }: { colors: PreviewColorSettings }) {
   return (
     <span className="relative block h-8 w-8 flex-none overflow-hidden rounded-full border border-[#14201d]/15" style={{ backgroundColor: colors.land }}>
       <span className="absolute bottom-0 left-0 h-1/2 w-full" style={{ backgroundColor: colors.water }} />
-      <span className="absolute left-1/2 top-0 h-full w-px rotate-45" style={{ backgroundColor: colors.roads }} />
+      <span className="absolute left-1/2 top-[-20%] h-[140%] w-1 -translate-x-1/2 rotate-45" style={{ backgroundColor: colors.roads }} />
     </span>
   );
 }
@@ -985,11 +1142,8 @@ function DraggableTitle({
   const ink = getPrintInkColor(colors);
   const land = colors.land || '#ffffff';
   const translucent = block.style === 'translucent';
-  const glassColor = block.glassFill === 'ink' ? ink : land;
-  const background = block.style === 'inverted' ? ink : land;
-  const textColor = translucent
-    ? block.glassFill === 'ink' ? land : ink
-    : block.style === 'inverted' ? land : ink;
+  const background = block.panelColor || (block.style === 'inverted' ? ink : land);
+  const textColor = block.textColor || (block.style === 'inverted' ? land : ink);
   const hasSubtitle = Boolean(block.subtitle.trim());
   const hasDetail = Boolean(block.detail.trim());
   const longTitle = block.title.length > 10;
@@ -1018,7 +1172,7 @@ function DraggableTitle({
     >
       <div
         className="absolute inset-0"
-        style={{ backgroundColor: translucent ? glassColor : background, opacity: translucent ? 0.58 : 1 }}
+        style={{ backgroundColor: background, opacity: translucent ? 0.62 : 1 }}
       />
       <div
         className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center overflow-hidden px-[4%]"

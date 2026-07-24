@@ -23,6 +23,24 @@ export interface ColorScheme {
 
 export const COLOR_SCHEMES: ColorScheme[] = [
   {
+    value: 'signal-navy',
+    label: 'Signal Navy',
+    desc: 'Red streets, deep navy water',
+    colors: { land: WHITE_LAND, water: '#0a2342', roads: '#d34a32' },
+  },
+  {
+    value: 'ochre-navy',
+    label: 'Ochre Navy',
+    desc: 'Golden streets, deep navy water',
+    colors: { land: WHITE_LAND, water: '#08243e', roads: '#c89b2c' },
+  },
+  {
+    value: 'harbor',
+    label: 'Harbor',
+    desc: 'Sea green streets, blue-black water',
+    colors: { land: WHITE_LAND, water: '#102f44', roads: '#26927f' },
+  },
+  {
     value: 'midnight',
     label: 'Midnight',
     desc: 'Deep navy on white',

@@ -16,10 +16,8 @@ export interface PreviewTitleSettings {
   layout: PreviewTitleLayout;
   inverted: boolean;
   style?: TitleStyle;
-  // Resolved hex color to use for glass/translucent text. Caller computes this
-  // from glassFill ('land'|'ink') + the active color scheme so the canvas
-  // renderer doesn't need to re-derive it.
-  glassTextColor?: string;
+  textColor?: string;
+  panelColor?: string;
 }
 
 export interface TitleLayoutOption {
@@ -55,6 +53,8 @@ export interface TitleBlockSettings {
   layout: PreviewTitleLayout;
   style: TitleStyle;
   glassFill: 'land' | 'ink'; // which scheme color to use for glass/translucent text
+  textColor?: string; // optional override; otherwise follows the active palette
+  panelColor?: string; // optional label/glass color; otherwise follows the active palette
   x: number;       // left edge, normalized [0,1] relative to print width (freeform only)
   y: number;       // top edge, normalized [0,1] relative to print height (freeform only)
   w: number;       // width, normalized [0,1] (freeform only)

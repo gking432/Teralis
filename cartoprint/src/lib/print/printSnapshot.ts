@@ -3,6 +3,7 @@
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { STYLE_URL } from '@/lib/map/style';
+import { getStateCatalogPrints } from '@/lib/catalog/prints';
 import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSchemes';
 import { applyPrintMapStyle, applyPrintMaskColor, wantsEveryTown, getBorderWidth, type PrintDetailSettings, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printRender';
 import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
@@ -91,7 +92,8 @@ function drawTitleBand(
   mapHeight: number,
   footerHeight: number,
   style: TitleStyle = 'standard',
-  glassTextColor?: string,
+  textColor?: string,
+  panelColor?: string,
 ): void {
   const hasSubtitle = subtitle.length > 0;
   const hasDetail = detail.length > 0;
@@ -100,23 +102,24 @@ function drawTitleBand(
   const isExtreme = title.length > 24;
   const fitRatio = Math.min(1, 11 / Math.max(title.length, 1));
   const trans = style === 'translucent';
+  const resolvedTextColor = textColor || ink;
+  const resolvedPanelColor = panelColor || land;
 
-  // For translucent style: stroke in ink first, then fill in land on top.
-  // The land fill is clear on dark (ink) areas; where it blends into light
-  // (land) bg the ink stroke carries the legibility instead.
   function startText() {
     ctx.save();
   }
   function drawText(text: string, x: number, y: number, maxW?: number) {
-    if (trans) {
-      ctx.fillStyle = glassTextColor || land;
-      if (maxW !== undefined) { ctx.fillText(text, x, y, maxW); } else { ctx.fillText(text, x, y); }
-    } else {
-      ctx.fillStyle = ink;
-      if (maxW !== undefined) { ctx.fillText(text, x, y, maxW); } else { ctx.fillText(text, x, y); }
-    }
+    ctx.fillStyle = resolvedTextColor;
+    if (maxW !== undefined) { ctx.fillText(text, x, y, maxW); } else { ctx.fillText(text, x, y); }
   }
   function endText() { ctx.restore(); }
+  function fillPanel(x: number, y: number, panelWidth: number, panelHeight: number) {
+    ctx.save();
+    ctx.globalAlpha = trans ? 0.62 : 1;
+    ctx.fillStyle = resolvedPanelColor;
+    ctx.fillRect(x, y, panelWidth, panelHeight);
+    ctx.restore();
+  }
 
   if (layout === 'classic-bottom' || layout === 'compact-bottom') {
     const isClassic = layout === 'classic-bottom';
@@ -127,10 +130,9 @@ function drawTitleBand(
       : footerHeight;
     const bandTop = trans ? totalHeight - fh : mapHeight;
 
+    fillPanel(0, bandTop, width, fh);
     if (!trans) {
-      ctx.fillStyle = land;
-      ctx.fillRect(0, bandTop, width, fh);
-      ctx.strokeStyle = ink;
+      ctx.strokeStyle = resolvedTextColor;
       ctx.lineWidth = isClassic ? Math.max(3, width * 0.0012) : Math.max(2, width * 0.0008);
       ctx.beginPath();
       ctx.moveTo(0, bandTop);
@@ -194,10 +196,9 @@ function drawTitleBand(
     );
     const borderW = Math.max(2, Math.round(W * 0.0008));
 
+    fillPanel(panelX, panelY, panelW, panelH);
     if (!trans) {
-      ctx.fillStyle = land;
-      ctx.fillRect(panelX, panelY, panelW, panelH);
-      ctx.fillStyle = ink;
+      ctx.fillStyle = resolvedTextColor;
       ctx.fillRect(panelX, panelY, borderW, panelH);
     }
 
@@ -234,10 +235,9 @@ function drawTitleBand(
     const panelY = MH - Math.round(MH * 0.04) - panelH;
     const borderH = Math.max(1, Math.round(W * 0.0004));
 
+    fillPanel(panelX, panelY, panelW, panelH);
     if (!trans) {
-      ctx.fillStyle = land;
-      ctx.fillRect(panelX, panelY, panelW, panelH);
-      ctx.fillStyle = ink;
+      ctx.fillStyle = resolvedTextColor;
       ctx.fillRect(panelX, panelY, panelW, borderH);
     }
 
@@ -270,10 +270,9 @@ function drawTitleBand(
     const railH = MH - 2 * railTop;
     const dividerW = Math.max(1, Math.round(W * 0.0006));
 
+    fillPanel(railX, railTop, railW, railH);
     if (!trans) {
-      ctx.fillStyle = land;
-      ctx.fillRect(railX, railTop, railW, railH);
-      ctx.fillStyle = ink;
+      ctx.fillStyle = resolvedTextColor;
       ctx.fillRect(railX + railW - dividerW, railTop, dividerW, railH);
     }
 
@@ -373,6 +372,45 @@ function addEveryTownLayer(
         'text-color': ink,
         'text-halo-color': land,
         'text-halo-width': 1.4,
+      },
+    });
+  } catch {}
+}
+
+function addUnitedStatesLabels(
+  map: maplibregl.Map,
+  ink: string,
+  land: string,
+): void {
+  const features: GeoJSON.Feature<GeoJSON.Point>[] = getStateCatalogPrints().map((state) => ({
+    type: 'Feature',
+    properties: { name: state.name },
+    geometry: { type: 'Point', coordinates: state.center },
+  }));
+
+  try {
+    map.addSource('print-us-state-labels', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features },
+    });
+    map.addLayer({
+      id: 'print-us-state-labels',
+      type: 'symbol',
+      source: 'print-us-state-labels',
+      layout: {
+        'text-field': ['upcase', ['get', 'name']],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': 14,
+        'text-letter-spacing': 0.05,
+        'text-max-width': 8,
+        'text-allow-overlap': false,
+        'text-optional': true,
+        'text-padding': 2,
+      },
+      paint: {
+        'text-color': ink,
+        'text-halo-color': land,
+        'text-halo-width': 1.5,
       },
     });
   } catch {}
@@ -516,14 +554,14 @@ export async function renderPrintSnapshot(
           const tbLand = titleStyle === 'inverted' ? ink : land;
           if (footerHeight > 0) {
             // Footer layout: title band sits below the map, no border around it
-            drawTitleBand(ctx, title, subtitle, detail, tbInk, tbLand, titleSettings.layout, rw, rh, mapHeight, footerHeight, titleStyle, titleSettings.glassTextColor);
+            drawTitleBand(ctx, title, subtitle, detail, tbInk, tbLand, titleSettings.layout, rw, rh, mapHeight, footerHeight, titleStyle, titleSettings.textColor, titleSettings.panelColor);
           } else {
             // Overlay layout (incl. translucent footer overlays): position
             // inside the bordered map area so the auto-contrast falls on
             // map content rather than the ink frame.
             ctx.save();
             ctx.translate(border, border);
-            drawTitleBand(ctx, title, subtitle, detail, tbInk, tbLand, titleSettings.layout, innerMapW, innerMapH, innerMapH, 0, titleStyle, titleSettings.glassTextColor);
+            drawTitleBand(ctx, title, subtitle, detail, tbInk, tbLand, titleSettings.layout, innerMapW, innerMapH, innerMapH, 0, titleStyle, titleSettings.textColor, titleSettings.panelColor);
             ctx.restore();
           }
         }
@@ -605,6 +643,9 @@ export async function renderPrintSnapshot(
       applyPrintMapStyle(map, colorSettings, kind, detail);
       initIsolationLayers(map);
       applyPrintMaskColor(map, colorSettings);
+      if (kind === 'country' && slug === 'united-states') {
+        addUnitedStatesLabels(map, getPrintInkColor(colorSettings), colorSettings.land || '#ffffff');
+      }
       styleLoaded = true;
 
       if (kind === 'city') {
@@ -652,6 +693,8 @@ export function bakeTitleBlock(
   const isVeryLong = title.length > 16;
   const isExtreme = title.length > 24;
   const trans = block.style === 'translucent';
+  const panelColor = block.panelColor || (block.style === 'inverted' ? ink : land);
+  const textColor = block.textColor || (block.style === 'inverted' ? land : ink);
 
   ctx.save();
   ctx.translate(px + pw / 2, py + ph / 2);
@@ -659,12 +702,12 @@ export function bakeTitleBlock(
 
   // Background. Translucent draws a semi-transparent frosted tint.
   if (!trans) {
-    ctx.fillStyle = block.style === 'inverted' ? ink : land;
+    ctx.fillStyle = panelColor;
     ctx.fillRect(-pw / 2, -ph / 2, pw, ph);
   } else {
     ctx.save();
-    ctx.globalAlpha = 0.55;
-    ctx.fillStyle = block.glassFill === 'ink' ? ink : land;
+    ctx.globalAlpha = 0.62;
+    ctx.fillStyle = panelColor;
     ctx.fillRect(-pw / 2, -ph / 2, pw, ph);
     ctx.restore();
   }
@@ -707,14 +750,7 @@ export function bakeTitleBlock(
   let cursor = -totalH / 2 + titleSize * 0.82;
 
   function drawTextLine(text: string, y: number) {
-    if (trans) {
-      // Text contrasts against the frosted background tint:
-      // glassFill='ink' → dark bg → light (land) text
-      // glassFill='land' → light bg → dark (ink) text
-      ctx.fillStyle = block.glassFill === 'ink' ? land : ink;
-    } else {
-      ctx.fillStyle = block.style === 'standard' ? ink : land;
-    }
+    ctx.fillStyle = textColor;
     ctx.fillText(text, 0, y);
   }
 
