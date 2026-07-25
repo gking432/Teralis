@@ -16,6 +16,9 @@ import { printGeometry, percent } from '@/lib/print/geometry';
 import { radiusForViewport } from '@/lib/print/framing';
 import type { PrintScene, PrintViewport } from '@/lib/print/scene';
 import { measureWaterShare } from '@/lib/print/autoLook';
+import { supersampleFactor } from '@/lib/print/tileZoom';
+import { wantsEveryTown } from '@/lib/print/printRender';
+import { getPrintInkColor } from '@/lib/print/colorSchemes';
 
 /**
  * The live print canvas.
@@ -59,7 +62,9 @@ export function LivePrintCanvas({
   className = '',
 }: LivePrintCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const mapAreaRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 });
   const [styleReady, setStyleReady] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -72,6 +77,25 @@ export function LivePrintCanvas({
 
   const kind = scene.place.kind === 'country' ? 'country' : scene.place.kind === 'state' ? 'state' : 'city';
   const geo = printGeometry(scene.orientation, scene.detail.border, scene.title);
+
+  useEffect(() => {
+    const element = mapAreaRef.current;
+    if (!element) return;
+    const measure = () => setDisplaySize({ width: element.clientWidth, height: element.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  // Draw on an oversized canvas when the frame asks for the residential street
+  // network, so `fitBounds` reaches the zoom at which those roads exist in the
+  // vector tiles. Scaled back down for display, so the print is unchanged.
+  const supersample = displaySize.width > 0
+    ? supersampleFactor(scene.viewport.bbox, displaySize.width, scene.detail.roads, displaySize.height)
+    : 1;
+  const canvasWidth = Math.round(displaySize.width * supersample);
+  const canvasHeight = Math.round(displaySize.height * supersample);
 
   /** The stroke scale for the canvas we are actually drawing into. */
   const currentScale = useCallback(() => {
@@ -134,6 +158,13 @@ export function LivePrintCanvas({
       setStyleReady(true);
       fitViewport(active.viewport);
       onReady?.(map);
+
+      // Dev-only handle. The camera zoom is what decides whether the tiles
+      // contain the residential street network at all, and it is otherwise
+      // impossible to assert from outside the component.
+      if (process.env.NODE_ENV !== 'production') {
+        (window as unknown as { __teralisMap?: maplibregl.Map }).__teralisMap = map;
+      }
     });
 
     // Report user-driven camera moves back up so the scene stays the source of
@@ -213,6 +244,81 @@ export function LivePrintCanvas({
     } catch {}
   }, [geometry, kind, styleReady, scene.colors]);
 
+  // "Every town" comes from our own dataset, not the vector tiles — the base
+  // style thins place labels aggressively at low zoom. The exporter already
+  // fetched it; the live preview did not, so a state print looked far emptier
+  // on screen than it printed.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady) return;
+
+    const removeLayers = () => {
+      for (const id of ['print-every-town-labels', 'print-every-town-dots']) {
+        try { if (map.getLayer(id)) map.removeLayer(id); } catch {}
+      }
+      try { if (map.getSource('print-every-town')) map.removeSource('print-every-town'); } catch {}
+    };
+
+    if (!wantsEveryTown(scene.detail)) {
+      removeLayers();
+      return;
+    }
+
+    const controller = new AbortController();
+    fetch('/api/print/features', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bbox: scene.viewport.bbox, geometry, towns: true }),
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((collection: GeoJSON.FeatureCollection | null) => {
+        if (controller.signal.aborted || !collection?.features?.length) return;
+        const active = sceneRef.current;
+        const ink = getPrintInkColor(active.colors);
+        const paper = active.colors.land || '#ffffff';
+        const width = map.getCanvas().clientWidth || 900;
+        const haloScale = strokeScaleFor(width).widthScale;
+        removeLayers();
+        map.addSource('print-every-town', { type: 'geojson', data: collection });
+        map.addLayer({
+          id: 'print-every-town-dots',
+          type: 'circle',
+          source: 'print-every-town',
+          paint: {
+            'circle-color': ink,
+            'circle-radius': ['match', ['get', 'place'], 'city', 2.4, 'town', 1.9, 'village', 1.5, 1.2],
+            'circle-opacity': 0.6,
+          },
+        });
+        map.addLayer({
+          id: 'print-every-town-labels',
+          type: 'symbol',
+          source: 'print-every-town',
+          layout: {
+            'text-field': ['get', 'name'],
+            'text-font': ['Noto Sans Regular'],
+            'text-size': ['match', ['get', 'place'], 'city', 13, 'town', 11, 'village', 10, 9.5],
+            'text-variable-anchor': ['top', 'bottom', 'left', 'right'],
+            'text-radial-offset': 0.4,
+            'text-justify': 'auto',
+            'text-allow-overlap': false,
+            'text-optional': true,
+            'text-padding': 1,
+            'symbol-sort-key': ['get', 'rank'],
+          },
+          paint: {
+            'text-color': ink,
+            'text-halo-color': paper,
+            'text-halo-width': 1.4 * haloScale,
+          },
+        });
+      })
+      .catch(() => {});
+
+    return () => controller.abort();
+  }, [scene.detail, scene.viewport.bbox, scene.colors, geometry, styleReady]);
+
   // Camera follows the scene whenever the change did not come from the map.
   const bboxKey = scene.viewport.bbox.join(',');
   useEffect(() => {
@@ -221,17 +327,19 @@ export function LivePrintCanvas({
     fitViewport(sceneRef.current.viewport);
   }, [bboxKey, styleReady, fitViewport]);
 
-  // The paper shape or the border changed — the canvas resized, so both the
-  // camera and the stroke scale need to catch up.
+  // The canvas changed size — because the paper shape or border changed, the
+  // window resized, or the supersample factor moved. Both the camera and the
+  // stroke scale are derived from canvas width, so both have to catch up.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !styleReady) return;
+    if (!map || !styleReady || canvasWidth <= 0) return;
     map.resize();
     const active = sceneRef.current;
-    applyPrintDetail(map, kind, active.detail, strokeScaleFor(map.getCanvas().clientWidth || 900), active.strokeWeight);
-    applyPrintColors(map, active.colors, strokeScaleFor(map.getCanvas().clientWidth || 900));
+    const scale = strokeScaleFor(map.getCanvas().clientWidth || canvasWidth);
+    applyPrintDetail(map, kind, active.detail, scale, active.strokeWeight);
+    applyPrintColors(map, active.colors, scale);
     if (!active.freeViewport) fitViewport(active.viewport);
-  }, [scene.orientation, geo.mapRect.w, geo.mapRect.h, kind, styleReady, fitViewport]);
+  }, [canvasWidth, canvasHeight, scene.orientation, kind, styleReady, fitViewport]);
 
   const paper = scene.colors.land || '#ffffff';
   const ink = scene.colors.useMapDefault
@@ -261,6 +369,7 @@ export function LivePrintCanvas({
       )}
 
       <div
+        ref={mapAreaRef}
         className="absolute overflow-hidden"
         style={{
           left: percent(geo.mapRect.x),
@@ -270,7 +379,18 @@ export function LivePrintCanvas({
           backgroundColor: paper,
         }}
       >
-        <div ref={containerRef} className="h-full w-full" />
+        {/* Oversized when the print needs the residential network, then scaled
+            back to the display size. MapLibre divides pointer coordinates by
+            the element's scale, so dragging and pinching stay 1:1. */}
+        <div
+          ref={containerRef}
+          style={canvasWidth > 0 ? {
+            width: canvasWidth,
+            height: canvasHeight,
+            transform: supersample === 1 ? undefined : `scale(${1 / supersample})`,
+            transformOrigin: 'top left',
+          } : { width: '100%', height: '100%' }}
+        />
       </div>
 
       {children}

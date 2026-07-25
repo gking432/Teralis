@@ -1,6 +1,9 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 
-export const STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
+// Configurable so the tile source can be self-hosted — the same reason the
+// Nominatim base URL is. Defaults to the public OpenFreeMap style.
+export const STYLE_URL =
+  process.env.NEXT_PUBLIC_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/liberty';
 export const TERRAIN_TILES_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 export const BACKGROUND_COLOR = '#fafaf8';
 export const WATER_COLOR = '#ffffff';

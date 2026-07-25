@@ -101,6 +101,7 @@ export function sceneDensity(scene: PrintScene): ResolvedDensity {
     size: scene.size,
     orientation: scene.orientation,
     bias: scene.detailBias,
+    lonSpanDegrees: Math.abs(Number(scene.viewport.bbox[3]) - Number(scene.viewport.bbox[2])),
   });
 }
 

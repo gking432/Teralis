@@ -1,6 +1,12 @@
 import type { CatalogPrintKind } from '@/lib/catalog/prints';
 import type { Density } from '@/lib/print/printRender';
-import { SIZE_CATALOG, type SizeLabel } from '@/lib/print/sizeCatalog';
+import { SIZE_CATALOG, exportWidthForSize, type SizeLabel } from '@/lib/print/sizeCatalog';
+import {
+  DENSE_ROAD_TILE_ZOOM,
+  PREVIEW_MAX_DENSE_WIDTH,
+  maxLonSpanForDenseRoads,
+  zoomForLonSpan,
+} from '@/lib/print/tileZoom';
 import type { Orientation } from '@/lib/print/orientation';
 
 /**
@@ -61,6 +67,12 @@ export interface DensityInputs {
   size: SizeLabel;
   orientation: Orientation;
   bias: DetailBias;
+  /**
+   * Longitude span of the frame. Needed because the residential network is not
+   * merely a legibility question — it has to be PRESENT in the vector tiles,
+   * and which tile the render lands on depends on the span and the export size.
+   */
+  lonSpanDegrees?: number;
 }
 
 export interface ResolvedDensity {
@@ -129,6 +141,43 @@ function autoPlaces(milesPerInch: number): Density {
   return 'none';
 }
 
+/**
+ * Whether the residential network will actually exist in the tiles this print
+ * renders from. Below the threshold the layer can be switched on and nothing
+ * is drawn, which is exactly how "every street" came to be a claim the artwork
+ * did not honour.
+ */
+const MAP_AREA_FRACTION = 0.9;
+
+export function everyStreetIsRenderable(
+  lonSpanDegrees: number,
+  size: SizeLabel,
+  orientation: Orientation,
+): boolean {
+  // Bound by whichever surface is weaker. The exporter can afford a huge
+  // canvas; the live preview cannot, and promising detail the screen will not
+  // show is worse than showing less.
+  const exportMapWidth = exportWidthForSize(size, orientation) * MAP_AREA_FRACTION;
+  const widthPx = Math.min(exportMapWidth, PREVIEW_MAX_DENSE_WIDTH * MAP_AREA_FRACTION);
+  return zoomForLonSpan(lonSpanDegrees, widthPx) >= DENSE_ROAD_TILE_ZOOM;
+}
+
+/**
+ * The tightest frame that still cannot show every street is worth naming, so
+ * the advice can be "zoom in to about 18 mi" rather than silence.
+ */
+export function maxRadiusForEveryStreet(
+  latitudeDegrees: number,
+  size: SizeLabel,
+  orientation: Orientation,
+): number {
+  const exportMapWidth = exportWidthForSize(size, orientation) * MAP_AREA_FRACTION;
+  const widthPx = Math.min(exportMapWidth, PREVIEW_MAX_DENSE_WIDTH * MAP_AREA_FRACTION);
+  const maxLonSpan = maxLonSpanForDenseRoads(widthPx);
+  const milesPerLon = 69 * Math.cos((latitudeDegrees * Math.PI) / 180);
+  return (maxLonSpan / 2) * milesPerLon;
+}
+
 /** The densest roads setting this sheet can carry, bias included. */
 function roadCeiling(milesPerInch: number): Density {
   return autoRoads(milesPerInch / BIAS_HEADROOM);
@@ -164,6 +213,7 @@ export function resolveDensity({
   size,
   orientation,
   bias,
+  lonSpanDegrees,
 }: DensityInputs): ResolvedDensity {
   const milesPerInch = milesPerInchFor(radiusMiles, size, orientation);
   const roadMax = roadCeiling(milesPerInch);
@@ -184,6 +234,15 @@ export function resolveDensity({
     // A state print is a gazetteer: never show its residential streets, however
     // large the paper, or the towns stop being findable.
     if (roads === 'more') roads = 'neutral';
+  }
+
+  // Legibility said yes; now check the tiles can actually supply it.
+  if (
+    roads === 'more' &&
+    lonSpanDegrees !== undefined &&
+    !everyStreetIsRenderable(lonSpanDegrees, size, orientation)
+  ) {
+    roads = 'neutral';
   }
 
   const parts = [ROAD_WORDS[roads]];
@@ -218,9 +277,11 @@ export function smallestSizeForEveryTown(
 export function smallestSizeForEveryStreet(
   radiusMiles: number,
   orientation: Orientation,
+  lonSpanDegrees?: number,
 ): SizeLabel | null {
   const sizes: SizeLabel[] = ['small', 'medium', 'large', 'xlarge'];
   return sizes.find((size) =>
-    milesPerInchFor(radiusMiles, size, orientation) <= EVERY_STREET_MAX,
+    milesPerInchFor(radiusMiles, size, orientation) <= EVERY_STREET_MAX &&
+    (lonSpanDegrees === undefined || everyStreetIsRenderable(lonSpanDegrees, size, orientation)),
   ) ?? null;
 }

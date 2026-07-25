@@ -9,6 +9,7 @@ import { applyPrintMapStyle, applyPrintMaskColor, wantsEveryTown } from '@/lib/p
 import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
 import { strokeScaleFor } from '@/lib/print/strokes';
 import { printGeometry } from '@/lib/print/geometry';
+import { supersampleFactor } from '@/lib/print/tileZoom';
 import { bakeTitle } from '@/lib/print/bakeTitle';
 import type { PrintScene } from '@/lib/print/scene';
 
@@ -24,8 +25,6 @@ import type { PrintScene } from '@/lib/print/scene';
  * export matches what was on screen.
  */
 
-/** The residential street network only exists in higher-zoom vector tiles. */
-const MIN_DENSE_ROAD_WIDTH = 2400;
 const TILE_TIMEOUT_MS = 20000;
 
 function addEveryTownLayer(
@@ -139,10 +138,9 @@ export async function renderScene(
 
   // Dense street work needs a high enough zoom that the tiles actually contain
   // residential roads. Render larger and downsample; the stroke scale is taken
-  // from the render width, so the downsampled result still matches.
-  const denseFactor = scene.detail.roads === 'more' && targetMapW < MIN_DENSE_ROAD_WIDTH
-    ? MIN_DENSE_ROAD_WIDTH / targetMapW
-    : 1;
+  // from the render width, so the downsampled result still matches. This is the
+  // same rule the live preview uses, so the two stay the same picture.
+  const denseFactor = supersampleFactor(scene.viewport.bbox, targetMapW, scene.detail.roads, targetMapH);
   const renderMapW = Math.round(targetMapW * denseFactor);
   const renderMapH = Math.round(targetMapH * denseFactor);
 

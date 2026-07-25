@@ -25,8 +25,19 @@ import { strokeScaleFor, scaledWidth, STROKE_CURVES, STROKE_REFERENCE_WIDTH } fr
 import { checkPalette, contrastRatio, makePrintable } from '@/lib/print/contrast';
 import { encodeDesign, decodeDesign } from '@/lib/print/designUrl';
 import { createPrintScene, setFreeViewport, resetFraming, reframe, syncViewport, sceneDensity } from '@/lib/print/scene';
-import { resolveDensity, smallestSizeForEveryTown, type DetailBias } from '@/lib/print/density';
-import type { SizeLabel } from '@/lib/print/sizeCatalog';
+import {
+  resolveDensity,
+  smallestSizeForEveryTown,
+  everyStreetIsRenderable,
+  maxRadiusForEveryStreet,
+  type DetailBias,
+} from '@/lib/print/density';
+import {
+  zoomForLonSpan,
+  supersampleFactor,
+  DENSE_ROAD_TILE_ZOOM,
+} from '@/lib/print/tileZoom';
+import { exportWidthForSize, type SizeLabel } from '@/lib/print/sizeCatalog';
 import { snapToSlot, titleTypography, defaultTitleDesign, resolveTitleColors } from '@/lib/print/title';
 import { buildPlaceCatalogPrint } from '@/lib/catalog/placeFromQuery';
 
@@ -218,6 +229,57 @@ export default function SelfTest() {
     check('bigger paper alone unlocks every town',
       !sceneDensity({ ...stateScene, size: 'small' }).everyTown &&
       sceneDensity({ ...stateScene, size: 'large' }).everyTown);
+
+    // --- tile zoom: the detail has to EXIST in the tiles, not just be enabled ---
+    // Ground truth measured from a live map: a canvas 1076 CSS px wide showing
+    // a 0.30002 degree span reports getZoom() === 11.30, and a camera at 12.2
+    // requests /12/ tiles while 11.81 requests /11/.
+    check('zoom formula matches a real map', approx(zoomForLonSpan(0.30002, 1076), 11.30, 0.001),
+      zoomForLonSpan(0.30002, 1076).toFixed(3));
+    check('doubling canvas adds one zoom level',
+      approx(zoomForLonSpan(0.3, 2152) - zoomForLonSpan(0.3, 1076), 1, 0.001));
+
+    // Supersampling must actually clear the tile boundary, not merely approach it.
+    const MADISON_SPAN = 0.3;
+    const CHICAGO_SPAN = 0.5104;
+    for (const [label, span, display] of [
+      ['Madison desktop', MADISON_SPAN, 630],
+      ['Madison phone', MADISON_SPAN, 344],
+      ['Chicago desktop', CHICAGO_SPAN, 630],
+    ] as Array<[string, number, number]>) {
+      const bbox: [string, string, string, string] = ['0', '0.25', '0', String(span)];
+      const factor = supersampleFactor(bbox, display, 'more', display * 1.19);
+      const reached = zoomForLonSpan(span, display * factor);
+      check(`${label} reaches the dense-road tile`, Math.floor(reached) >= DENSE_ROAD_TILE_ZOOM,
+        `z=${reached.toFixed(2)} canvas=${Math.round(display * factor)}px`);
+    }
+
+    // Without supersampling those same frames fall short — which is exactly the
+    // regression this guards against.
+    check('a plain display-sized canvas would MISS the tile',
+      Math.floor(zoomForLonSpan(MADISON_SPAN, 630)) < DENSE_ROAD_TILE_ZOOM,
+      `z=${zoomForLonSpan(MADISON_SPAN, 630).toFixed(2)}`);
+
+    // The promise must match the pixels: never claim every street for a frame
+    // too wide for the tiles.
+    check('Madison can render every street', everyStreetIsRenderable(MADISON_SPAN, 'medium', 'portrait'));
+    check('Houston at full extent cannot', !everyStreetIsRenderable(0.78, 'medium', 'portrait'));
+    check('Houston framed in can', everyStreetIsRenderable(0.40, 'medium', 'portrait'));
+    check('resolver drops the claim when tiles cannot supply it',
+      resolveDensity({ kind: 'city', radiusMiles: 23.4, size: 'medium', orientation: 'portrait', bias: 0, lonSpanDegrees: 0.78 }).everyStreet === false);
+    check('resolver keeps the claim when they can',
+      resolveDensity({ kind: 'city', radiusMiles: 8, size: 'medium', orientation: 'portrait', bias: 0, lonSpanDegrees: 0.3 }).everyStreet === true);
+
+    // The advice given for a too-wide frame must actually work.
+    const advised = maxRadiusForEveryStreet(29.76, 'medium', 'portrait');
+    const advisedSpan = (advised * 2) / (69 * Math.cos((29.76 * Math.PI) / 180));
+    check('advised radius does render every street', everyStreetIsRenderable(advisedSpan, 'medium', 'portrait'),
+      `${advised.toFixed(1)} mi -> ${advisedSpan.toFixed(3)} deg`);
+
+    // Export resolution follows the finished size at 300 dpi.
+    check('export is 300 dpi on the small print', exportWidthForSize('small', 'portrait') === 3600);
+    check('export is 300 dpi on the largest print', exportWidthForSize('xlarge', 'portrait') === 9000,
+      String(exportWidthForSize('xlarge', 'portrait')));
 
     // --- design URL round trip ---
     const encoded = encodeDesign(recentered);

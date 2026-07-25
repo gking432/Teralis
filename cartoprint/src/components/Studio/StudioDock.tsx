@@ -15,7 +15,12 @@ import { ORIENTATIONS, type Orientation } from '@/lib/print/orientation';
 import { SLOT_OPTIONS, type TitlePanel, type TitleSlot } from '@/lib/print/title';
 import { checkPalette, makePrintable } from '@/lib/print/contrast';
 import { sceneDensity } from '@/lib/print/scene';
-import { smallestSizeForEveryStreet, smallestSizeForEveryTown, type DetailBias } from '@/lib/print/density';
+import {
+  maxRadiusForEveryStreet,
+  smallestSizeForEveryStreet,
+  smallestSizeForEveryTown,
+  type DetailBias,
+} from '@/lib/print/density';
 import { SIZE_CATALOG, SIZE_LABELS, type SizeLabel } from '@/lib/print/sizeCatalog';
 import type { BorderWeight, PrintDetailSettings } from '@/lib/print/printRender';
 
@@ -288,15 +293,28 @@ function LookPanel({ scene, update, suggestions }: {
   // Say WHY a bigger print would show more, rather than leaving the user to
   // discover it by buying one. Only surfaced when a larger size actually
   // crosses the threshold — never as a generic upsell.
-  const wantedSize = scene.place.kind === 'city'
-    ? smallestSizeForEveryStreet(scene.radiusMiles, scene.orientation)
+  const isCity = scene.place.kind === 'city';
+  const lonSpan = Math.abs(Number(scene.viewport.bbox[3]) - Number(scene.viewport.bbox[2]));
+  const wantedSize = isCity
+    ? smallestSizeForEveryStreet(scene.radiusMiles, scene.orientation, lonSpan)
     : smallestSizeForEveryTown(scene.radiusMiles, scene.orientation);
-  const missing = scene.place.kind === 'city' ? !density.everyStreet : !density.everyTown;
-  const upgradeHint = missing && wantedSize && SIZE_LABELS.indexOf(wantedSize) > SIZE_LABELS.indexOf(scene.size)
-    ? `A ${SIZE_CATALOG[scene.orientation][wantedSize].dimensionStr} print would fit ${
-        scene.place.kind === 'city' ? 'every street' : 'every town'
-      } at this framing.`
+  const missing = isCity ? !density.everyStreet : !density.everyTown;
+  const biggerHelps = Boolean(wantedSize) && SIZE_LABELS.indexOf(wantedSize!) > SIZE_LABELS.indexOf(scene.size);
+
+  // A city frame can also be too WIDE for the street network to exist in the
+  // tiles at all, in which case a bigger sheet does not help and the honest
+  // advice is to tighten the frame.
+  const tighterRadius = isCity && missing && !biggerHelps
+    ? maxRadiusForEveryStreet(scene.viewport.center[1], scene.size, scene.orientation)
     : null;
+
+  const upgradeHint = missing && biggerHelps
+    ? `A ${SIZE_CATALOG[scene.orientation][wantedSize!].dimensionStr} print would fit ${
+        isCity ? 'every street' : 'every town'
+      } at this framing.`
+    : tighterRadius && tighterRadius < scene.radiusMiles
+      ? `Frame in to about ${formatRadius(tighterRadius)} to show every street.`
+      : null;
 
   return (
     <div className="grid gap-5">

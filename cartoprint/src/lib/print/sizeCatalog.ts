@@ -41,6 +41,22 @@ export const SIZE_CATALOG: Record<Orientation, Record<SizeLabel, PrintSizeOption
 
 export const SIZE_LABELS: SizeLabel[] = ['small', 'medium', 'large', 'xlarge'];
 
+/** Print resolution. Prodigi wants 300 dpi at the finished size. */
+export const PRINT_DPI = 300;
+
+/**
+ * Pixel width the artwork must be exported at for a given size.
+ *
+ * This used to be a flat 3600 px for every order, which is 300 dpi on a 12x16
+ * but only 120 dpi on a 30x40 — the largest, most expensive print was the
+ * softest. It also capped how much map detail a large print could physically
+ * contain, since the tiles are selected by the zoom the render lands on.
+ */
+export function exportWidthForSize(size: SizeLabel, orientation: Orientation): number {
+  const option = SIZE_CATALOG[orientation][size];
+  return Math.round(option.w * PRINT_DPI);
+}
+
 export const FRAME_OPTIONS: FrameOptionInfo[] = [
   { value: 'none',  label: 'Unframed', swatchColor: 'transparent' },
   { value: 'black', label: 'Black',    swatchColor: '#1a1a1a' },

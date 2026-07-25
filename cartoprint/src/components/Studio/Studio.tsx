@@ -25,7 +25,7 @@ import { formatRadius } from '@/lib/print/framing';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 import { renderScene } from '@/lib/print/renderScene';
 import { DESIGN_PARAM, decodeDesign, encodeDesign } from '@/lib/print/designUrl';
-import { SESSION_PREVIEW_KEY } from '@/lib/print/sizeCatalog';
+import { SESSION_PREVIEW_KEY, exportWidthForSize } from '@/lib/print/sizeCatalog';
 import type { Orientation } from '@/lib/print/orientation';
 
 /**
@@ -38,8 +38,8 @@ import type { Orientation } from '@/lib/print/orientation';
  * every control scrolled off beneath it.
  */
 
+/** Width of the small composite handed to the size/frame mockups. */
 const PREVIEW_EXPORT_WIDTH = 1200;
-const FULL_EXPORT_WIDTH = 3600;
 
 interface StudioProps {
   print: CatalogPrint;
@@ -204,7 +204,10 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     setDownloading(true);
     setExportError(null);
     try {
-      const url = await exportPng(FULL_EXPORT_WIDTH);
+      // 300 dpi at the chosen finished size, not a flat 3600 px — which was
+      // only 120 dpi on a 30x40, and also capped how much map detail the
+      // largest prints could physically contain.
+      const url = await exportPng(exportWidthForSize(scene.size, scene.orientation));
       const anchor = document.createElement('a');
       anchor.href = url;
       anchor.download = `${print.slug}-${scene.orientation}.png`;
