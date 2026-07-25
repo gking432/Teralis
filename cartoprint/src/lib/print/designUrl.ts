@@ -2,6 +2,8 @@ import type { PrintScene } from '@/lib/print/scene';
 import type { TitleDesign, TitlePanel, TitleSlot } from '@/lib/print/title';
 import type { Orientation } from '@/lib/print/orientation';
 import type { BorderWeight, Density } from '@/lib/print/printRender';
+import type { DetailBias } from '@/lib/print/density';
+import type { SizeLabel } from '@/lib/print/sizeCatalog';
 
 /**
  * Shareable designs.
@@ -29,9 +31,14 @@ interface PackedDesign {
   tr: [number, number, number, number, number]; // x, y, w, h, rotation
   te: 0 | 1;              // title enabled
   ta: 'left' | 'center';
+  sz: SizeLabel;          // paper size — changes what the art can carry
+  db: DetailBias;         // detail bias
+  la: 0 | 1;              // place labels still following the resolver
 }
 
-const DESIGN_VERSION = 1;
+// Bumped when the packed shape changes; older links decode to null and fall
+// back to a fresh scene rather than restoring a half-populated design.
+const DESIGN_VERSION = 2;
 
 function encodeBase64Url(input: string): string {
   const bytes = new TextEncoder().encode(input);
@@ -92,6 +99,9 @@ export function encodeDesign(scene: PrintScene): string | null {
       ],
       te: scene.title.enabled ? 1 : 0,
       ta: scene.title.align,
+      sz: scene.size,
+      db: scene.detailBias,
+      la: scene.labelsAuto ? 1 : 0,
     };
     return encodeBase64Url(JSON.stringify(packed));
   } catch {
@@ -107,6 +117,9 @@ export interface DecodedDesign {
   viewport: PrintScene['viewport'];
   colors: PrintScene['colors'];
   strokeWeight: number;
+  size: SizeLabel;
+  detailBias: DetailBias;
+  labelsAuto: boolean;
   detail: PrintScene['detail'];
   title: TitleDesign;
 }
@@ -126,6 +139,9 @@ export function decodeDesign(encoded: string | null): DecodedDesign | null {
       viewport: { bbox: packed.b, center: packed.c },
       colors: { land: packed.col[0], water: packed.col[1], roads: packed.col[2] },
       strokeWeight: packed.sw,
+      size: packed.sz,
+      detailBias: packed.db,
+      labelsAuto: packed.la === 1,
       detail: {
         places,
         roads,

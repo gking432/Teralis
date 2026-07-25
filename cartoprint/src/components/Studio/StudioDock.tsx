@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { PrintScene } from '@/lib/print/scene';
 import { applyLook, reframe, resetFraming } from '@/lib/print/scene';
-import { LOOKS, getLook } from '@/lib/print/looks';
+import { LOOKS, getLook, type Look } from '@/lib/print/looks';
 import { LookSwatch } from '@/components/Studio/LookSwatch';
 import {
   formatRadius,
@@ -14,6 +14,9 @@ import {
 import { ORIENTATIONS, type Orientation } from '@/lib/print/orientation';
 import { SLOT_OPTIONS, type TitlePanel, type TitleSlot } from '@/lib/print/title';
 import { checkPalette, makePrintable } from '@/lib/print/contrast';
+import { sceneDensity } from '@/lib/print/scene';
+import { smallestSizeForEveryStreet, smallestSizeForEveryTown, type DetailBias } from '@/lib/print/density';
+import { SIZE_CATALOG, SIZE_LABELS, type SizeLabel } from '@/lib/print/sizeCatalog';
 import type { BorderWeight, PrintDetailSettings } from '@/lib/print/printRender';
 
 /**
@@ -38,6 +41,8 @@ interface StudioDockProps {
   onActiveChange: (move: Move | null) => void;
   /** Reports the dock's height so the stage can keep the whole print visible. */
   onHeightChange?: (height: number) => void;
+  /** Three suggested starting points, shown until the user makes a choice. */
+  suggestions?: Look[];
 }
 
 const MOVES: Array<{ id: Move; label: string; hint: string }> = [
@@ -59,13 +64,78 @@ const WEIGHTS: Array<{ value: number; label: string }> = [
   { value: 1.35, label: 'Bold' },
 ];
 
+const DETAIL_BIASES: Array<{ value: DetailBias; label: string }> = [
+  { value: -1, label: 'Cleaner' },
+  { value: 0, label: 'Balanced' },
+  { value: 1, label: 'Maximum' },
+];
+
 const PANELS: Array<{ value: TitlePanel; label: string }> = [
   { value: 'solid', label: 'Solid' },
   { value: 'glass', label: 'Glass' },
   { value: 'none', label: 'None' },
 ];
 
-export function StudioDock({ scene, update, active, onActiveChange, onHeightChange }: StudioDockProps) {
+export function MoveTabs({
+  active,
+  onActiveChange,
+  variant = 'floating',
+}: {
+  active: Move | null;
+  onActiveChange: (move: Move | null) => void;
+  variant?: 'floating' | 'rail';
+}) {
+  const rail = variant === 'rail';
+  return (
+    <nav
+      className={rail
+        ? 'grid grid-cols-3 gap-1 rounded-sm border border-[#d8d9d3] bg-white p-1'
+        : 'pointer-events-auto flex gap-1 rounded-full border border-white/15 bg-[#14201d]/92 p-1 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur'}
+      aria-label="Design controls"
+    >
+      {MOVES.map((move) => {
+        const isActive = active === move.id;
+        return (
+          <button
+            key={move.id}
+            type="button"
+            aria-expanded={isActive}
+            // In the rail a move is always open, so tapping the active tab must
+            // not collapse it into an empty column.
+            onClick={() => onActiveChange(isActive && !rail ? null : move.id)}
+            className={rail
+              ? `rounded-sm px-3 py-2 text-[13px] transition-colors ${
+                  isActive ? 'bg-[#173f35] text-white' : 'text-[#44504b] hover:bg-[#eef1ed]'
+                }`
+              : `rounded-full px-6 py-2.5 text-[13px] transition-colors ${
+                  isActive ? 'bg-[#f7f4eb] text-[#14201d]' : 'text-[#dce2dd]/75 hover:bg-white/10 hover:text-white'
+                }`}
+          >
+            {move.label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+export function StudioPanels({ scene, update, active, suggestions }: {
+  scene: PrintScene;
+  update: StudioDockProps['update'];
+  active: Move;
+  suggestions?: Look[];
+}) {
+  return (
+    <>
+      {active === 'frame' && <FramePanel scene={scene} update={update} />}
+      {active === 'look' && <LookPanel scene={scene} update={update} suggestions={suggestions} />}
+      {active === 'words' && <WordsPanel scene={scene} update={update} />}
+    </>
+  );
+}
+
+/** Mobile presentation: a bottom sheet floating over the artwork. */
+export function StudioDock({ scene, update, active, onActiveChange, onHeightChange, suggestions }: StudioDockProps) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   // The artwork must never be hidden behind the controls, so the stage needs
@@ -85,36 +155,14 @@ export function StudioDock({ scene, update, active, onActiveChange, onHeightChan
       {active && (
         <div className="pointer-events-auto w-full max-w-[860px] px-3">
           <div className="studio-dock-panel">
-            {active === 'frame' && <FramePanel scene={scene} update={update} />}
-            {active === 'look' && <LookPanel scene={scene} update={update} />}
-            {active === 'words' && <WordsPanel scene={scene} update={update} />}
+            <StudioPanels scene={scene} update={update} active={active} suggestions={suggestions} />
           </div>
         </div>
       )}
 
-      <nav
-        className="pointer-events-auto mb-3 mt-2 flex gap-1 rounded-full border border-white/15 bg-[#14201d]/92 p-1 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur"
-        aria-label="Design controls"
-      >
-        {MOVES.map((move) => {
-          const isActive = active === move.id;
-          return (
-            <button
-              key={move.id}
-              type="button"
-              aria-expanded={isActive}
-              onClick={() => onActiveChange(isActive ? null : move.id)}
-              className={`rounded-full px-6 py-2.5 text-[13px] transition-colors ${
-                isActive
-                  ? 'bg-[#f7f4eb] text-[#14201d]'
-                  : 'text-[#dce2dd]/75 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              {move.label}
-            </button>
-          );
-        })}
-      </nav>
+      <div className="mb-3 mt-2">
+        <MoveTabs active={active} onActiveChange={onActiveChange} />
+      </div>
     </div>
   );
 }
@@ -197,6 +245,27 @@ function FramePanel({ scene, update }: { scene: PrintScene; update: StudioDockPr
         </div>
       </Field>
 
+      <Field
+        label="Print size"
+        help="Bigger paper holds more detail for the same piece of ground, so this changes the artwork — not just the price."
+      >
+        <div className="grid grid-cols-4 gap-2">
+          {SIZE_LABELS.map((size) => {
+            const option = SIZE_CATALOG[scene.orientation][size];
+            return (
+              <Choice
+                key={size}
+                active={scene.size === size}
+                onClick={() => update((current) => ({ ...current, size }), 'size')}
+              >
+                <span className="block text-[12px] capitalize">{option.displayLabel}</span>
+                <span className="mt-0.5 block text-[11px] opacity-60">{option.dimensionStr}</span>
+              </Choice>
+            );
+          })}
+        </div>
+      </Field>
+
       <p className="text-[12px] leading-5 text-[#68726c]">
         Drag the map to move it and pinch or scroll to zoom — the print follows exactly.
       </p>
@@ -206,15 +275,58 @@ function FramePanel({ scene, update }: { scene: PrintScene; update: StudioDockPr
 
 // --- Look -------------------------------------------------------------------
 
-function LookPanel({ scene, update }: { scene: PrintScene; update: StudioDockProps['update'] }) {
+function LookPanel({ scene, update, suggestions }: {
+  scene: PrintScene;
+  update: StudioDockProps['update'];
+  suggestions?: Look[];
+}) {
   const [fineTune, setFineTune] = useState(false);
   const look = getLook(scene.lookId);
   const palette = checkPalette(scene.colors);
+  const density = sceneDensity(scene);
+
+  // Say WHY a bigger print would show more, rather than leaving the user to
+  // discover it by buying one. Only surfaced when a larger size actually
+  // crosses the threshold — never as a generic upsell.
+  const wantedSize = scene.place.kind === 'city'
+    ? smallestSizeForEveryStreet(scene.radiusMiles, scene.orientation)
+    : smallestSizeForEveryTown(scene.radiusMiles, scene.orientation);
+  const missing = scene.place.kind === 'city' ? !density.everyStreet : !density.everyTown;
+  const upgradeHint = missing && wantedSize && SIZE_LABELS.indexOf(wantedSize) > SIZE_LABELS.indexOf(scene.size)
+    ? `A ${SIZE_CATALOG[scene.orientation][wantedSize].dimensionStr} print would fit ${
+        scene.place.kind === 'city' ? 'every street' : 'every town'
+      } at this framing.`
+    : null;
 
   return (
     <div className="grid gap-5">
-      <Field label="Look">
-        <div className="grid grid-cols-5 gap-2 sm:grid-cols-10">
+      {suggestions && suggestions.length > 0 && (
+        <Field
+          label={`Three good prints of ${scene.place.name}`}
+          help="A starting point picked from the place itself — how much water is in frame, and how much ground."
+        >
+          <div className="grid grid-cols-3 gap-2">
+            {suggestions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => update((current) => applyLook(current, option), `start-${option.id}`)}
+                className={`flex min-w-0 flex-col items-center gap-1.5 rounded-sm border p-2 transition-colors ${
+                  scene.lookId === option.id
+                    ? 'border-[#173f35] bg-[#eef1ed]'
+                    : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
+                }`}
+              >
+                <LookSwatch look={option} width={44} />
+                <span className="w-full truncate text-center text-[12px]">{option.name}</span>
+              </button>
+            ))}
+          </div>
+        </Field>
+      )}
+
+      <Field label={suggestions && suggestions.length > 0 ? 'Or pick any look' : 'Look'}>
+        <div className="grid grid-cols-5 gap-2">
           {LOOKS.map((option) => {
             const isActive = scene.lookId === option.id;
             return (
@@ -228,8 +340,8 @@ function LookPanel({ scene, update }: { scene: PrintScene; update: StudioDockPro
                   isActive ? 'border-[#173f35] bg-[#eef1ed]' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
                 }`}
               >
-                <LookSwatch look={option} width={52} />
-                <span className="mt-1 block truncate text-[10px] leading-4">{option.name}</span>
+                <LookSwatch look={option} width={48} />
+                <span className="mt-1 block truncate text-[11px] leading-4">{option.name}</span>
               </button>
             );
           })}
@@ -259,6 +371,26 @@ function LookPanel({ scene, update }: { scene: PrintScene; update: StudioDockPro
           ))}
           <span className="ml-1 text-[12px] text-[#68726c]">Picked to work with this look.</span>
         </div>
+      </Field>
+
+      <Field label="Detail">
+        <Segmented
+          options={DETAIL_BIASES.map((bias) => ({ value: String(bias.value), label: bias.label }))}
+          value={String(scene.detailBias)}
+          onChange={(value) => update(
+            (current) => ({ ...current, detailBias: Number(value) as DetailBias }),
+            'detail-bias',
+          )}
+        />
+        <p className="mt-2 text-[12px] leading-5 text-[#44504b]">
+          {density.description}.{' '}
+          <span className="text-[#8a918d]">
+            {Math.round(density.milesPerInch * 10) / 10} miles per inch of paper.
+          </span>
+        </p>
+        {upgradeHint && (
+          <p className="mt-1.5 text-[12px] leading-5 text-[#8a5a3f]">{upgradeHint}</p>
+        )}
       </Field>
 
       <button

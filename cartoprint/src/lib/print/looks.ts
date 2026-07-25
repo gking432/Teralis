@@ -1,5 +1,5 @@
 import type { PreviewColorSettings } from '@/lib/print/colorSchemes';
-import type { BorderWeight, Density } from '@/lib/print/printRender';
+import type { BorderWeight } from '@/lib/print/printRender';
 import type { TitlePanel, TitleSlot } from '@/lib/print/title';
 
 /**
@@ -24,8 +24,6 @@ export interface Look {
   colors: PreviewColorSettings;
   /** Multiplier on every print stroke — fine, normal, or bold linework. */
   strokeWeight: number;
-  roads: Density;
-  places: Density;
   border: BorderWeight;
   titleSlot: TitleSlot;
   titlePanel: TitlePanel;
@@ -47,8 +45,6 @@ export const LOOKS: Look[] = [
     blurb: 'Navy linework on white',
     colors: { land: PAPER_WHITE, water: '#0a2342', roads: '#0a2342' },
     strokeWeight: 1,
-    roads: 'more',
-    places: 'none',
     border: 'thin',
     titleSlot: 'footer',
     titlePanel: 'solid',
@@ -61,8 +57,6 @@ export const LOOKS: Look[] = [
     blurb: 'Red streets, deep navy water',
     colors: { land: PAPER_WHITE, water: '#0a2342', roads: '#d34a32' },
     strokeWeight: 1,
-    roads: 'more',
-    places: 'none',
     border: 'medium',
     titleSlot: 'footer',
     titlePanel: 'solid',
@@ -75,8 +69,6 @@ export const LOOKS: Look[] = [
     blurb: 'Gold streets on navy water',
     colors: { land: PAPER_WHITE, water: '#08243e', roads: '#b8892c' },
     strokeWeight: 1.05,
-    roads: 'more',
-    places: 'none',
     border: 'medium',
     titleSlot: 'footer-tall',
     titlePanel: 'solid',
@@ -89,8 +81,6 @@ export const LOOKS: Look[] = [
     blurb: 'Sea green on blue-black',
     colors: { land: PAPER_WHITE, water: '#102f44', roads: '#1d7566' },
     strokeWeight: 0.95,
-    roads: 'more',
-    places: 'none',
     border: 'thin',
     titleSlot: 'footer',
     titlePanel: 'solid',
@@ -103,8 +93,6 @@ export const LOOKS: Look[] = [
     blurb: 'Soft charcoal on warm paper',
     colors: { land: PAPER_BONE, water: '#5c574e', roads: '#3a352e' },
     strokeWeight: 0.9,
-    roads: 'more',
-    places: 'none',
     border: 'thin',
     titleSlot: 'bottom-left',
     titlePanel: 'none',
@@ -117,8 +105,6 @@ export const LOOKS: Look[] = [
     blurb: 'Clay streets, muted blue water',
     colors: { land: '#faf4ec', water: '#4a6b7c', roads: '#a3542f' },
     strokeWeight: 1,
-    roads: 'more',
-    places: 'none',
     border: 'medium',
     titleSlot: 'footer',
     titlePanel: 'solid',
@@ -131,8 +117,6 @@ export const LOOKS: Look[] = [
     blurb: 'Quiet grey-blue monochrome',
     colors: { land: PAPER_WHITE, water: '#54616f', roads: '#404b57' },
     strokeWeight: 0.85,
-    roads: 'more',
-    places: 'none',
     border: 'none',
     titleSlot: 'top-left',
     titlePanel: 'none',
@@ -145,8 +129,6 @@ export const LOOKS: Look[] = [
     blurb: 'Deep green on white',
     colors: { land: PAPER_WHITE, water: '#1f3d34', roads: '#25503f' },
     strokeWeight: 1,
-    roads: 'more',
-    places: 'none',
     border: 'thin',
     titleSlot: 'footer',
     titlePanel: 'solid',
@@ -159,8 +141,6 @@ export const LOOKS: Look[] = [
     blurb: 'Pale streets on deep ink',
     colors: { land: PAPER_INK, water: '#1d2a36', roads: '#d8dde2' },
     strokeWeight: 1.05,
-    roads: 'more',
-    places: 'none',
     border: 'none',
     titleSlot: 'footer',
     titlePanel: 'solid',
@@ -173,8 +153,6 @@ export const LOOKS: Look[] = [
     blurb: 'White linework on black',
     colors: { land: PAPER_NIGHT, water: '#161c22', roads: '#f2f2ee' },
     strokeWeight: 1.15,
-    roads: 'more',
-    places: 'none',
     border: 'none',
     titleSlot: 'bottom-left',
     titlePanel: 'none',
@@ -199,15 +177,14 @@ export function matchLook(colors: PreviewColorSettings): Look | null {
 }
 
 /**
- * Looks tuned for the print kind. State and country prints want fewer, heavier
- * strokes and place labels; city prints want the dense street network.
+ * Looks own colour, linework weight, border, and title treatment. They do NOT
+ * own how much is drawn — that is resolved from the framing radius and the
+ * paper size in `density.ts`, because it is a physical property of the sheet
+ * rather than a stylistic choice.
  */
 export function looksForKind(kind: 'city' | 'state' | 'country'): Look[] {
   if (kind === 'city') return LOOKS;
-  return LOOKS.map((look) => ({
-    ...look,
-    roads: kind === 'country' ? ('none' as Density) : ('neutral' as Density),
-    places: kind === 'country' ? ('less' as Density) : ('neutral' as Density),
-    strokeWeight: look.strokeWeight * 1.15,
-  }));
+  // Wider subjects carry fewer features, so the lines they do have are drawn
+  // slightly heavier to keep the print from looking thin.
+  return LOOKS.map((look) => ({ ...look, strokeWeight: look.strokeWeight * 1.15 }));
 }

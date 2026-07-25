@@ -10,8 +10,10 @@ import {
   type Viewport,
 } from '@/lib/print/framing';
 import { printGeometry } from '@/lib/print/geometry';
+import { resolveDensity, type DetailBias, type ResolvedDensity } from '@/lib/print/density';
+import type { SizeLabel } from '@/lib/print/sizeCatalog';
 
-export const PRINT_SCENE_VERSION = 7;
+export const PRINT_SCENE_VERSION = 8;
 export const SESSION_SCENE_KEY = 'teralis:print-scene';
 
 export type PrintViewport = Viewport;
@@ -42,6 +44,20 @@ export interface PrintScene {
   viewport: PrintViewport;
   colors: PreviewColorSettings;
   strokeWeight: number;
+  /**
+   * Paper size. It lives in the scene because it changes the ARTWORK, not just
+   * the checkout line item: a bigger sheet can legibly carry more streets and
+   * more town names for the same piece of ground.
+   */
+  size: SizeLabel;
+  /** User nudge on the resolved density: −1 cleaner, 0 automatic, +1 maximum. */
+  detailBias: DetailBias;
+  /**
+   * True while place-name visibility is still following the resolver. Flips off
+   * the first time the user toggles a place label by hand, so an explicit
+   * choice is never silently overwritten by a reframe.
+   */
+  labelsAuto: boolean;
   detail: PrintDetailSettings;
   title: TitleDesign;
   updatedAt: number;
@@ -58,24 +74,56 @@ export function coordinateLine([longitude, latitude]: [number, number]): string 
   return `${Math.abs(latitude).toFixed(4)}° ${latDirection}  ${Math.abs(longitude).toFixed(4)}° ${lonDirection}`;
 }
 
-/** Detail settings implied by a look for a given print kind. */
+/** The non-density part of a look: border weight and the base layer choices. */
 export function detailForLook(look: Look, kind: CatalogPrintKind): PrintDetailSettings {
-  const isCity = kind === 'city';
   const isCountry = kind === 'country';
   return {
     ...structuredClone(DEFAULT_DETAIL_SETTINGS),
-    places: isCity ? 'none' : look.places,
-    roads: isCity ? look.roads : isCountry ? 'none' : 'neutral',
     border: look.border,
     rivers: true,
     counties: false,
     states: isCountry,
     labels: {
-      cities: !isCity,
+      cities: kind !== 'city',
       towns: kind === 'state',
       roads: false,
       water: false,
       rivers: false,
+    },
+  };
+}
+
+/** What this scene's framing and paper size can actually carry. */
+export function sceneDensity(scene: PrintScene): ResolvedDensity {
+  return resolveDensity({
+    kind: scene.place.kind,
+    radiusMiles: scene.radiusMiles,
+    size: scene.size,
+    orientation: scene.orientation,
+    bias: scene.detailBias,
+  });
+}
+
+/**
+ * Re-derive how much is drawn. Runs after anything that changes the framing,
+ * the paper, or the bias — so "every street" appears and disappears for the
+ * right reason instead of being a setting the user has to find and manage.
+ */
+export function syncDetail(scene: PrintScene): PrintScene {
+  const density = sceneDensity(scene);
+  return {
+    ...scene,
+    detail: {
+      ...scene.detail,
+      roads: density.roads,
+      places: density.places,
+      labels: scene.labelsAuto
+        ? {
+            ...scene.detail.labels,
+            cities: scene.place.kind !== 'city' && density.places !== 'none',
+            towns: scene.place.kind !== 'city' && (density.places === 'more' || density.places === 'neutral'),
+          }
+        : scene.detail.labels,
     },
   };
 }
@@ -129,6 +177,9 @@ export function createPrintScene(
     viewport: { bbox: [...print.bbox], center },
     colors: { ...look.colors },
     strokeWeight: look.strokeWeight,
+    size: 'medium',
+    detailBias: 0,
+    labelsAuto: true,
     detail: detailForLook(look, print.kind),
     title: defaultTitleDesign(
       print.defaultTitle,
@@ -140,12 +191,21 @@ export function createPrintScene(
     updatedAt: Date.now(),
   };
 
-  return syncViewport(base);
+  return normalizeScene(base);
+}
+
+/**
+ * The single place a scene is made self-consistent: framing follows the radius,
+ * and density follows the framing and the paper. Every mutation runs through
+ * this so no control can leave the scene in a state that contradicts itself.
+ */
+export function normalizeScene(scene: PrintScene): PrintScene {
+  return syncDetail(syncViewport(scene));
 }
 
 /** Apply a look to an existing scene, preserving the user's words and framing. */
 export function applyLook(scene: PrintScene, look: Look): PrintScene {
-  return syncViewport({
+  return normalizeScene({
     ...scene,
     lookId: look.id,
     colors: { ...look.colors },
@@ -173,7 +233,7 @@ export function applyLook(scene: PrintScene, look: Look): PrintScene {
  * back to the geocoder's idea of the place center.
  */
 export function reframe(scene: PrintScene, radiusMiles: number): PrintScene {
-  return syncViewport({
+  return normalizeScene({
     ...scene,
     focus: scene.freeViewport ? [...scene.viewport.center] as [number, number] : scene.focus,
     radiusMiles,
@@ -184,7 +244,7 @@ export function reframe(scene: PrintScene, radiusMiles: number): PrintScene {
 
 /** Reset framing to the place's own extent, centered on the place itself. */
 export function resetFraming(scene: PrintScene): PrintScene {
-  return syncViewport({
+  return normalizeScene({
     ...scene,
     focus: [...scene.place.center] as [number, number],
     radiusMiles: scene.place.placeRadiusMiles,

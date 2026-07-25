@@ -46,7 +46,13 @@ export function SizePickerClient() {
       const stored = sessionStorage.getItem(SESSION_PREVIEW_KEY);
       if (stored) setPreviewUrl(stored);
       const storedScene = readStoredScene(print ?? undefined);
-      if (storedScene) setPrintScene(storedScene);
+      if (storedScene) {
+        setPrintScene(storedScene);
+        // The artwork was drawn for a specific paper size — how much street
+        // and town detail it carries depends on it — so arrive on that size
+        // rather than silently defaulting to medium.
+        if (SIZE_LABELS.includes(storedScene.size)) setSize(storedScene.size);
+      }
       const finishRaw = sessionStorage.getItem(SESSION_FINISH_KEY);
       if (finishRaw) {
         const finish = JSON.parse(finishRaw) as { slug?: string; size?: SizeLabel; frame?: FrameOption; mat?: boolean };

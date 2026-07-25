@@ -24,7 +24,9 @@ import { printGeometry } from '@/lib/print/geometry';
 import { strokeScaleFor, scaledWidth, STROKE_CURVES, STROKE_REFERENCE_WIDTH } from '@/lib/print/strokes';
 import { checkPalette, contrastRatio, makePrintable } from '@/lib/print/contrast';
 import { encodeDesign, decodeDesign } from '@/lib/print/designUrl';
-import { createPrintScene, setFreeViewport, resetFraming, reframe, syncViewport } from '@/lib/print/scene';
+import { createPrintScene, setFreeViewport, resetFraming, reframe, syncViewport, sceneDensity } from '@/lib/print/scene';
+import { resolveDensity, smallestSizeForEveryTown, type DetailBias } from '@/lib/print/density';
+import type { SizeLabel } from '@/lib/print/sizeCatalog';
 import { snapToSlot, titleTypography, defaultTitleDesign, resolveTitleColors } from '@/lib/print/title';
 import { buildPlaceCatalogPrint } from '@/lib/catalog/placeFromQuery';
 
@@ -162,6 +164,60 @@ export default function SelfTest() {
     const landRadius = radiusForViewport(land.viewport, printGeometry('landscape', land.detail.border, land.title).mapRatio);
     check('orientation change preserves radius', approx(landRadius, scene.radiusMiles, 0.03),
       `${landRadius.toFixed(2)} vs ${scene.radiusMiles.toFixed(2)}`);
+
+    // --- density: what a sheet can actually carry ---
+    const den = (kind: 'city' | 'state' | 'country', radius: number, size: SizeLabel, bias: DetailBias = 0) =>
+      resolveDensity({ kind, radiusMiles: radius, size, orientation: 'portrait', bias });
+
+    // A city framed at its own extent must show every street on ANY paper size.
+    for (const size of ['small', 'medium', 'large', 'xlarge'] as SizeLabel[]) {
+      const d = den('city', 8, size);
+      check(`city 8mi on ${size} = every street`, d.everyStreet, `${d.milesPerInch.toFixed(2)} mi/in`);
+    }
+    // Even a sprawling city bbox still qualifies.
+    check('city 25mi on small = every street', den('city', 25, 'small').everyStreet,
+      `${den('city', 25, 'small').milesPerInch.toFixed(2)} mi/in`);
+    // But a whole metro at 80mi genuinely cannot, at any size.
+    check('city 80mi on xlarge is NOT every street', !den('city', 80, 'xlarge').everyStreet);
+    check('city 80mi still shows main roads', den('city', 80, 'xlarge').roads === 'neutral');
+
+    // A state shows every town only once the paper is big enough.
+    check('state 150mi on small is not every town', !den('state', 150, 'small').everyTown,
+      `${den('state', 150, 'small').milesPerInch.toFixed(1)} mi/in`);
+    check('state 150mi on large IS every town', den('state', 150, 'large').everyTown,
+      `${den('state', 150, 'large').milesPerInch.toFixed(1)} mi/in`);
+    check('state 150mi on xlarge IS every town', den('state', 150, 'xlarge').everyTown);
+    check('state never shows residential streets', den('state', 150, 'xlarge').roads !== 'more');
+    check('a huge state on xlarge is not every town', !den('state', 400, 'xlarge').everyTown);
+
+    // Cities carry no place labels — the title block names them.
+    check('city print has no place labels', den('city', 8, 'medium').places === 'none');
+    // Country prints drop roads.
+    check('country drops roads', den('country', 1400, 'xlarge').roads === 'none');
+
+    // Bias nudges one rung, and cannot make a dense frame unreadable.
+    check('cleaner bias steps down', den('city', 8, 'medium', -1).roads === 'neutral');
+    check('maximum bias cannot exceed every street', den('city', 8, 'medium', 1).roads === 'more');
+    check('maximum bias on a wide frame stays legible',
+      den('city', 200, 'small', 1).roads !== 'more');
+
+    // The upsell hint only fires when a bigger sheet really would cross over.
+    check('smallestSizeForEveryTown finds a size for 150mi',
+      smallestSizeForEveryTown(150, 'portrait') === 'large',
+      String(smallestSizeForEveryTown(150, 'portrait')));
+    check('smallestSizeForEveryTown gives up on 400mi',
+      smallestSizeForEveryTown(400, 'portrait') === null);
+
+    // Density is derived, so reframing changes it without any user action.
+    const wide = reframe(scene, 120);
+    const tight = reframe(scene, 5);
+    check('reframing wide drops every street', !sceneDensity(wide).everyStreet);
+    check('reframing tight restores every street', sceneDensity(tight).everyStreet);
+    // ...and so does changing the paper.
+    const stateScene = { ...scene, place: { ...scene.place, kind: 'state' as const }, radiusMiles: 150 };
+    check('bigger paper alone unlocks every town',
+      !sceneDensity({ ...stateScene, size: 'small' }).everyTown &&
+      sceneDensity({ ...stateScene, size: 'large' }).everyTown);
 
     // --- design URL round trip ---
     const encoded = encodeDesign(recentered);

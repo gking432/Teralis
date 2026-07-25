@@ -7,8 +7,7 @@ import type maplibregl from 'maplibre-gl';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import { LivePrintCanvas } from '@/components/Studio/LivePrintCanvas';
 import { TitleOverlay } from '@/components/Studio/TitleOverlay';
-import { LookSwatch } from '@/components/Studio/LookSwatch';
-import { StudioDock, type Move } from '@/components/Studio/StudioDock';
+import { MoveTabs, StudioDock, StudioPanels, type Move } from '@/components/Studio/StudioDock';
 import { useSceneHistory } from '@/hooks/useSceneHistory';
 import {
   applyLook,
@@ -16,7 +15,7 @@ import {
   readStoredScene,
   setFreeViewport,
   storeScene,
-  syncViewport,
+  normalizeScene,
   type PrintScene,
   type PrintViewport,
 } from '@/lib/print/scene';
@@ -57,6 +56,8 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
 
   const [boundary, setBoundary] = useState<GeoJSON.Geometry | null>(null);
   const [activeMove, setActiveMove] = useState<Move | null>(null);
+  // The rail always has something open, so it needs its own current move.
+  const [railMove, setRailMove] = useState<Move>('look');
   const [waterShare, setWaterShare] = useState<number | null>(null);
   const [continuing, setContinuing] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -89,6 +90,9 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
         viewport: decoded.viewport,
         colors: decoded.colors,
         strokeWeight: decoded.strokeWeight,
+        size: decoded.size,
+        detailBias: decoded.detailBias,
+        labelsAuto: decoded.labelsAuto,
         detail: decoded.detail,
         title: decoded.title,
       });
@@ -169,7 +173,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     userTouched.current = true;
     update((current) => {
       const resolved = typeof next === 'function' ? next(current) : next;
-      return syncViewport(resolved);
+      return normalizeScene(resolved);
     }, label);
   }, [update]);
 
@@ -224,7 +228,9 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
   }
 
   const look = getLook(scene.lookId);
-  const showStartingPoints = !userTouched.current && activeMove === null;
+  // Suggestions live inside the Look panel rather than floating over the print,
+  // and retire as soon as the user has expressed a preference of their own.
+  const showSuggestions = !userTouched.current;
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#14201d] text-[#f7f4eb]">
@@ -270,16 +276,13 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
         </div>
       </header>
 
+      <div className="flex min-h-0 flex-1 lg:flex-row">
       <main className="relative min-h-0 flex-1">
         {/* The stage gives up exactly as much room as the dock is using, so
             opening a panel shrinks the print instead of covering it. */}
         <div
-          className={`absolute inset-0 flex items-center justify-center p-3 transition-[padding] duration-200 md:p-6 ${
-            // On a phone the suggestions sit above the sheet, so the stage has
-            // to give up that room rather than let the card cover the artwork.
-            showStartingPoints ? 'pt-[104px] md:pt-6' : ''
-          }`}
-          style={{ paddingBottom: dockHeight + 16 }}
+          className="absolute inset-0 flex items-center justify-center p-3 transition-[padding] duration-200 md:p-6"
+          style={{ paddingBottom: dockHeight > 0 ? dockHeight + 16 : undefined }}
         >
           <div
             ref={sheetRef}
@@ -304,45 +307,6 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
           </div>
         </div>
 
-        {showStartingPoints && (
-          <div className="pointer-events-none absolute left-1/2 top-3 z-20 w-[min(520px,92vw)] -translate-x-1/2 md:left-6 md:top-6 md:w-[300px] md:translate-x-0">
-            <div className="pointer-events-auto rounded-sm border border-white/12 bg-[#14201d]/92 p-3 shadow-[0_18px_44px_rgba(0,0,0,0.45)] backdrop-blur">
-              <div className="mb-2 flex items-baseline justify-between gap-3">
-                <p className="text-[13px] text-[#f7f4eb]">
-                  Three good prints of {print.name}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => { userTouched.current = true; setActiveMove(null); setWaterShare((value) => value); }}
-                  className="text-[12px] text-[#dce2dd]/55 hover:text-white"
-                >
-                  Dismiss
-                </button>
-              </div>
-              <div className="grid grid-cols-3 gap-2 md:grid-cols-1">
-                {suggestions.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => touchedUpdate((current) => applyLook(current, option), `start-${option.id}`)}
-                    className={`flex min-w-0 items-center gap-2 rounded-sm border p-1.5 text-left transition-colors ${
-                      scene.lookId === option.id
-                        ? 'border-[#c66b4e] bg-white/10'
-                        : 'border-white/12 hover:border-white/35'
-                    }`}
-                  >
-                    <LookSwatch look={option} width={30} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[12px] text-[#f7f4eb]">{option.name}</span>
-                      <span className="hidden truncate text-[11px] text-[#dce2dd]/50 md:block">{option.blurb}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
         {exportError && (
           <div className="absolute inset-x-3 top-3 z-30 rounded-sm border border-[#c1362b]/50 bg-[#2a1512] px-4 py-2.5 text-[13px] text-[#f0c9c2] md:inset-x-auto md:right-6">
             {exportError}
@@ -356,14 +320,36 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
           {look.name} · {scene.freeViewport ? 'custom view' : formatRadius(scene.radiusMiles)}
         </div>
 
-        <StudioDock
-          scene={scene}
-          update={touchedUpdate}
-          active={activeMove}
-          onActiveChange={setActiveMove}
-          onHeightChange={setDockHeight}
-        />
+        {/* Bottom sheet: phones and tablets only. */}
+        <div className="lg:hidden">
+          <StudioDock
+            scene={scene}
+            update={touchedUpdate}
+            active={activeMove}
+            onActiveChange={setActiveMove}
+            onHeightChange={setDockHeight}
+            suggestions={showSuggestions ? suggestions : undefined}
+          />
+        </div>
       </main>
+
+      {/* Right rail: on a wide screen there is room to keep the controls
+          permanently beside the artwork instead of over it, so nothing has to
+          be opened and closed and the print never has to shrink. */}
+      <aside className="hidden w-[372px] flex-none flex-col border-l border-white/10 bg-[#fbfaf6] text-[#14201d] lg:flex xl:w-[400px]">
+        <div className="flex-none border-b border-[#e0ddd4] p-4">
+          <MoveTabs active={railMove} onActiveChange={(move) => move && setRailMove(move)} variant="rail" />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          <StudioPanels
+            scene={scene}
+            update={touchedUpdate}
+            active={railMove}
+            suggestions={showSuggestions ? suggestions : undefined}
+          />
+        </div>
+      </aside>
+      </div>
     </div>
   );
 }
