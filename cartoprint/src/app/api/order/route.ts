@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       !scene.place.name ||
       !Array.isArray(scene.viewport?.bbox) ||
       !Array.isArray(scene.viewport?.center) ||
-      !scene.composition ||
+      !scene.lookId ||
       !printConfig?.size ||
       !printConfig.orientation ||
       !printConfig.sku ||
@@ -48,7 +48,9 @@ export async function POST(request: NextRequest) {
       status: 'artwork-ready',
       summary: {
         place: scene.place.name,
-        composition: scene.composition,
+        look: scene.lookId,
+        radiusMiles: scene.radiusMiles,
+        orientation: scene.orientation,
         sku: printConfig.sku,
         total: printConfig.total,
       },

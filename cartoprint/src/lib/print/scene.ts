@@ -1,20 +1,20 @@
 import type { CatalogPrint, CatalogPrintKind } from '@/lib/catalog/prints';
-import { DEFAULT_COLOR_SCHEME, type PreviewColorSettings } from '@/lib/print/colorSchemes';
-import { defaultTitleBlock, type TitleBlockSettings } from '@/lib/print/titleLayouts';
+import type { PreviewColorSettings } from '@/lib/print/colorSchemes';
+import { defaultTitleDesign, titleCacheTag, type TitleDesign } from '@/lib/print/title';
 import { DEFAULT_DETAIL_SETTINGS, type PrintDetailSettings } from '@/lib/print/printRender';
-import type { Orientation } from '@/lib/print/printSnapshot';
+import type { Orientation } from '@/lib/print/orientation';
+import { DEFAULT_LOOK, getLook, type Look } from '@/lib/print/looks';
+import {
+  radiusForPlaceBbox,
+  viewportForRadius,
+  type Viewport,
+} from '@/lib/print/framing';
+import { printGeometry } from '@/lib/print/geometry';
 
-export const PRINT_SCENE_VERSION = 6;
+export const PRINT_SCENE_VERSION = 7;
 export const SESSION_SCENE_KEY = 'teralis:print-scene';
 
-export type CompositionPresetId = 'city-detail';
-export type CityFramingId = 'city' | 'central' | 'downtown' | 'close-up';
-export type PrintFramingId = CityFramingId | 'custom';
-
-export interface PrintViewport {
-  bbox: [string, string, string, string];
-  center: [number, number];
-}
+export type PrintViewport = Viewport;
 
 export interface PrintPlace {
   slug: string;
@@ -23,18 +23,27 @@ export interface PrintPlace {
   subtitle: string;
   establishedYear?: string;
   searchQuery: string;
+  /** The place's own extent, used to reset framing. */
+  placeRadiusMiles: number;
+  center: [number, number];
 }
 
 export interface PrintScene {
   version: number;
   place: PrintPlace;
   orientation: Orientation;
-  composition: CompositionPresetId;
-  framing: PrintFramingId;
+  lookId: string;
+  /** Framing radius in miles. Authoritative unless the user free-pans. */
+  radiusMiles: number;
+  /** Center the radius is measured around. Moves when the user pans. */
+  focus: [number, number];
+  /** True once the user has dragged away from the radius-centered view. */
+  freeViewport: boolean;
   viewport: PrintViewport;
   colors: PreviewColorSettings;
+  strokeWeight: number;
   detail: PrintDetailSettings;
-  title: TitleBlockSettings;
+  title: TitleDesign;
   updatedAt: number;
 }
 
@@ -43,18 +52,64 @@ export function centerFromBbox(bbox: [string, string, string, string]): [number,
   return [(west + east) / 2, (south + north) / 2];
 }
 
-function coordinateLine([longitude, latitude]: [number, number]): string {
+export function coordinateLine([longitude, latitude]: [number, number]): string {
   const latDirection = latitude >= 0 ? 'N' : 'S';
   const lonDirection = longitude >= 0 ? 'E' : 'W';
   return `${Math.abs(latitude).toFixed(4)}° ${latDirection}  ${Math.abs(longitude).toFixed(4)}° ${lonDirection}`;
 }
 
+/** Detail settings implied by a look for a given print kind. */
+export function detailForLook(look: Look, kind: CatalogPrintKind): PrintDetailSettings {
+  const isCity = kind === 'city';
+  const isCountry = kind === 'country';
+  return {
+    ...structuredClone(DEFAULT_DETAIL_SETTINGS),
+    places: isCity ? 'none' : look.places,
+    roads: isCity ? look.roads : isCountry ? 'none' : 'neutral',
+    border: look.border,
+    rivers: true,
+    counties: false,
+    states: isCountry,
+    labels: {
+      cities: !isCity,
+      towns: kind === 'state',
+      roads: false,
+      water: false,
+      rivers: false,
+    },
+  };
+}
+
+/**
+ * The aspect the camera must fit — the MAP area, not the sheet. Border
+ * thickness and a reserved title band both change it, so framing has to be
+ * recomputed whenever they do or the radius would silently mean something else.
+ */
+export function mapRatioForScene(scene: Pick<PrintScene, 'orientation' | 'detail' | 'title'>): number {
+  return printGeometry(scene.orientation, scene.detail.border, scene.title).mapRatio;
+}
+
+/**
+ * Recompute the viewport from the framing radius. A no-op once the user has
+ * panned or zoomed by hand — their composition wins until they reframe.
+ */
+export function syncViewport(scene: PrintScene): PrintScene {
+  if (scene.freeViewport) return scene;
+  return {
+    ...scene,
+    viewport: viewportForRadius(scene.focus, scene.radiusMiles, mapRatioForScene(scene)),
+  };
+}
+
 export function createPrintScene(
   print: CatalogPrint,
   orientation: Orientation = 'portrait',
-  composition: CompositionPresetId = 'city-detail',
+  look: Look = DEFAULT_LOOK,
 ): PrintScene {
-  return {
+  const placeRadiusMiles = radiusForPlaceBbox(print.bbox);
+  const center: [number, number] = [...print.center];
+
+  const base: PrintScene = {
     version: PRINT_SCENE_VERSION,
     place: {
       slug: print.slug,
@@ -63,20 +118,89 @@ export function createPrintScene(
       subtitle: print.defaultSubtitle,
       establishedYear: print.establishedYear,
       searchQuery: print.searchQuery,
+      placeRadiusMiles,
+      center,
     },
     orientation,
-    composition,
-    framing: 'city',
-    viewport: { bbox: [...print.bbox], center: [...print.center] },
-    colors: { ...DEFAULT_COLOR_SCHEME.colors },
-    detail: structuredClone(DEFAULT_DETAIL_SETTINGS),
-    title: defaultTitleBlock(
+    lookId: look.id,
+    radiusMiles: placeRadiusMiles,
+    focus: [...center] as [number, number],
+    freeViewport: false,
+    viewport: { bbox: [...print.bbox], center },
+    colors: { ...look.colors },
+    strokeWeight: look.strokeWeight,
+    detail: detailForLook(look, print.kind),
+    title: defaultTitleDesign(
       print.defaultTitle,
       print.defaultSubtitle,
       print.kind === 'city'
-        ? coordinateLine(print.center)
+        ? coordinateLine(center)
         : print.establishedYear ? `EST. ${print.establishedYear}` : '',
     ),
+    updatedAt: Date.now(),
+  };
+
+  return syncViewport(base);
+}
+
+/** Apply a look to an existing scene, preserving the user's words and framing. */
+export function applyLook(scene: PrintScene, look: Look): PrintScene {
+  return syncViewport({
+    ...scene,
+    lookId: look.id,
+    colors: { ...look.colors },
+    strokeWeight: look.strokeWeight,
+    detail: {
+      ...detailForLook(look, scene.place.kind),
+      // Preserve label choices the user explicitly made.
+      labels: scene.detail.labels,
+    },
+    title: {
+      ...scene.title,
+      slot: look.titleSlot,
+      panel: look.titlePanel,
+      // Drop manual color overrides so the new look's automatic pairing wins.
+      textColor: undefined,
+      panelColor: undefined,
+    },
+    updatedAt: Date.now(),
+  });
+}
+
+/**
+ * Re-derive the viewport from a framing radius. If the user had panned, the
+ * radius is re-centered on where they actually are rather than yanking the map
+ * back to the geocoder's idea of the place center.
+ */
+export function reframe(scene: PrintScene, radiusMiles: number): PrintScene {
+  return syncViewport({
+    ...scene,
+    focus: scene.freeViewport ? [...scene.viewport.center] as [number, number] : scene.focus,
+    radiusMiles,
+    freeViewport: false,
+    updatedAt: Date.now(),
+  });
+}
+
+/** Reset framing to the place's own extent, centered on the place itself. */
+export function resetFraming(scene: PrintScene): PrintScene {
+  return syncViewport({
+    ...scene,
+    focus: [...scene.place.center] as [number, number],
+    radiusMiles: scene.place.placeRadiusMiles,
+    freeViewport: false,
+    updatedAt: Date.now(),
+  });
+}
+
+/** Record a camera move the user made by hand. */
+export function setFreeViewport(scene: PrintScene, viewport: PrintViewport, radiusMiles: number): PrintScene {
+  return {
+    ...scene,
+    viewport,
+    radiusMiles,
+    focus: [...viewport.center] as [number, number],
+    freeViewport: true,
     updatedAt: Date.now(),
   };
 }
@@ -106,18 +230,22 @@ export function storeScene(scene: PrintScene): void {
   } catch {}
 }
 
+export function sceneLook(scene: PrintScene): Look {
+  return getLook(scene.lookId);
+}
+
+/** Cache tag covering everything that changes the rendered artwork. */
 export function sceneCacheTag(scene: PrintScene): string {
   const d = scene.detail;
   const labels = d.labels;
   return [
     `v${scene.version}`,
     scene.orientation,
-    scene.composition,
-    scene.framing,
+    scene.lookId,
     scene.viewport.bbox.join(','),
-    d.places,
-    d.roads,
-    d.border,
+    scene.colors.land, scene.colors.water, scene.colors.roads,
+    scene.strokeWeight.toFixed(2),
+    d.places, d.roads, d.border,
     d.rivers ? 'rv1' : 'rv0',
     d.counties ? 'ct1' : 'ct0',
     d.states ? 'st1' : 'st0',
@@ -126,92 +254,6 @@ export function sceneCacheTag(scene: PrintScene): string {
     labels.roads ? 'lr1' : 'lr0',
     labels.water ? 'lw1' : 'lw0',
     labels.rivers ? 'lrv1' : 'lrv0',
+    titleCacheTag(scene.title),
   ].join(':');
-}
-
-const CITY_FRAME_FACTORS: Record<Exclude<CityFramingId, 'city'>, number> = {
-  central: 0.68,
-  downtown: 0.42,
-  'close-up': 0.24,
-};
-
-export function viewportForCityFraming(
-  original: PrintViewport,
-  cityCenter: [number, number],
-  framing: CityFramingId,
-): PrintViewport {
-  if (framing === 'city') {
-    const bbox = [...original.bbox] as PrintViewport['bbox'];
-    return { bbox, center: centerFromBbox(bbox) };
-  }
-
-  const [south, north, west, east] = original.bbox.map(Number);
-  const factor = CITY_FRAME_FACTORS[framing];
-  const latSpan = (north - south) * factor;
-  const lonSpan = (east - west) * factor;
-  const [longitude, latitude] = cityCenter;
-  const bbox = [
-    latitude - latSpan / 2,
-    latitude + latSpan / 2,
-    longitude - lonSpan / 2,
-    longitude + lonSpan / 2,
-  ].map(String) as PrintViewport['bbox'];
-
-  return { bbox, center: [longitude, latitude] };
-}
-
-export function transformViewport(
-  viewport: PrintViewport,
-  operation: 'zoom-in' | 'zoom-out' | 'left' | 'right' | 'up' | 'down' | 'reset',
-  original?: PrintViewport,
-): PrintViewport {
-  if (operation === 'reset' && original) {
-    return { bbox: [...original.bbox], center: [...original.center] };
-  }
-
-  const [south, north, west, east] = viewport.bbox.map(Number);
-  const lonSpan = east - west;
-  const latSpan = north - south;
-  let nextSouth = south;
-  let nextNorth = north;
-  let nextWest = west;
-  let nextEast = east;
-
-  if (operation === 'zoom-in' || operation === 'zoom-out') {
-    const factor = operation === 'zoom-in' ? 0.78 : 1.28;
-    const [lon, lat] = viewport.center;
-    nextWest = lon - (lonSpan * factor) / 2;
-    nextEast = lon + (lonSpan * factor) / 2;
-    nextSouth = lat - (latSpan * factor) / 2;
-    nextNorth = lat + (latSpan * factor) / 2;
-  } else {
-    const lonShift = lonSpan * 0.16 * (operation === 'left' ? -1 : operation === 'right' ? 1 : 0);
-    const latShift = latSpan * 0.16 * (operation === 'down' ? -1 : operation === 'up' ? 1 : 0);
-    nextWest += lonShift;
-    nextEast += lonShift;
-    nextSouth += latShift;
-    nextNorth += latShift;
-  }
-
-  const bbox = [nextSouth, nextNorth, nextWest, nextEast].map(String) as PrintViewport['bbox'];
-  return { bbox, center: centerFromBbox(bbox) };
-}
-
-export function panViewportByPixels(
-  viewport: PrintViewport,
-  dx: number,
-  dy: number,
-  width: number,
-  height: number,
-): PrintViewport {
-  const [south, north, west, east] = viewport.bbox.map(Number);
-  const lonShift = -(dx / Math.max(width, 1)) * (east - west);
-  const latShift = (dy / Math.max(height, 1)) * (north - south);
-  const bbox = [
-    south + latShift,
-    north + latShift,
-    west + lonShift,
-    east + lonShift,
-  ].map(String) as PrintViewport['bbox'];
-  return { bbox, center: centerFromBbox(bbox) };
 }

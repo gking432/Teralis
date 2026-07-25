@@ -7,7 +7,7 @@ import { useSearchParams } from 'next/navigation';
 import { StudioHeader } from '@/components/Storefront/StudioHeader';
 import { getCatalogPrint } from '@/lib/catalog/prints';
 import { placeFromSearchParams } from '@/lib/catalog/placeFromQuery';
-import { isValidOrientation, ORIENTATION_RATIO, type Orientation } from '@/lib/print/printSnapshot';
+import { isValidOrientation, ORIENTATION_RATIO, type Orientation } from '@/lib/print/orientation';
 import {
   SIZE_CATALOG, SIZE_LABELS, FRAME_OPTIONS,
   getSizePrice, formatPrice, getMockupUrl, MAT_UPCHARGE,

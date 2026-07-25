@@ -3,6 +3,15 @@ import type { LayerState } from '@/types/map';
 import { applyGreyscale, applyStyleOverrides } from '@/lib/map/style';
 import { applyLayerVisibility } from '@/lib/map/layers';
 import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSchemes';
+import {
+  scaledValue,
+  scaledWidth,
+  scaledZoomRange,
+  STROKE_CURVES,
+  TEXT_CURVES,
+  UNSCALED,
+  type StrokeScale,
+} from '@/lib/print/strokes';
 
 // Four-level density used by the "Customize this view" detail controls.
 // Neutral is the default; Less/More step down/up from there.
@@ -55,6 +64,17 @@ const BORDER_RATIO: Record<BorderWeight, number> = {
 
 export function getBorderWidth(weight: BorderWeight, renderWidth: number): number {
   return Math.round(renderWidth * BORDER_RATIO[weight]);
+}
+
+/**
+ * Border thickness as a raw FRACTION of the print width.
+ *
+ * Layout code needs the unrounded value: asking `getBorderWidth` for a
+ * fraction (renderWidth = 1) rounds every weight to zero, which silently
+ * removes the border from both the preview and the export.
+ */
+export function getBorderFraction(weight: BorderWeight): number {
+  return BORDER_RATIO[weight];
 }
 
 // --- per-kind base layer states ---
@@ -196,9 +216,13 @@ function applyPrintPreviewOverrides(
   map: maplibregl.Map,
   layers: LayerState,
   denseTowns: boolean,
+  scale: StrokeScale = UNSCALED,
+  weight = 1,
 ): void {
   const style = map.getStyle();
   if (!style) return;
+
+  const zoomRange = (min: number, max: number) => scaledZoomRange(min, max, scale);
 
   style.layers.forEach((layer) => {
     const id = layer.id;
@@ -217,12 +241,9 @@ function applyPrintPreviewOverrides(
       } else if (layer.type === 'line') {
         try {
           map.setLayoutProperty(id, 'visibility', 'visible');
-          map.setLayerZoomRange(id, 1, 24);
+          map.setLayerZoomRange(id, ...zoomRange(1, 24));
           map.setPaintProperty(id, 'line-opacity', 0.55);
-          map.setPaintProperty(id, 'line-width', [
-            'interpolate', ['linear'], ['zoom'],
-            2, 1.0, 4, 1.7, 6, 2.6, 9, 3.4,
-          ]);
+          map.setPaintProperty(id, 'line-width', scaledWidth(STROKE_CURVES.stateBorder, scale, weight));
         } catch {}
       }
       return;
@@ -233,9 +254,9 @@ function applyPrintPreviewOverrides(
       try {
         map.setLayoutProperty(id, 'visibility', layers.counties ? 'visible' : 'none');
         if (layers.counties && layer.type === 'line') {
-          map.setLayerZoomRange(id, 3, 24);
+          map.setLayerZoomRange(id, ...zoomRange(3, 24));
           map.setPaintProperty(id, 'line-opacity', 0.28);
-          map.setPaintProperty(id, 'line-width', 0.65);
+          map.setPaintProperty(id, 'line-width', scaledWidth(STROKE_CURVES.countyBorder, scale, weight));
         }
       } catch {}
       return;
@@ -253,8 +274,8 @@ function applyPrintPreviewOverrides(
       try {
         map.setLayoutProperty(id, 'visibility', layers.statelabels ? 'visible' : 'none');
         if (layers.statelabels && layer.type === 'symbol') {
-          map.setLayerZoomRange(id, 2, 24);
-          map.setLayoutProperty(id, 'text-size', ['interpolate', ['linear'], ['zoom'], 2, 8, 4, 11, 7, 14]);
+          map.setLayerZoomRange(id, ...zoomRange(2, 24));
+          map.setLayoutProperty(id, 'text-size', scaledWidth(TEXT_CURVES.state, scale));
           map.setLayoutProperty(id, 'text-padding', 2);
         }
       } catch {}
@@ -278,8 +299,8 @@ function applyPrintPreviewOverrides(
     // City + capital labels: show from low zoom, readable sizing.
     if (/label_(city|city_capital)|place.*(city|capital)/.test(id) && layer.type === 'symbol') {
       try {
-        map.setLayerZoomRange(id, 3, 24);
-        map.setLayoutProperty(id, 'text-size', ['interpolate', ['linear'], ['zoom'], 3, 11, 6, 13, 10, 15]);
+        map.setLayerZoomRange(id, ...zoomRange(3, 24));
+        map.setLayoutProperty(id, 'text-size', scaledWidth(TEXT_CURVES.city, scale));
         map.setLayoutProperty(id, 'text-padding', 2);
       } catch {}
     }
@@ -290,11 +311,12 @@ function applyPrintPreviewOverrides(
     if (layers.towns && /label_(town|village|other)/.test(id) && layer.type === 'symbol') {
       try {
         const minZoom = denseTowns ? 3 : (id === 'label_other' ? 6 : 4);
-        map.setLayerZoomRange(id, minZoom, 24);
-        map.setLayoutProperty(id, 'text-size', denseTowns
-          ? ['interpolate', ['linear'], ['zoom'], 3, 8, 7, 10, 10, 11]
-          : ['interpolate', ['linear'], ['zoom'], 4, 9, 7, 11, 10, 12]);
-        map.setLayoutProperty(id, 'text-padding', denseTowns ? 1 : 1);
+        map.setLayerZoomRange(id, ...zoomRange(minZoom, 24));
+        map.setLayoutProperty(id, 'text-size', scaledWidth(
+          denseTowns ? TEXT_CURVES.denseTown : TEXT_CURVES.town,
+          scale,
+        ));
+        map.setLayoutProperty(id, 'text-padding', 1);
       } catch {}
     }
 
@@ -304,29 +326,29 @@ function applyPrintPreviewOverrides(
     if (layers.highways && /motorway|trunk/.test(id) && /road|bridge|tunnel/.test(id) && !/casing/.test(id) && layer.type === 'line') {
       try {
         map.setPaintProperty(id, 'line-opacity', 0.9);
-        map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 3, 0.5, 6, 0.9, 9, 1.5, 13, 2.4]);
+        map.setPaintProperty(id, 'line-width', scaledWidth(STROKE_CURVES.highway, scale, weight));
       } catch {}
     }
 
     if (layers.mainroads && /(primary|secondary)/.test(id) && !/motorway|trunk/.test(id) && /road|bridge|tunnel/.test(id) && !/casing/.test(id) && layer.type === 'line') {
       try {
         map.setPaintProperty(id, 'line-opacity', 0.85);
-        map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 4, 0.4, 7, 0.75, 10, 1.2, 13, 1.8]);
+        map.setPaintProperty(id, 'line-width', scaledWidth(STROKE_CURVES.mainRoad, scale, weight));
       } catch {}
     }
 
     if (layers.allroads && /(minor|tertiary|service|track|street|link|residential|living|pedestrian|cycleway|footway|path|steps)/.test(id) && !/motorway|trunk|primary|secondary/.test(id) && /road|bridge|tunnel/.test(id) && !/casing/.test(id) && layer.type === 'line') {
       try {
         map.setPaintProperty(id, 'line-opacity', 0.7);
-        map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 4, 0.15, 7, 0.35, 10, 0.65, 13, 1.0]);
+        map.setPaintProperty(id, 'line-width', scaledWidth(STROKE_CURVES.street, scale, weight));
       } catch {}
     }
 
     // Rivers/waterways: show from low zoom.
     if (layers.rivers && /^waterway/.test(id) && layer.type === 'line') {
       try {
-        map.setLayerZoomRange(id, 4, 24);
-        map.setPaintProperty(id, 'line-width', ['interpolate', ['linear'], ['zoom'], 4, 0.35, 8, 0.7, 12, 1.15]);
+        map.setLayerZoomRange(id, ...zoomRange(4, 24));
+        map.setPaintProperty(id, 'line-width', scaledWidth(STROKE_CURVES.waterway, scale, weight));
       } catch {}
     }
 
@@ -345,14 +367,24 @@ function applyPrintPreviewOverrides(
         (!isHighway && !isMain && layers.allroads);
       try {
         map.setLayoutProperty(id, 'visibility', shouldBeVisible ? 'visible' : 'none');
-        if (shouldBeVisible) map.setLayerZoomRange(id, 3, 24);
+        if (shouldBeVisible) map.setLayerZoomRange(id, ...zoomRange(3, 24));
       } catch {}
     }
   });
 }
 
-// Recolors visible layers to the selected scheme.
-function recolor(map: maplibregl.Map, colors: PreviewColorSettings): void {
+/**
+ * Recolors visible layers to the selected palette.
+ *
+ * Exported because color is a paint-only change: the live canvas calls this
+ * directly on every palette tweak instead of re-rendering the map, which is
+ * what makes color selection instant rather than a multi-second round trip.
+ */
+export function applyPrintColors(
+  map: maplibregl.Map,
+  colors: PreviewColorSettings,
+  scale: StrokeScale = UNSCALED,
+): void {
   if (colors.useMapDefault) return;
 
   const style = map.getStyle();
@@ -396,26 +428,52 @@ function recolor(map: maplibregl.Map, colors: PreviewColorSettings): void {
       if (layer.type === 'symbol') {
         map.setPaintProperty(id, 'text-color', ink);
         map.setPaintProperty(id, 'text-halo-color', land);
-        map.setPaintProperty(id, 'text-halo-width', 1.4);
+        // The halo has to grow with the canvas or it vanishes at export size.
+        map.setPaintProperty(id, 'text-halo-width', scaledValue(1.4, scale));
         return;
       }
     } catch {}
   });
 }
 
-/** Full storefront print rendering pipeline. Run inside map 'load'. */
+/**
+ * Applies everything that depends on the detail settings: which layers are on,
+ * their zoom ranges, and their print stroke weights.
+ *
+ * Exported separately from the colors so the live canvas can respond to a
+ * density change with layer toggles alone.
+ */
+export function applyPrintDetail(
+  map: maplibregl.Map,
+  kind: 'country' | 'state' | 'city',
+  detail: PrintDetailSettings,
+  scale: StrokeScale = UNSCALED,
+  weight = 1,
+): void {
+  const layers = buildPrintLayerState(kind, detail);
+  applyLayerVisibility(map, layers, scale, weight);
+  applyPrintPreviewOverrides(map, layers, detail.places === 'more', scale, weight);
+}
+
+/**
+ * Full storefront print rendering pipeline. Run inside map 'load'.
+ *
+ * `scale` re-projects the authored stroke curves onto the canvas we are
+ * drawing into, so a 900px live preview and a 3600px export produce the same
+ * artwork rather than merely similar ones.
+ */
 export function applyPrintMapStyle(
   map: maplibregl.Map,
   colors: PreviewColorSettings,
   kind: 'country' | 'state' | 'city' = 'state',
   detail: PrintDetailSettings = DEFAULT_DETAIL_SETTINGS,
+  scale: StrokeScale = UNSCALED,
+  weight = 1,
 ): void {
-  const layers = buildPrintLayerState(kind, detail);
   applyGreyscale(map);
   applyStyleOverrides(map);
-  applyLayerVisibility(map, layers);
-  applyPrintPreviewOverrides(map, layers, detail.places === 'more');
-  recolor(map, colors);
+  applyPrintDetail(map, kind, detail, scale, weight);
+  applyPrintColors(map, colors, scale);
 }
 
 /** Sets the isolation mask (area outside the region) to the ink color. */

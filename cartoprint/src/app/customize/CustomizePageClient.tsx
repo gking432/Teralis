@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { MapBuilder } from '@/components/MapBuilder/MapBuilder';
-import { PrintCustomizer } from '@/components/Storefront/PrintCustomizer';
+import { Studio } from '@/components/Studio/Studio';
 import { getCatalogPrint, type CatalogPrint } from '@/lib/catalog/prints';
 import { buildPlaceCatalogPrint, inferKind, placeFromSearchParams } from '@/lib/catalog/placeFromQuery';
-import { isValidOrientation, type Orientation } from '@/lib/print/printSnapshot';
+import { isValidOrientation, type Orientation } from '@/lib/print/orientation';
 
 interface NominatimResult {
   place_id: number;
@@ -83,7 +83,7 @@ export function CustomizePageClient() {
 
   const print = catalogPrint || placePrint;
   if (print) {
-    return <PrintCustomizer key={print.slug} print={print} orientation={orientation} />;
+    return <Studio key={print.slug} print={print} orientation={orientation} />;
   }
 
   if (resolving) {

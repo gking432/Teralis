@@ -63,6 +63,19 @@ async function rateLimitedFetch(url: string): Promise<Response> {
   });
 }
 
+/**
+ * Nominatim serves HTML for blocks and rate limits, so a bare `.json()` throws
+ * and surfaces a raw parser error to the customer. Always parse defensively.
+ */
+async function readJson<T>(response: Response): Promise<T | null> {
+  try {
+    const text = await response.text();
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
 function isPrintScope(value: string | null): value is PrintRegionScope {
   return value === 'country' || value === 'state' || value === 'county' || value === 'city';
 }
@@ -173,7 +186,7 @@ async function reverseBoundary(lat: string, lng: string, scope: PrintRegionScope
 
   const resp = await rateLimitedFetch(`${NOMINATIM_BASE}/reverse?${params}`);
   if (!resp.ok) return null;
-  return resp.json();
+  return readJson<NominatimResult>(resp);
 }
 
 async function searchBoundary(query: string, scope: PrintRegionScope): Promise<NominatimResult | null> {
@@ -188,7 +201,8 @@ async function searchBoundary(query: string, scope: PrintRegionScope): Promise<N
   const resp = await rateLimitedFetch(`${NOMINATIM_BASE}/search?${params}`);
   if (!resp.ok) return null;
 
-  const results = (await resp.json()) as NominatimResult[];
+  const results = await readJson<NominatimResult[]>(resp);
+  if (!Array.isArray(results)) return null;
   return [...results]
     .filter(hasUsablePolygon)
     .sort((a, b) => scoreResultForScope(b, scope) - scoreResultForScope(a, scope))[0] || null;

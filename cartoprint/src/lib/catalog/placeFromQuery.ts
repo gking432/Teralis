@@ -16,6 +16,71 @@ export function inferKind(addresstype: string | undefined, type: string | undefi
   return 'city';
 }
 
+/**
+ * The label shown next to a search result.
+ *
+ * `inferKind` collapses everything to the three RENDERING modes, and it
+ * defaults anything unrecognised to 'city' — so using it for the badge meant
+ * a county, an island, or a park was confidently labelled "City". This keeps
+ * the rendering mode separate from what we actually tell the user we found.
+ */
+const TYPE_LABELS: Record<string, string> = {
+  country: 'Country',
+  state: 'State',
+  province: 'Province',
+  region: 'Region',
+  county: 'County',
+  city: 'City',
+  town: 'Town',
+  village: 'Village',
+  hamlet: 'Hamlet',
+  municipality: 'Municipality',
+  borough: 'Borough',
+  suburb: 'Neighbourhood',
+  neighbourhood: 'Neighbourhood',
+  quarter: 'Neighbourhood',
+  city_district: 'District',
+  district: 'District',
+  island: 'Island',
+  archipelago: 'Islands',
+  peninsula: 'Peninsula',
+  national_park: 'National park',
+  protected_area: 'Protected area',
+  park: 'Park',
+  water: 'Water',
+  bay: 'Bay',
+  lake: 'Lake',
+  reservoir: 'Reservoir',
+  river: 'River',
+  mountain_range: 'Mountains',
+  peak: 'Peak',
+  postcode: 'Postcode',
+  locality: 'Locality',
+  isolated_dwelling: 'Locality',
+  continent: 'Continent',
+};
+
+function titleCase(value: string): string {
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+export function placeTypeLabel(
+  addresstype: string | undefined,
+  type: string | undefined,
+  category?: string,
+): string {
+  for (const candidate of [addresstype, type]) {
+    if (!candidate) continue;
+    const known = TYPE_LABELS[candidate];
+    if (known) return known;
+  }
+  // Prefer saying something true and unfamiliar over something false and tidy.
+  const fallback = addresstype || type || category;
+  return fallback ? titleCase(fallback) : 'Place';
+}
+
 // Build a stable cache-key slug from a display name, e.g.
 // "Madison, Dane County, Wisconsin, United States" → "place-madison-dane-county-wisconsin-united-states"
 export function placeSlugFromName(name: string): string {

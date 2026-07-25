@@ -1,16 +1,16 @@
 'use client';
 
 // Bare page used only by scripts/gen-thumbnails.mjs to render a single print
-// thumbnail. Accepts ?slug=... and calls renderPrintSnapshot directly at
+// thumbnail. Accepts ?slug=... and renders the print scene directly at
 // thumbnail resolution so the generation script can grab the data URL.
 
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { getCatalogPrint } from '@/lib/catalog/prints';
-import { DEFAULT_COLOR_SCHEME } from '@/lib/print/colorSchemes';
-import { DEFAULT_TITLE_LAYOUT } from '@/lib/print/titleLayouts';
 import { getCachedBoundary, fetchBoundary } from '@/lib/print/boundaryCache';
-import { renderPrintSnapshot, DEFAULT_DETAIL_SETTINGS } from '@/lib/print/printSnapshot';
+import { renderScene } from '@/lib/print/renderScene';
+import { createPrintScene } from '@/lib/print/scene';
+import { DEFAULT_LOOK } from '@/lib/print/looks';
 
 const THUMB_WIDTH = 720;
 
@@ -25,7 +25,6 @@ function ThumbnailRenderer() {
     if (!print) { setError('not-found'); return; }
     const controller = new AbortController();
     const kind = print.kind === 'country' ? 'country' : print.kind === 'state' ? 'state' : 'city';
-    const detail = print.establishedYear ? `EST. ${print.establishedYear}` : '';
 
     (async () => {
       let geometry = getCachedBoundary(slug)?.geometry ?? null;
@@ -34,15 +33,11 @@ function ThumbnailRenderer() {
         geometry = record?.geometry ?? null;
       }
 
-      const url = await renderPrintSnapshot(
-        slug, print.bbox, print.center, kind,
-        DEFAULT_COLOR_SCHEME.colors,
-        { enabled: true, title: print.defaultTitle, subtitle: print.defaultSubtitle, detail, layout: DEFAULT_TITLE_LAYOUT, inverted: false },
-        geometry,
-        controller.signal,
-        DEFAULT_DETAIL_SETTINGS,
-        THUMB_WIDTH,
-      );
+      const scene = createPrintScene(print, 'portrait', DEFAULT_LOOK);
+      const url = await renderScene(scene, geometry, {
+        width: THUMB_WIDTH,
+        signal: controller.signal,
+      });
       setDataUrl(url);
     })().catch((err) => {
       if (err?.message !== 'aborted') setError(String(err));

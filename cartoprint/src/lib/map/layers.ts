@@ -1,5 +1,16 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { LayerGroup, LayerState } from '@/types/map';
+import {
+  scaledWidth,
+  scaledZoomRange,
+  UNSCALED,
+  type StrokeScale,
+} from '@/lib/print/strokes';
+
+// Residential street network, authored at STROKE_REFERENCE_WIDTH.
+const MINOR_STREET_CURVE: Array<[number, number]> = [
+  [5, 0.12], [7, 0.22], [10, 0.48], [13, 0.85],
+];
 
 function isSuppressedBaseLayer(id: string): boolean {
   return /building|rail|transit|aeroway|aerialway|airport|aerodrome|airfield|runway|iata|icao|poi|road_one_way|road_area_pattern|road_path_pedestrian|road_shield|highway-shield/.test(id);
@@ -46,7 +57,12 @@ const LABEL_GROUPS = new Set<string>([
   'waterlabels', 'riverlabels', 'roadlabels',
 ]);
 
-export function applyLayerVisibility(map: MaplibreMap, layers: LayerState): void {
+export function applyLayerVisibility(
+  map: MaplibreMap,
+  layers: LayerState,
+  scale: StrokeScale = UNSCALED,
+  weight = 1,
+): void {
   const style = map.getStyle();
   if (!style) return;
 
@@ -76,18 +92,18 @@ export function applyLayerVisibility(map: MaplibreMap, layers: LayerState): void
 
       if (group === 'allroads' && layers.allroads) {
         try {
-          map.setLayerZoomRange(layer.id, 5, 24);
+          map.setLayerZoomRange(layer.id, ...scaledZoomRange(5, 24, scale));
           if (layer.type === 'line') {
             map.setPaintProperty(layer.id, 'line-color', '#8a8a84');
             map.setPaintProperty(layer.id, 'line-opacity', 0.82);
-            map.setPaintProperty(layer.id, 'line-width', ['interpolate', ['linear'], ['zoom'], 5, 0.12, 7, 0.22, 10, 0.48, 13, 0.85]);
+            map.setPaintProperty(layer.id, 'line-width', scaledWidth(MINOR_STREET_CURVE, scale, weight));
           }
         } catch {}
       }
 
       if (group === 'mainroads' && layers.mainroads) {
         try {
-          map.setLayerZoomRange(layer.id, 5, 24);
+          map.setLayerZoomRange(layer.id, ...scaledZoomRange(5, 24, scale));
         } catch {}
       }
     }

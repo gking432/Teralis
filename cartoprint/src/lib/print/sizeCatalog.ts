@@ -1,4 +1,4 @@
-import type { Orientation } from './printSnapshot';
+import type { Orientation } from './orientation';
 
 export type SizeLabel = 'small' | 'medium' | 'large' | 'xlarge';
 export type FrameOption = 'none' | 'black' | 'white' | 'wood';
