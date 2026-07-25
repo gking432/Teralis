@@ -6,7 +6,9 @@ interface DemoOrderBody {
     version?: number;
     place?: { slug?: string; name?: string };
     viewport?: { bbox?: unknown; center?: unknown };
-    composition?: string;
+    lookId?: string;
+    radiusMiles?: number;
+    orientation?: string;
   };
   printConfig?: {
     size?: string;
