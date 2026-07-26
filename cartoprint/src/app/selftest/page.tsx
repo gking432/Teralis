@@ -40,6 +40,10 @@ import {
 import { exportWidthForSize, type SizeLabel } from '@/lib/print/sizeCatalog';
 import { snapToSlot, titleTypography, defaultTitleDesign, resolveTitleColors } from '@/lib/print/title';
 import { buildPlaceCatalogPrint } from '@/lib/catalog/placeFromQuery';
+import { applyLayout, applyPalette } from '@/lib/print/scene';
+import { getLayout } from '@/lib/print/layouts';
+import { getPalette } from '@/lib/print/palettes';
+import { findWaterPlacement } from '@/lib/print/waterPlacement';
 
 function approx(a: number, b: number, tolerance = 0.02): boolean {
   return Math.abs(a - b) <= Math.abs(b) * tolerance + 1e-9;
@@ -281,11 +285,67 @@ export default function SelfTest() {
     check('export is 300 dpi on the largest print', exportWidthForSize('xlarge', 'portrait') === 9000,
       String(exportWidthForSize('xlarge', 'portrait')));
 
+    // --- layout and colour are independent axes ---
+    const withLayout = applyLayout(scene, getLayout('poster'));
+    check('layout change leaves colours alone',
+      withLayout.colors.land === scene.colors.land && withLayout.colors.roads === scene.colors.roads);
+    check('layout change moves the title', withLayout.title.slot === 'footer-tall');
+
+    const withPalette = applyPalette(withLayout, getPalette('noir'));
+    check('colour change leaves the layout alone',
+      withPalette.title.slot === withLayout.title.slot && withPalette.detail.border === withLayout.detail.border);
+    check('colour change repaints', withPalette.colors.land === '#0b0f14');
+
+    // --- on-water title: colours must come from the WATER, not the paper ---
+    const onWater = applyLayout(scene, getLayout('on-water'));
+    check('on-water layout marks the title', onWater.title.onWater && onWater.title.autoPlaced);
+    check('on-water layout uses no panel', onWater.title.panel === 'none');
+
+    const navyWater = { land: '#ffffff', water: '#0a2342', roads: '#0a2342' };
+    const overWater = resolveTitleColors(onWater.title, navyWater);
+    const overLand = resolveTitleColors({ ...onWater.title, onWater: false }, navyWater);
+    check('text on navy water is light', contrastRatio(overWater.text, '#0a2342') >= 4.5,
+      `${overWater.text} ratio ${contrastRatio(overWater.text, '#0a2342').toFixed(1)}`);
+    check('same words on paper go dark instead', overLand.text !== overWater.text,
+      `${overLand.text} vs ${overWater.text}`);
+    // The old behaviour: derived from paper, then floated over a lake.
+    check('paper-derived text would have vanished on the lake',
+      contrastRatio(overLand.text, '#0a2342') < 4.5,
+      `ratio ${contrastRatio(overLand.text, '#0a2342').toFixed(1)}`);
+
+    // --- water placement finds the biggest label-shaped patch ---
+    // A synthetic frame: land on top, a wide lake across the bottom third.
+    const fake = document.createElement('canvas');
+    fake.width = 300;
+    fake.height = 400;
+    const fctx = fake.getContext('2d')!;
+    fctx.fillStyle = '#ffffff';
+    fctx.fillRect(0, 0, 300, 400);
+    fctx.fillStyle = '#0a2342';
+    fctx.fillRect(20, 280, 260, 90);
+    const placement = findWaterPlacement(fake, '#0a2342', 4 / 3);
+    check('water placement found', Boolean(placement));
+    if (placement) {
+      const cx = placement.rect.x + placement.rect.w / 2;
+      const cy = placement.rect.y + placement.rect.h / 2;
+      check('placed inside the lake horizontally', cx > 20 / 300 && cx < 280 / 300, cx.toFixed(3));
+      check('placed inside the lake vertically', cy > 280 / 400 && cy < 370 / 400, cy.toFixed(3));
+      check('placement is label-shaped', placement.rect.w > placement.rect.h, `${placement.rect.w.toFixed(2)}x${placement.rect.h.toFixed(2)}`);
+    }
+    // No water at all must report nothing rather than guessing.
+    const dry = document.createElement('canvas');
+    dry.width = 300; dry.height = 400;
+    const dctx = dry.getContext('2d')!;
+    dctx.fillStyle = '#ffffff';
+    dctx.fillRect(0, 0, 300, 400);
+    check('no water reports nothing', findWaterPlacement(dry, '#0a2342', 4 / 3) === null);
+
     // --- design URL round trip ---
     const encoded = encodeDesign(recentered);
     const decoded = decodeDesign(encoded);
     check('design encodes', Boolean(encoded), `${encoded?.length ?? 0} chars`);
-    check('design round-trips look', decoded?.lookId === recentered.lookId);
+    check('design round-trips layout', decoded?.layoutId === recentered.layoutId);
+    check('design round-trips palette', decoded?.paletteId === recentered.paletteId);
     check('design round-trips title', decoded?.title.text === recentered.title.text);
     check('design round-trips viewport', decoded?.viewport.bbox.join() === recentered.viewport.bbox.join());
     check('design round-trips detail', decoded?.detail.border === recentered.detail.border);

@@ -1,5 +1,5 @@
 import type maplibregl from 'maplibre-gl';
-import { LOOKS, getLook, type Look } from '@/lib/print/looks';
+import { PALETTES, getPalette, type Palette } from '@/lib/print/palettes';
 import type { CatalogPrintKind } from '@/lib/catalog/prints';
 
 /**
@@ -94,7 +94,7 @@ export function measureWaterShare(map: maplibregl.Map): number | null {
  *  - Otherwise lead with high-contrast street work.
  * The seed only breaks ties, so the same place always suggests the same three.
  */
-export function suggestLooks(signals: PlaceSignals): Look[] {
+export function suggestPalettes(signals: PlaceSignals): Palette[] {
   const { kind, radiusMiles, waterShare, seed } = signals;
   const wateryFirst = ['harbor', 'blueprint', 'midnight', 'slate'];
   const broadFirst = ['bone', 'slate', 'forest', 'terracotta'];
@@ -113,17 +113,17 @@ export function suggestLooks(signals: PlaceSignals): Look[] {
   const offset = Math.floor(seed * order.length);
   const rotated = [...order.slice(offset), ...order.slice(0, offset)];
 
-  const picked: Look[] = [];
+  const picked: Palette[] = [];
   for (const id of rotated) {
-    const look = getLook(id);
-    if (!picked.some((existing) => existing.id === look.id)) picked.push(look);
+    const palette = getPalette(id);
+    if (!picked.some((existing) => existing.id === palette.id)) picked.push(palette);
     if (picked.length === 3) break;
   }
 
   // Top up from the full catalogue if the rules produced fewer than three.
-  for (const look of LOOKS) {
+  for (const palette of PALETTES) {
     if (picked.length === 3) break;
-    if (!picked.some((existing) => existing.id === look.id)) picked.push(look);
+    if (!picked.some((existing) => existing.id === palette.id)) picked.push(palette);
   }
 
   return picked;

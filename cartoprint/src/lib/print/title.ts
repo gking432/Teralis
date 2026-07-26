@@ -38,6 +38,18 @@ export interface TitleDesign {
   /** Undefined means "derive from the palette" — the safe default. */
   textColor?: string;
   panelColor?: string;
+  /**
+   * True when the block is sitting on open water, so its colours must be
+   * derived from the water rather than the paper. This is what makes the
+   * treatment work: white type on a navy lake pops, white type on white land
+   * disappears.
+   */
+  onWater: boolean;
+  /**
+   * True while the position is being chosen for the user. Cleared the moment
+   * they drag it, so an automatic placement never fights a deliberate one.
+   */
+  autoPlaced: boolean;
   /** Normalised rect on the print. Authoritative when slot === 'free'. */
   x: number;
   y: number;
@@ -153,20 +165,28 @@ export function resolveTitleColors(
 ): ResolvedTitleColors {
   const paper = colors.land || '#ffffff';
   const ink = colors.useMapDefault ? '#4a4a48' : (colors.water || colors.roads || '#07122a');
+  const water = colors.water || ink;
 
   if (design.panel === 'none') {
-    // Text sits directly on the map, so it must read against the paper.
+    // Text sits directly on the map. What it has to read against depends on
+    // WHAT is underneath: open water for the on-the-water layout, paper
+    // otherwise. Deriving from the paper while floating on a navy lake is
+    // exactly how the label became invisible.
+    const backdrop = design.onWater ? water : paper;
+    // On water, prefer the paper colour — white type on a dark lake is the
+    // look — falling back to whatever actually contrasts.
+    const preferred = design.onWater ? paper : ink;
     return {
-      text: design.textColor && contrastRatio(design.textColor, paper) >= 3
+      text: design.textColor && contrastRatio(design.textColor, backdrop) >= 3
         ? design.textColor
-        : readableInk(paper, ink),
-      panel: paper,
+        : readableInk(backdrop, preferred),
+      panel: backdrop,
       panelAlpha: 0,
       transparent: true,
     };
   }
 
-  const panel = design.panelColor || paper;
+  const panel = design.panelColor || (design.onWater ? water : paper);
   const glass = design.panel === 'glass';
   // On a glass panel the effective background is a blend of the panel and the
   // map beneath it, so pick text against the panel but bias toward the safer
@@ -303,6 +323,8 @@ export function defaultTitleDesign(name: string, subtitle: string, detail: strin
     slot: 'footer',
     panel: 'solid',
     align: 'center',
+    onWater: false,
+    autoPlaced: false,
     x: 0,
     y: 0.875,
     w: 1,
@@ -317,6 +339,7 @@ export function titleCacheTag(design: TitleDesign): string {
     design.text, design.subtitle, design.detail,
     design.slot, design.panel, design.align,
     design.textColor || 'auto', design.panelColor || 'auto',
+    design.onWater ? 'water' : 'land',
     design.x.toFixed(4), design.y.toFixed(4),
     design.w.toFixed(4), design.h.toFixed(4),
     design.rotation.toFixed(2),

@@ -18,7 +18,8 @@ export const DESIGN_PARAM = 'd';
 interface PackedDesign {
   v: number;
   o: Orientation;
-  l: string;              // look id
+  l: string;              // layout id
+  pal: string;            // palette id
   r: number;              // radius miles
   f: 0 | 1;               // free viewport
   b: [string, string, string, string];
@@ -31,6 +32,8 @@ interface PackedDesign {
   tr: [number, number, number, number, number]; // x, y, w, h, rotation
   te: 0 | 1;              // title enabled
   ta: 'left' | 'center';
+  tw: 0 | 1;              // title sits on water
+  tap: 0 | 1;             // title position is auto-placed
   sz: SizeLabel;          // paper size — changes what the art can carry
   db: DetailBias;         // detail bias
   la: 0 | 1;              // place labels still following the resolver
@@ -38,7 +41,7 @@ interface PackedDesign {
 
 // Bumped when the packed shape changes; older links decode to null and fall
 // back to a fresh scene rather than restoring a half-populated design.
-const DESIGN_VERSION = 2;
+const DESIGN_VERSION = 3;
 
 function encodeBase64Url(input: string): string {
   const bytes = new TextEncoder().encode(input);
@@ -61,7 +64,8 @@ export function encodeDesign(scene: PrintScene): string | null {
     const packed: PackedDesign = {
       v: DESIGN_VERSION,
       o: scene.orientation,
-      l: scene.lookId,
+      l: scene.layoutId,
+      pal: scene.paletteId,
       r: Number(scene.radiusMiles.toFixed(3)),
       f: scene.freeViewport ? 1 : 0,
       b: scene.viewport.bbox,
@@ -99,6 +103,8 @@ export function encodeDesign(scene: PrintScene): string | null {
       ],
       te: scene.title.enabled ? 1 : 0,
       ta: scene.title.align,
+      tw: scene.title.onWater ? 1 : 0,
+      tap: scene.title.autoPlaced ? 1 : 0,
       sz: scene.size,
       db: scene.detailBias,
       la: scene.labelsAuto ? 1 : 0,
@@ -111,7 +117,8 @@ export function encodeDesign(scene: PrintScene): string | null {
 
 export interface DecodedDesign {
   orientation: Orientation;
-  lookId: string;
+  layoutId: string;
+  paletteId: string;
   radiusMiles: number;
   freeViewport: boolean;
   viewport: PrintScene['viewport'];
@@ -133,7 +140,8 @@ export function decodeDesign(encoded: string | null): DecodedDesign | null {
     const [places, roads, border, flags] = packed.d;
     return {
       orientation: packed.o,
-      lookId: packed.l,
+      layoutId: packed.l,
+      paletteId: packed.pal,
       radiusMiles: packed.r,
       freeViewport: packed.f === 1,
       viewport: { bbox: packed.b, center: packed.c },
@@ -165,6 +173,8 @@ export function decodeDesign(encoded: string | null): DecodedDesign | null {
         slot: packed.t[3],
         panel: packed.t[4],
         align: packed.ta,
+        onWater: packed.tw === 1,
+        autoPlaced: packed.tap === 1,
         textColor: packed.t[5] || undefined,
         panelColor: packed.t[6] || undefined,
         x: packed.tr[0],

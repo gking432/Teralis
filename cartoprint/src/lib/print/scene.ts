@@ -1,9 +1,10 @@
 import type { CatalogPrint, CatalogPrintKind } from '@/lib/catalog/prints';
 import type { PreviewColorSettings } from '@/lib/print/colorSchemes';
-import { defaultTitleDesign, titleCacheTag, type TitleDesign } from '@/lib/print/title';
+import { defaultTitleDesign, rectForSlot, titleCacheTag, type TitleDesign } from '@/lib/print/title';
 import { DEFAULT_DETAIL_SETTINGS, type PrintDetailSettings } from '@/lib/print/printRender';
 import type { Orientation } from '@/lib/print/orientation';
-import { DEFAULT_LOOK, getLook, type Look } from '@/lib/print/looks';
+import { DEFAULT_LAYOUT, getLayout, type Layout } from '@/lib/print/layouts';
+import { DEFAULT_PALETTE, getPalette, type Palette } from '@/lib/print/palettes';
 import {
   radiusForPlaceBbox,
   viewportForRadius,
@@ -34,7 +35,10 @@ export interface PrintScene {
   version: number;
   place: PrintPlace;
   orientation: Orientation;
-  lookId: string;
+  /** Where the words sit and how the sheet is framed. */
+  layoutId: string;
+  /** What colour it is drawn in. Independent of the layout. */
+  paletteId: string;
   /** Framing radius in miles. Authoritative unless the user free-pans. */
   radiusMiles: number;
   /** Center the radius is measured around. Moves when the user pans. */
@@ -74,12 +78,12 @@ export function coordinateLine([longitude, latitude]: [number, number]): string 
   return `${Math.abs(latitude).toFixed(4)}° ${latDirection}  ${Math.abs(longitude).toFixed(4)}° ${lonDirection}`;
 }
 
-/** The non-density part of a look: border weight and the base layer choices. */
-export function detailForLook(look: Look, kind: CatalogPrintKind): PrintDetailSettings {
+/** The non-density part of the design: border weight and base layer choices. */
+export function detailForLayout(layout: Layout, kind: CatalogPrintKind): PrintDetailSettings {
   const isCountry = kind === 'country';
   return {
     ...structuredClone(DEFAULT_DETAIL_SETTINGS),
-    border: look.border,
+    border: layout.border,
     rivers: true,
     counties: false,
     states: isCountry,
@@ -153,7 +157,8 @@ export function syncViewport(scene: PrintScene): PrintScene {
 export function createPrintScene(
   print: CatalogPrint,
   orientation: Orientation = 'portrait',
-  look: Look = DEFAULT_LOOK,
+  palette: Palette = DEFAULT_PALETTE,
+  layout: Layout = DEFAULT_LAYOUT,
 ): PrintScene {
   const placeRadiusMiles = radiusForPlaceBbox(print.bbox);
   const center: [number, number] = [...print.center];
@@ -171,24 +176,25 @@ export function createPrintScene(
       center,
     },
     orientation,
-    lookId: look.id,
+    layoutId: layout.id,
+    paletteId: palette.id,
     radiusMiles: placeRadiusMiles,
     focus: [...center] as [number, number],
     freeViewport: false,
     viewport: { bbox: [...print.bbox], center },
-    colors: { ...look.colors },
-    strokeWeight: look.strokeWeight,
+    colors: { ...palette.colors },
+    strokeWeight: palette.strokeWeight,
     size: 'medium',
     detailBias: 0,
     labelsAuto: true,
-    detail: detailForLook(look, print.kind),
-    title: defaultTitleDesign(
+    detail: detailForLayout(layout, print.kind),
+    title: applyLayoutToTitle(defaultTitleDesign(
       print.defaultTitle,
       print.defaultSubtitle,
       print.kind === 'city'
         ? coordinateLine(center)
         : print.establishedYear ? `EST. ${print.establishedYear}` : '',
-    ),
+    ), layout),
     updatedAt: Date.now(),
   };
 
@@ -204,23 +210,51 @@ export function normalizeScene(scene: PrintScene): PrintScene {
   return syncDetail(syncViewport(scene));
 }
 
-/** Apply a look to an existing scene, preserving the user's words and framing. */
-export function applyLook(scene: PrintScene, look: Look): PrintScene {
+/** Move the title block to wherever a layout puts it, keeping the words. */
+export function applyLayoutToTitle(title: TitleDesign, layout: Layout): TitleDesign {
+  const rect = rectForSlot(layout.titleSlot);
+  return {
+    ...title,
+    enabled: layout.titleEnabled,
+    slot: layout.titleSlot,
+    panel: layout.titlePanel,
+    align: layout.align,
+    // A layout change re-derives colours; a manual override would otherwise
+    // survive into a scheme it was never chosen for.
+    textColor: undefined,
+    panelColor: undefined,
+    // Auto-placed layouts get their rect computed from the artwork once it has
+    // rendered. Until then, fall back to the slot's own geometry.
+    autoPlaced: Boolean(layout.autoPlace),
+    onWater: layout.autoPlace === 'water',
+    ...(layout.titleSlot === 'free' ? {} : rect),
+  };
+}
+
+/** Apply a layout, preserving the words, the framing, and the colours. */
+export function applyLayout(scene: PrintScene, layout: Layout): PrintScene {
   return normalizeScene({
     ...scene,
-    lookId: look.id,
-    colors: { ...look.colors },
-    strokeWeight: look.strokeWeight,
+    layoutId: layout.id,
     detail: {
-      ...detailForLook(look, scene.place.kind),
-      // Preserve label choices the user explicitly made.
+      ...detailForLayout(layout, scene.place.kind),
       labels: scene.detail.labels,
     },
+    title: applyLayoutToTitle(scene.title, layout),
+    updatedAt: Date.now(),
+  });
+}
+
+/** Apply a palette, preserving everything about the composition. */
+export function applyPalette(scene: PrintScene, palette: Palette): PrintScene {
+  return normalizeScene({
+    ...scene,
+    paletteId: palette.id,
+    colors: { ...palette.colors },
+    strokeWeight: palette.strokeWeight,
     title: {
       ...scene.title,
-      slot: look.titleSlot,
-      panel: look.titlePanel,
-      // Drop manual color overrides so the new look's automatic pairing wins.
+      // Let the new palette derive its own title colours.
       textColor: undefined,
       panelColor: undefined,
     },
@@ -291,8 +325,12 @@ export function storeScene(scene: PrintScene): void {
   } catch {}
 }
 
-export function sceneLook(scene: PrintScene): Look {
-  return getLook(scene.lookId);
+export function sceneLayout(scene: PrintScene): Layout {
+  return getLayout(scene.layoutId);
+}
+
+export function scenePalette(scene: PrintScene): Palette {
+  return getPalette(scene.paletteId);
 }
 
 /** Cache tag covering everything that changes the rendered artwork. */
@@ -302,7 +340,8 @@ export function sceneCacheTag(scene: PrintScene): string {
   return [
     `v${scene.version}`,
     scene.orientation,
-    scene.lookId,
+    scene.layoutId,
+    scene.paletteId,
     scene.viewport.bbox.join(','),
     scene.colors.land, scene.colors.water, scene.colors.roads,
     scene.strokeWeight.toFixed(2),

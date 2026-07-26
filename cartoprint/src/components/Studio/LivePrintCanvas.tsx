@@ -17,6 +17,8 @@ import { radiusForViewport } from '@/lib/print/framing';
 import type { PrintScene, PrintViewport } from '@/lib/print/scene';
 import { measureWaterShare } from '@/lib/print/autoLook';
 import { supersampleFactor } from '@/lib/print/tileZoom';
+import { findWaterPlacement, mapRectToSheet } from '@/lib/print/waterPlacement';
+import type { NormalisedRect } from '@/lib/print/geometry';
 import { wantsEveryTown } from '@/lib/print/printRender';
 import { getPrintInkColor } from '@/lib/print/colorSchemes';
 
@@ -45,6 +47,11 @@ interface LivePrintCanvasProps {
   onViewportChange: (viewport: PrintViewport, radiusMiles: number) => void;
   onReady?: (map: maplibregl.Map) => void;
   onWaterShare?: (share: number | null) => void;
+  /**
+   * Reports where a title can sit on open water, in SHEET coordinates, or null
+   * when there is no stretch big enough. Only computed when the scene asks.
+   */
+  onWaterPlacement?: (rect: NormalisedRect | null) => void;
   /** Rendered on top of the sheet — the title overlay lives here. */
   children?: ReactNode;
   interactive?: boolean;
@@ -57,6 +64,7 @@ export function LivePrintCanvas({
   onViewportChange,
   onReady,
   onWaterShare,
+  onWaterPlacement,
   children,
   interactive = true,
   className = '',
@@ -74,6 +82,8 @@ export function LivePrintCanvas({
   onViewportChangeRef.current = onViewportChange;
   const onWaterShareRef = useRef(onWaterShare);
   onWaterShareRef.current = onWaterShare;
+  const onWaterPlacementRef = useRef(onWaterPlacement);
+  onWaterPlacementRef.current = onWaterPlacement;
 
   const kind = scene.place.kind === 'country' ? 'country' : scene.place.kind === 'state' ? 'state' : 'city';
   const geo = printGeometry(scene.orientation, scene.detail.border, scene.title);
@@ -193,8 +203,22 @@ export function LivePrintCanvas({
     });
 
     map.on('idle', () => {
-      if (!onWaterShareRef.current) return;
-      onWaterShareRef.current(measureWaterShare(map));
+      onWaterShareRef.current?.(measureWaterShare(map));
+
+      // Where could a title sit on open water? Computed from the pixels we
+      // just drew, because the water colour is one we chose ourselves and a
+      // single readback beats thousands of feature queries.
+      const report = onWaterPlacementRef.current;
+      if (!report) return;
+      const active = sceneRef.current;
+      if (!active.title.autoPlaced) return;
+      const activeGeo = printGeometry(active.orientation, active.detail.border, active.title);
+      const found = findWaterPlacement(
+        map.getCanvas(),
+        active.colors.water || '#0a2342',
+        activeGeo.mapRatio,
+      );
+      report(found ? mapRectToSheet(found.rect, activeGeo.mapRect) : null);
     });
 
     return () => {

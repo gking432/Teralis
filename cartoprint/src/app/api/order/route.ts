@@ -6,7 +6,8 @@ interface DemoOrderBody {
     version?: number;
     place?: { slug?: string; name?: string };
     viewport?: { bbox?: unknown; center?: unknown };
-    lookId?: string;
+    layoutId?: string;
+    paletteId?: string;
     radiusMiles?: number;
     orientation?: string;
   };
@@ -32,7 +33,8 @@ export async function POST(request: NextRequest) {
       !scene.place.name ||
       !Array.isArray(scene.viewport?.bbox) ||
       !Array.isArray(scene.viewport?.center) ||
-      !scene.lookId ||
+      !scene.layoutId ||
+      !scene.paletteId ||
       !printConfig?.size ||
       !printConfig.orientation ||
       !printConfig.sku ||
@@ -50,7 +52,8 @@ export async function POST(request: NextRequest) {
       status: 'artwork-ready',
       summary: {
         place: scene.place.name,
-        look: scene.lookId,
+        layout: scene.layoutId,
+        palette: scene.paletteId,
         radiusMiles: scene.radiusMiles,
         orientation: scene.orientation,
         sku: printConfig.sku,

@@ -148,6 +148,8 @@ export function TitleOverlay({
     if (drag.handle === 'body') {
       onChange({
         ...design,
+        // A hand-placed title stops following the automatic water placement.
+        autoPlaced: false,
         slot: 'free',
         x: clamp(original.x + dx, 0, 1 - original.w),
         y: clamp(original.y + dy, 0, 1 - original.h),
@@ -167,7 +169,7 @@ export function TitleOverlay({
       for (const target of [-90, -45, 0, 45, 90, 180, -180]) {
         if (Math.abs(rotation - target) < 4) rotation = target;
       }
-      onChange({ ...design, ...original, slot: 'free', rotation });
+      onChange({ ...design, ...original, autoPlaced: false, slot: 'free', rotation });
       return;
     }
 
@@ -189,6 +191,7 @@ export function TitleOverlay({
 
     onChange({
       ...design,
+      autoPlaced: false,
       slot: 'free',
       x: clamp(x, 0, 1 - w),
       y: clamp(y, 0, 1 - h),

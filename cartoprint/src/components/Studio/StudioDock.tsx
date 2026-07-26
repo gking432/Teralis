@@ -2,9 +2,10 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { PrintScene } from '@/lib/print/scene';
-import { applyLook, reframe, resetFraming } from '@/lib/print/scene';
-import { LOOKS, getLook, type Look } from '@/lib/print/looks';
-import { LookSwatch } from '@/components/Studio/LookSwatch';
+import { applyLayout, applyPalette, reframe, resetFraming } from '@/lib/print/scene';
+import { LAYOUTS, getLayout } from '@/lib/print/layouts';
+import { PALETTES, getPalette, type Palette } from '@/lib/print/palettes';
+import { LayoutSwatch, PaletteSwatch } from '@/components/Studio/DesignSwatch';
 import {
   formatRadius,
   framingPresets,
@@ -37,7 +38,7 @@ import type { BorderWeight, PrintDetailSettings } from '@/lib/print/printRender'
  * stays the largest thing on screen at every viewport size.
  */
 
-export type Move = 'frame' | 'look' | 'words';
+export type Move = 'frame' | 'layout' | 'colour' | 'words';
 
 interface StudioDockProps {
   scene: PrintScene;
@@ -47,13 +48,20 @@ interface StudioDockProps {
   /** Reports the dock's height so the stage can keep the whole print visible. */
   onHeightChange?: (height: number) => void;
   /** Three suggested starting points, shown until the user makes a choice. */
-  suggestions?: Look[];
+  suggestions?: Palette[];
 }
 
-const MOVES: Array<{ id: Move; label: string; hint: string }> = [
-  { id: 'frame', label: 'Frame', hint: 'What the map shows' },
-  { id: 'look', label: 'Look', hint: 'How it is drawn' },
-  { id: 'words', label: 'Words', hint: 'What it says' },
+/**
+ * One question per step, in the order the decisions actually depend on each
+ * other: what the map shows, how it is composed, what colour it is, what it
+ * says. Layout and colour used to be a single "Look", so choosing a colour
+ * moved the title and choosing a composition recoloured the map.
+ */
+export const MOVES: Array<{ id: Move; label: string; question: string }> = [
+  { id: 'frame', label: 'Frame', question: 'What should the map show?' },
+  { id: 'layout', label: 'Layout', question: 'Where should the words go?' },
+  { id: 'colour', label: 'Colour', question: 'What colour should it be?' },
+  { id: 'words', label: 'Words', question: 'What should it say?' },
 ];
 
 const BORDERS: Array<{ value: BorderWeight; label: string }> = [
@@ -94,7 +102,7 @@ export function MoveTabs({
   return (
     <nav
       className={rail
-        ? 'grid grid-cols-3 gap-1 rounded-sm border border-[#d8d9d3] bg-white p-1'
+        ? 'grid grid-cols-4 gap-1 rounded-sm border border-[#d8d9d3] bg-white p-1'
         : 'pointer-events-auto flex gap-1 rounded-full border border-white/15 bg-[#14201d]/92 p-1 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur'}
       aria-label="Design controls"
     >
@@ -109,7 +117,7 @@ export function MoveTabs({
             // not collapse it into an empty column.
             onClick={() => onActiveChange(isActive && !rail ? null : move.id)}
             className={rail
-              ? `rounded-sm px-3 py-2 text-[13px] transition-colors ${
+              ? `rounded-sm px-1.5 py-2 text-[12px] transition-colors ${
                   isActive ? 'bg-[#173f35] text-white' : 'text-[#44504b] hover:bg-[#eef1ed]'
                 }`
               : `rounded-full px-6 py-2.5 text-[13px] transition-colors ${
@@ -128,12 +136,13 @@ export function StudioPanels({ scene, update, active, suggestions }: {
   scene: PrintScene;
   update: StudioDockProps['update'];
   active: Move;
-  suggestions?: Look[];
+  suggestions?: Palette[];
 }) {
   return (
     <>
       {active === 'frame' && <FramePanel scene={scene} update={update} />}
-      {active === 'look' && <LookPanel scene={scene} update={update} suggestions={suggestions} />}
+      {active === 'layout' && <LayoutPanel scene={scene} update={update} />}
+      {active === 'colour' && <ColourPanel scene={scene} update={update} suggestions={suggestions} />}
       {active === 'words' && <WordsPanel scene={scene} update={update} />}
     </>
   );
@@ -278,21 +287,75 @@ function FramePanel({ scene, update }: { scene: PrintScene; update: StudioDockPr
   );
 }
 
-// --- Look -------------------------------------------------------------------
+// --- Layout -----------------------------------------------------------------
 
-function LookPanel({ scene, update, suggestions }: {
+function LayoutPanel({ scene, update }: { scene: PrintScene; update: StudioDockProps['update'] }) {
+  const layout = getLayout(scene.layoutId);
+  const onWaterUnavailable = layout.autoPlace === 'water' && scene.title.autoPlaced && !scene.title.onWater;
+
+  return (
+    <div className="grid gap-5">
+      <Field label="Layout" help="Where the words sit. Colour is the next step.">
+        <div className="grid grid-cols-5 gap-2">
+          {LAYOUTS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              aria-pressed={scene.layoutId === option.id}
+              title={`${option.name} — ${option.blurb}`}
+              onClick={() => update((current) => applyLayout(current, option), `layout-${option.id}`)}
+              className={`rounded-sm border p-1 transition-colors ${
+                scene.layoutId === option.id
+                  ? 'border-[#173f35] bg-[#eef1ed]'
+                  : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
+              }`}
+            >
+              <LayoutSwatch layout={option} width={48} />
+              <span className="mt-1 block truncate text-[11px] leading-4">{option.name}</span>
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[12px] leading-5 text-[#68726c]">{layout.blurb}</p>
+        {layout.autoPlace === 'water' && (
+          <p className="mt-1.5 text-[12px] leading-5 text-[#68726c]">
+            The title is placed on the largest stretch of water in the frame and
+            coloured to contrast it. Drag it if you want it somewhere else.
+          </p>
+        )}
+        {onWaterUnavailable && (
+          <p className="mt-1.5 text-[12px] leading-5 text-[#8a5a3f]">
+            No open water big enough in this frame — the title has stayed in the
+            corner. Try widening the view or another layout.
+          </p>
+        )}
+      </Field>
+
+      <Field label="Border">
+        <Segmented
+          options={BORDERS.map((border) => ({ value: border.value, label: border.label }))}
+          value={scene.detail.border}
+          onChange={(value) => update((current) => ({
+            ...current,
+            detail: { ...current.detail, border: value as BorderWeight },
+          }), 'border')}
+        />
+      </Field>
+    </div>
+  );
+}
+
+// --- Colour -----------------------------------------------------------------
+
+function ColourPanel({ scene, update, suggestions }: {
   scene: PrintScene;
   update: StudioDockProps['update'];
-  suggestions?: Look[];
+  suggestions?: Palette[];
 }) {
   const [fineTune, setFineTune] = useState(false);
-  const look = getLook(scene.lookId);
-  const palette = checkPalette(scene.colors);
+  const palette = getPalette(scene.paletteId);
+  const contrast = checkPalette(scene.colors);
   const density = sceneDensity(scene);
 
-  // Say WHY a bigger print would show more, rather than leaving the user to
-  // discover it by buying one. Only surfaced when a larger size actually
-  // crosses the threshold — never as a generic upsell.
   const isCity = scene.place.kind === 'city';
   const lonSpan = Math.abs(Number(scene.viewport.bbox[3]) - Number(scene.viewport.bbox[2]));
   const wantedSize = isCity
@@ -300,14 +363,9 @@ function LookPanel({ scene, update, suggestions }: {
     : smallestSizeForEveryTown(scene.radiusMiles, scene.orientation);
   const missing = isCity ? !density.everyStreet : !density.everyTown;
   const biggerHelps = Boolean(wantedSize) && SIZE_LABELS.indexOf(wantedSize!) > SIZE_LABELS.indexOf(scene.size);
-
-  // A city frame can also be too WIDE for the street network to exist in the
-  // tiles at all, in which case a bigger sheet does not help and the honest
-  // advice is to tighten the frame.
   const tighterRadius = isCity && missing && !biggerHelps
     ? maxRadiusForEveryStreet(scene.viewport.center[1], scene.size, scene.orientation)
     : null;
-
   const upgradeHint = missing && biggerHelps
     ? `A ${SIZE_CATALOG[scene.orientation][wantedSize!].dimensionStr} print would fit ${
         isCity ? 'every street' : 'every town'
@@ -320,22 +378,22 @@ function LookPanel({ scene, update, suggestions }: {
     <div className="grid gap-5">
       {suggestions && suggestions.length > 0 && (
         <Field
-          label={`Three good prints of ${scene.place.name}`}
-          help="A starting point picked from the place itself — how much water is in frame, and how much ground."
+          label={`Suits ${scene.place.name}`}
+          help="Picked from the place itself — how much water is in frame, and how much ground."
         >
           <div className="grid grid-cols-3 gap-2">
             {suggestions.map((option) => (
               <button
                 key={option.id}
                 type="button"
-                onClick={() => update((current) => applyLook(current, option), `start-${option.id}`)}
+                onClick={() => update((current) => applyPalette(current, option), `suggest-${option.id}`)}
                 className={`flex min-w-0 flex-col items-center gap-1.5 rounded-sm border p-2 transition-colors ${
-                  scene.lookId === option.id
+                  scene.paletteId === option.id
                     ? 'border-[#173f35] bg-[#eef1ed]'
                     : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
                 }`}
               >
-                <LookSwatch look={option} width={44} />
+                <PaletteSwatch palette={option} width={44} />
                 <span className="w-full truncate text-center text-[12px]">{option.name}</span>
               </button>
             ))}
@@ -343,33 +401,32 @@ function LookPanel({ scene, update, suggestions }: {
         </Field>
       )}
 
-      <Field label={suggestions && suggestions.length > 0 ? 'Or pick any look' : 'Look'}>
+      <Field label={suggestions && suggestions.length > 0 ? 'Or any scheme' : 'Colour scheme'}>
         <div className="grid grid-cols-5 gap-2">
-          {LOOKS.map((option) => {
-            const isActive = scene.lookId === option.id;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                aria-pressed={isActive}
-                title={`${option.name} — ${option.blurb}`}
-                onClick={() => update((current) => applyLook(current, option), `look-${option.id}`)}
-                className={`group rounded-sm border p-1 transition-colors ${
-                  isActive ? 'border-[#173f35] bg-[#eef1ed]' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
-                }`}
-              >
-                <LookSwatch look={option} width={48} />
-                <span className="mt-1 block truncate text-[11px] leading-4">{option.name}</span>
-              </button>
-            );
-          })}
+          {PALETTES.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              aria-pressed={scene.paletteId === option.id}
+              title={`${option.name} — ${option.blurb}`}
+              onClick={() => update((current) => applyPalette(current, option), `palette-${option.id}`)}
+              className={`rounded-sm border p-1 transition-colors ${
+                scene.paletteId === option.id
+                  ? 'border-[#173f35] bg-[#eef1ed]'
+                  : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
+              }`}
+            >
+              <PaletteSwatch palette={option} width={48} />
+              <span className="mt-1 block truncate text-[11px] leading-4">{option.name}</span>
+            </button>
+          ))}
         </div>
-        <p className="mt-2 text-[12px] leading-5 text-[#68726c]">{look.blurb}</p>
+        <p className="mt-2 text-[12px] leading-5 text-[#68726c]">{palette.blurb}</p>
       </Field>
 
       <Field label="Accent">
         <div className="flex flex-wrap items-center gap-2">
-          {look.accents.map((accent) => (
+          {palette.accents.map((accent) => (
             <button
               key={accent}
               type="button"
@@ -387,7 +444,6 @@ function LookPanel({ scene, update, suggestions }: {
               style={{ backgroundColor: accent }}
             />
           ))}
-          <span className="ml-1 text-[12px] text-[#68726c]">Picked to work with this look.</span>
         </div>
       </Field>
 
@@ -406,9 +462,7 @@ function LookPanel({ scene, update, suggestions }: {
             {Math.round(density.milesPerInch * 10) / 10} miles per inch of paper.
           </span>
         </p>
-        {upgradeHint && (
-          <p className="mt-1.5 text-[12px] leading-5 text-[#8a5a3f]">{upgradeHint}</p>
-        )}
+        {upgradeHint && <p className="mt-1.5 text-[12px] leading-5 text-[#8a5a3f]">{upgradeHint}</p>}
       </Field>
 
       <button
@@ -430,31 +484,12 @@ function LookPanel({ scene, update, suggestions }: {
             />
           </Field>
 
-          <Field label="Border">
-            <Segmented
-              options={BORDERS.map((border) => ({ value: border.value, label: border.label }))}
-              value={scene.detail.border}
-              onChange={(value) => update((current) => ({
-                ...current,
-                detail: { ...current.detail, border: value as BorderWeight },
-              }), 'border')}
-            />
-          </Field>
-
           <Field label="Labels">
             <div className="grid gap-1 sm:grid-cols-2">
               {scene.place.kind !== 'city' && (
                 <>
-                  <Toggle
-                    label="City names"
-                    active={scene.detail.labels.cities}
-                    onChange={() => toggleLabel(update, 'cities')}
-                  />
-                  <Toggle
-                    label="Town names"
-                    active={scene.detail.labels.towns}
-                    onChange={() => toggleLabel(update, 'towns')}
-                  />
+                  <Toggle label="City names" active={scene.detail.labels.cities} onChange={() => toggleLabel(update, 'cities')} />
+                  <Toggle label="Town names" active={scene.detail.labels.towns} onChange={() => toggleLabel(update, 'towns')} />
                 </>
               )}
               <Toggle label="Street names" active={scene.detail.labels.roads} onChange={() => toggleLabel(update, 'roads')} />
@@ -471,38 +506,23 @@ function LookPanel({ scene, update, suggestions }: {
             </div>
           </Field>
 
-          <Field
-            label="Custom colours"
-            help="Anything is allowed here, but we check it the way it will print."
-          >
+          <Field label="Custom colours" help="Anything is allowed, but we check it the way it will print.">
             <div className="grid gap-2 sm:grid-cols-3">
-              <ColorField
-                label="Paper"
-                value={scene.colors.land}
-                onChange={(land) => update((current) => ({ ...current, colors: { ...current.colors, land } }), 'color-land')}
-              />
-              <ColorField
-                label="Water"
-                value={scene.colors.water}
-                onChange={(water) => update((current) => ({ ...current, colors: { ...current.colors, water } }), 'color-water')}
-              />
-              <ColorField
-                label="Streets"
-                value={scene.colors.roads}
-                onChange={(roads) => update((current) => ({ ...current, colors: { ...current.colors, roads } }), 'color-roads')}
-              />
+              <ColorField label="Paper" value={scene.colors.land} onChange={(land) => update((current) => ({ ...current, colors: { ...current.colors, land } }), 'color-land')} />
+              <ColorField label="Water" value={scene.colors.water} onChange={(water) => update((current) => ({ ...current, colors: { ...current.colors, water } }), 'color-water')} />
+              <ColorField label="Streets" value={scene.colors.roads} onChange={(roads) => update((current) => ({ ...current, colors: { ...current.colors, roads } }), 'color-roads')} />
             </div>
 
-            {palette.verdict !== 'good' && (
+            {contrast.verdict !== 'good' && (
               <div
                 className={`mt-3 flex flex-wrap items-center gap-3 border-l-2 px-3 py-2 text-[12px] leading-5 ${
-                  palette.verdict === 'unprintable'
+                  contrast.verdict === 'unprintable'
                     ? 'border-[#c1362b] bg-[#fbf0ee] text-[#8f2a21]'
                     : 'border-[#c66b4e] bg-[#faf4f0] text-[#8a4a33]'
                 }`}
                 role="status"
               >
-                <span className="flex-1">{palette.issues.join(' ')}</span>
+                <span className="flex-1">{contrast.issues.join(' ')}</span>
                 <button
                   type="button"
                   className="studio-ghost-button px-3 py-1.5"
@@ -532,12 +552,18 @@ function nearestWeight(weight: number): number {
   WEIGHTS[1].value);
 }
 
+/**
+ * A place label toggled by hand stops following the resolver, so a later
+ * reframe cannot silently undo the choice.
+ */
 function toggleLabel(
   update: StudioDockProps['update'],
   key: keyof PrintDetailSettings['labels'],
 ) {
+  const isPlaceLabel = key === 'cities' || key === 'towns';
   update((current) => ({
     ...current,
+    labelsAuto: isPlaceLabel ? false : current.labelsAuto,
     detail: {
       ...current.detail,
       labels: { ...current.detail.labels, [key]: !current.detail.labels[key] },

@@ -10,7 +10,7 @@ import { getCatalogPrint } from '@/lib/catalog/prints';
 import { getCachedBoundary, fetchBoundary } from '@/lib/print/boundaryCache';
 import { renderScene } from '@/lib/print/renderScene';
 import { createPrintScene } from '@/lib/print/scene';
-import { DEFAULT_LOOK } from '@/lib/print/looks';
+import { DEFAULT_PALETTE } from '@/lib/print/palettes';
 
 const THUMB_WIDTH = 720;
 
@@ -33,7 +33,7 @@ function ThumbnailRenderer() {
         geometry = record?.geometry ?? null;
       }
 
-      const scene = createPrintScene(print, 'portrait', DEFAULT_LOOK);
+      const scene = createPrintScene(print, 'portrait', DEFAULT_PALETTE);
       const url = await renderScene(scene, geometry, {
         width: THUMB_WIDTH,
         signal: controller.signal,

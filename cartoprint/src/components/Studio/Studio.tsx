@@ -7,10 +7,10 @@ import type maplibregl from 'maplibre-gl';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import { LivePrintCanvas } from '@/components/Studio/LivePrintCanvas';
 import { TitleOverlay } from '@/components/Studio/TitleOverlay';
-import { MoveTabs, StudioDock, StudioPanels, type Move } from '@/components/Studio/StudioDock';
+import { MOVES, MoveTabs, StudioDock, StudioPanels, type Move } from '@/components/Studio/StudioDock';
 import { useSceneHistory } from '@/hooks/useSceneHistory';
 import {
-  applyLook,
+  applyPalette,
   createPrintScene,
   readStoredScene,
   setFreeViewport,
@@ -19,8 +19,9 @@ import {
   type PrintScene,
   type PrintViewport,
 } from '@/lib/print/scene';
-import { getLook } from '@/lib/print/looks';
-import { seedFromSlug, suggestLooks } from '@/lib/print/autoLook';
+import { getLayout } from '@/lib/print/layouts';
+import { getPalette } from '@/lib/print/palettes';
+import { seedFromSlug, suggestPalettes } from '@/lib/print/autoLook';
 import { formatRadius } from '@/lib/print/framing';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 import { renderScene } from '@/lib/print/renderScene';
@@ -57,7 +58,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
   const [boundary, setBoundary] = useState<GeoJSON.Geometry | null>(null);
   const [activeMove, setActiveMove] = useState<Move | null>(null);
   // The rail always has something open, so it needs its own current move.
-  const [railMove, setRailMove] = useState<Move>('look');
+  const [railMove, setRailMove] = useState<Move>('frame');
   const [waterShare, setWaterShare] = useState<number | null>(null);
   const [continuing, setContinuing] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -83,7 +84,8 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
       reset({
         ...base,
         orientation: decoded.orientation,
-        lookId: decoded.lookId,
+        layoutId: decoded.layoutId,
+        paletteId: decoded.paletteId,
         radiusMiles: decoded.radiusMiles,
         freeViewport: decoded.freeViewport,
         focus: [...decoded.viewport.center] as [number, number],
@@ -138,7 +140,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
   // --- Start from a good print rather than a blank one. Once the map has
   // painted we know how much of the frame is water, which is the single most
   // useful signal for which look suits this place.
-  const suggestions = suggestLooks({
+  const suggestions = suggestPalettes({
     kind: print.kind,
     radiusMiles: scene.place.placeRadiusMiles,
     waterShare,
@@ -150,12 +152,38 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     if (waterShare === null) return;
     autoApplied.current = true;
     const best = suggestions[0];
-    if (best && best.id !== scene.lookId) {
-      update((current) => applyLook(current, best), 'auto-look');
+    if (best && best.id !== scene.paletteId) {
+      update((current) => applyPalette(current, best), 'auto-palette');
     }
     // `suggestions` is derived from waterShare; recomputing on it would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waterShare]);
+
+  /**
+   * Accept an automatic placement. Only while the title is still auto-placed —
+   * the instant the user drags it, `autoPlaced` clears and their position wins.
+   */
+  const handleWaterPlacement = useCallback((rect: { x: number; y: number; w: number; h: number } | null) => {
+    update((current) => {
+      if (!current.title.autoPlaced) return current;
+      const found = Boolean(rect);
+      const same = rect
+        && Math.abs(current.title.x - rect.x) < 0.002
+        && Math.abs(current.title.y - rect.y) < 0.002
+        && Math.abs(current.title.w - rect.w) < 0.002;
+      if (same && current.title.onWater === found) return current;
+      return {
+        ...current,
+        title: {
+          ...current.title,
+          // No water big enough: keep the words somewhere readable rather than
+          // dropping them on the city, and colour them for paper again.
+          ...(rect ? { slot: 'free' as const, ...rect } : { slot: 'bottom-left' as const }),
+          onWater: found,
+        },
+      };
+    }, 'water-placement');
+  }, [update]);
 
   const handleViewportChange = useCallback((viewport: PrintViewport, radiusMiles: number) => {
     userTouched.current = true;
@@ -230,7 +258,10 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     }
   }
 
-  const look = getLook(scene.lookId);
+  const stepIndex = Math.max(MOVES.findIndex((move) => move.id === railMove), 0);
+  const currentStep = MOVES[stepIndex];
+  const layout = getLayout(scene.layoutId);
+  const palette = getPalette(scene.paletteId);
   // Suggestions live inside the Look panel rather than floating over the print,
   // and retire as soon as the user has expressed a preference of their own.
   const showSuggestions = !userTouched.current;
@@ -298,6 +329,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
               onViewportChange={handleViewportChange}
               onReady={(map) => { mapRef.current = map; }}
               onWaterShare={setWaterShare}
+              onWaterPlacement={handleWaterPlacement}
               className="h-full w-full"
             >
               <TitleOverlay
@@ -320,7 +352,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
           className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 text-[11px] text-white/35"
           style={{ bottom: dockHeight + 2 }}
         >
-          {look.name} · {scene.freeViewport ? 'custom view' : formatRadius(scene.radiusMiles)}
+          {palette.name} · {layout.name} · {scene.freeViewport ? 'custom view' : formatRadius(scene.radiusMiles)}
         </div>
 
         {/* Bottom sheet: phones and tablets only. */}
@@ -342,7 +374,9 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
       <aside className="hidden w-[372px] flex-none flex-col border-l border-white/10 bg-[#fbfaf6] text-[#14201d] lg:flex xl:w-[400px]">
         <div className="flex-none border-b border-[#e0ddd4] p-4">
           <MoveTabs active={railMove} onActiveChange={(move) => move && setRailMove(move)} variant="rail" />
+          <p className="mt-3 text-[13px] text-[#44504b]">{currentStep.question}</p>
         </div>
+
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           <StudioPanels
             scene={scene}
@@ -350,6 +384,40 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
             active={railMove}
             suggestions={showSuggestions ? suggestions : undefined}
           />
+        </div>
+
+        {/* One question at a time, with a way forward. The steps are still
+            directly addressable above, so this guides without trapping. */}
+        <div className="flex flex-none items-center justify-between gap-3 border-t border-[#e0ddd4] p-4">
+          <button
+            type="button"
+            onClick={() => setRailMove(MOVES[Math.max(stepIndex - 1, 0)].id)}
+            disabled={stepIndex === 0}
+            className="studio-ghost-button disabled:opacity-30"
+          >
+            Back
+          </button>
+          <span className="text-[12px] text-[#8a918d]">
+            Step {stepIndex + 1} of {MOVES.length}
+          </span>
+          {stepIndex < MOVES.length - 1 ? (
+            <button
+              type="button"
+              onClick={() => setRailMove(MOVES[stepIndex + 1].id)}
+              className="rounded-sm bg-[#173f35] px-5 py-2 text-[13px] text-white transition-colors hover:bg-[#0f2f27]"
+            >
+              Next
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleContinue}
+              disabled={continuing}
+              className="rounded-sm bg-[#173f35] px-4 py-2 text-[13px] text-white transition-colors hover:bg-[#0f2f27] disabled:opacity-60"
+            >
+              {continuing ? 'Preparing…' : 'Size & frame'}
+            </button>
+          )}
         </div>
       </aside>
       </div>
