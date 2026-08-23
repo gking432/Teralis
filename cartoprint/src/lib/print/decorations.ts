@@ -117,39 +117,15 @@ export function illustrationForTheme(
   current: IllustrationDesign,
   slug: string,
 ): IllustrationDesign {
-  const automaticDecorations = (slug === 'wisconsin' ? wisconsinDoodleDecorations() : []).map((item) => {
-    if (item.kind !== 'text' || theme === 'doodle-atlas') return item;
-    return {
-      ...item,
-      font: theme === 'heritage'
-        ? 'atlas' as const
-        : theme === 'topographic'
-          ? 'condensed' as const
-          : item.font,
-    };
-  });
   const personal = current.decorations.filter((item) => item.source === 'personal');
-  if (theme === 'none') {
+  if (theme !== 'doodle-atlas') {
     return {
       theme,
       layers: { roads: 'map', terrain: 'hidden', water: 'map', landmarks: 'hidden' },
       decorations: personal,
     };
   }
-  if (theme === 'topographic') {
-    return {
-      theme,
-      layers: { roads: 'minimal', terrain: 'minimal', water: 'map', landmarks: 'minimal' },
-      decorations: [...automaticDecorations.filter((item) => item.kind === 'text' || item.kind === 'star'), ...personal],
-    };
-  }
-  if (theme === 'heritage') {
-    return {
-      theme,
-      layers: { roads: 'map', terrain: 'minimal', water: 'map', landmarks: 'doodle' },
-      decorations: [...automaticDecorations.filter((item) => item.layer === 'landmarks'), ...personal],
-    };
-  }
+  const automaticDecorations = slug === 'wisconsin' ? wisconsinDoodleDecorations() : [];
   return {
     theme,
     layers: { ...DEFAULT_LAYERS },

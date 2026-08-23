@@ -615,8 +615,8 @@ const STATE_THEMES: Array<{
   glyph: 'forest' | 'mountains' | 'waves';
 }> = [
   { id: 'doodle-atlas', name: 'Doodle Atlas', blurb: 'Hand-drawn forests, water, places, and landmarks.', palette: 'bone', font: 'hand', glyph: 'forest' },
-  { id: 'heritage', name: 'Heritage', blurb: 'Classic cartography with restrained illustrated markers.', palette: 'terracotta', font: 'editorial', glyph: 'mountains' },
-  { id: 'topographic', name: 'Topographic', blurb: 'Quiet terrain structure with modern place markers.', palette: 'forest', font: 'condensed', glyph: 'mountains' },
+  { id: 'heritage', name: 'Heritage', blurb: 'Classic roads, rivers, and lakes without doodles.', palette: 'terracotta', font: 'editorial', glyph: 'waves' },
+  { id: 'topographic', name: 'Topographic', blurb: 'Modern geographic linework without illustrated markers.', palette: 'forest', font: 'condensed', glyph: 'waves' },
   { id: 'none', name: 'Map Study', blurb: 'Pure map linework without automatic illustrations.', palette: 'slate', font: 'editorial', glyph: 'waves' },
 ];
 

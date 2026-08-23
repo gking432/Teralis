@@ -436,18 +436,25 @@ export default function SelfTest() {
     check('design round-trips viewport', decoded?.viewport.bbox.join() === recentered.viewport.bbox.join());
     check('design round-trips detail', decoded?.detail.border === recentered.detail.border);
 
-    // State art directions own their automatic lettering. Personal labels keep
-    // the font the customer explicitly chose.
+    // Automatic doodle annotations belong exclusively to the Doodle Atlas.
+    // The other directions are clean maps; personal additions still survive
+    // direction changes so a customer's work is never discarded.
     const heritageIllustration = illustrationForTheme('heritage', wisconsin.illustration, 'wisconsin');
     const topographicIllustration = illustrationForTheme('topographic', wisconsin.illustration, 'wisconsin');
-    check('heritage remaps automatic labels to atlas lettering',
-      heritageIllustration.decorations
-        .filter((item) => item.kind === 'text' && item.source === 'automatic')
-        .every((item) => item.font === 'atlas'));
-    check('topographic remaps automatic labels to condensed lettering',
-      topographicIllustration.decorations
-        .filter((item) => item.kind === 'text' && item.source === 'automatic')
-        .every((item) => item.font === 'condensed'));
+    check('heritage removes all automatic doodle annotations',
+      heritageIllustration.decorations.every((item) => item.source === 'personal'));
+    check('heritage uses only clean roads and water layers',
+      heritageIllustration.layers.roads === 'map'
+        && heritageIllustration.layers.water === 'map'
+        && heritageIllustration.layers.terrain === 'hidden'
+        && heritageIllustration.layers.landmarks === 'hidden');
+    check('topographic removes all automatic doodle annotations',
+      topographicIllustration.decorations.every((item) => item.source === 'personal'));
+    check('topographic uses only clean roads and water layers',
+      topographicIllustration.layers.roads === 'map'
+        && topographicIllustration.layers.water === 'map'
+        && topographicIllustration.layers.terrain === 'hidden'
+        && topographicIllustration.layers.landmarks === 'hidden');
 
     setLines(out);
   }, []);

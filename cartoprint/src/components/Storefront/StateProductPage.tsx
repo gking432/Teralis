@@ -24,8 +24,8 @@ const DIRECTIONS: Array<{
   font: PrintScene['title']['font'];
 }> = [
   { id: 'doodle-atlas', name: 'Doodle Atlas', note: 'Northwoods, bluffs, lakes, and personal landmarks', palette: 'bone', font: 'hand' },
-  { id: 'heritage', name: 'Heritage', note: 'Warm cartography with restrained illustrated markers', palette: 'terracotta', font: 'editorial' },
-  { id: 'topographic', name: 'Topographic', note: 'Quiet terrain with modern atlas lettering', palette: 'forest', font: 'condensed' },
+  { id: 'heritage', name: 'Heritage', note: 'Warm, clean roads, rivers, and lakes', palette: 'terracotta', font: 'editorial' },
+  { id: 'topographic', name: 'Topographic', note: 'Modern linework for roads, rivers, and lakes', palette: 'forest', font: 'condensed' },
 ];
 
 function initialScene(print: CatalogPrint): PrintScene {
@@ -124,7 +124,7 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
             <div className="relative flex min-h-[570px] items-center justify-center overflow-hidden border border-white/10 bg-white/[0.035] p-5 sm:min-h-[720px] sm:p-9 lg:min-h-[calc(100vh-155px)]">
               {artwork ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={artwork} alt="Wisconsin Doodle Atlas print with forests, lakes, bluffs, and landmarks" className="aspect-[3/4] h-auto max-h-[calc(100vh-205px)] w-auto max-w-full shadow-[0_35px_90px_rgba(0,0,0,0.42)]" />
+                <img src={artwork} alt={scene.illustration.theme === 'doodle-atlas' ? 'Wisconsin Doodle Atlas print with forests, lakes, bluffs, and landmarks' : 'Clean Wisconsin map print with roads, rivers, and lakes'} className="aspect-[3/4] h-auto max-h-[calc(100vh-205px)] w-auto max-w-full shadow-[0_35px_90px_rgba(0,0,0,0.42)]" />
               ) : (
                 <div className="grid aspect-[3/4] w-[min(82vw,520px)] place-items-center bg-[#f7f3ea] text-[#3a352e] shadow-[0_35px_90px_rgba(0,0,0,0.42)]">
                   <div className="text-center">
@@ -156,7 +156,9 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
                 {displayTitleText(scene.title)}
               </h1>
               <p className="mt-5 max-w-md text-[13px] leading-6 text-[#53605a]">
-                A map with a point of view: Northwoods pines, Driftless hills, Great Lakes lettering, Door County light, and room for the places that are yours.
+                {scene.illustration.theme === 'doodle-atlas'
+                  ? 'A map with a point of view: Northwoods pines, Driftless hills, Great Lakes lettering, Door County light, and room for the places that are yours.'
+                  : 'A clean geographic study of Wisconsin, built from simple roads, rivers, and lakes without illustrated labels or landmarks.'}
               </p>
               <div className="mt-5 flex items-end justify-between border-t border-[#14201d]/12 pt-5">
                 <div>
