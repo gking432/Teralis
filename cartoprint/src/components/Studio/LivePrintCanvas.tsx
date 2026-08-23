@@ -10,9 +10,12 @@ import {
   applyPrintMapStyle,
   applyPrintMaskColor,
   addDetailedCityRoads,
+  addDetailedStateFeatures,
+  removeDetailedStateFeatures,
   setDetailedCityRoadsVisible,
 } from '@/lib/print/printRender';
 import { fetchDetailedCityRoads } from '@/lib/print/cityRoads';
+import { fetchDetailedStateFeatures } from '@/lib/print/stateDetails';
 import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
 import { strokeScaleFor } from '@/lib/print/strokes';
 import { printGeometry, percent } from '@/lib/print/geometry';
@@ -82,6 +85,7 @@ export function LivePrintCanvas({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 });
   const [styleReady, setStyleReady] = useState(false);
+  const [stateDetailLoaded, setStateDetailLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
 
   const sceneRef = useRef(scene);
@@ -386,6 +390,46 @@ export function LivePrintCanvas({
     return () => controller.abort();
   }, [scene.detail, scene.viewport.bbox, scene.colors, geometry, styleReady]);
 
+  // State-scale base tiles are generalized. Maximum detail uses a z9 feature
+  // pass so the control visibly adds secondary routes, smaller lakes, river
+  // geometry, and county boundaries in both the preview and final export.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady || kind !== 'state') return;
+
+    if (scene.detailBias !== 1) {
+      removeDetailedStateFeatures(map);
+      setStateDetailLoaded(false);
+      map.triggerRepaint();
+      return;
+    }
+
+    const controller = new AbortController();
+    const detailBbox = bboxKey.split(',') as [string, string, string, string];
+    onReadyStateChangeRef.current?.(false);
+    fetchDetailedStateFeatures(detailBbox, controller.signal)
+      .then((collection) => {
+        if (controller.signal.aborted) return;
+        const active = sceneRef.current;
+        const added = addDetailedStateFeatures(map, collection, active.colors, currentScale(), active.strokeWeight);
+        setStateDetailLoaded(added);
+        try { map.moveLayer('mask-layer'); } catch {}
+        map.once('idle', () => {
+          onReadyStateChangeRef.current?.(true);
+          reportMapPreview(map);
+        });
+        map.triggerRepaint();
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setStateDetailLoaded(false);
+          onReadyStateChangeRef.current?.(true);
+        }
+      });
+
+    return () => controller.abort();
+  }, [bboxKey, currentScale, kind, reportMapPreview, scene.detailBias, styleReady]);
+
   // City streets come from z12 transportation tiles decoded by our API. This
   // keeps the complete residential network independent of the visible camera
   // zoom and gives the live canvas the same geometry as the final export.
@@ -472,6 +516,8 @@ export function LivePrintCanvas({
       className={`relative overflow-hidden ${className}`}
       style={{ backgroundColor: paper, aspectRatio: `1 / ${geo.ratio}` }}
       data-testid="print-sheet"
+      data-map-detail={scene.detailBias}
+      data-state-detail-loaded={kind === 'state' ? stateDetailLoaded : undefined}
     >
       {/* The ink border is a DOM frame, not a baked pixel band, so changing its
           weight is instant and never triggers a re-render of the map. */}

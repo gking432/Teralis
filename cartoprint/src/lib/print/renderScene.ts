@@ -7,11 +7,13 @@ import { getStateCatalogPrints } from '@/lib/catalog/prints';
 import { getPrintInkColor } from '@/lib/print/colorSchemes';
 import {
   addDetailedCityRoads,
+  addDetailedStateFeatures,
   applyPrintMapStyle,
   applyPrintMaskColor,
   wantsEveryTown,
 } from '@/lib/print/printRender';
 import { fetchDetailedCityRoads } from '@/lib/print/cityRoads';
+import { fetchDetailedStateFeatures } from '@/lib/print/stateDetails';
 import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
 import { strokeScaleFor } from '@/lib/print/strokes';
 import { printGeometry } from '@/lib/print/geometry';
@@ -241,6 +243,15 @@ export async function renderScene(
           featureTasks.push(fetchDetailedCityRoads(scene.viewport.bbox, signal)
             .then((fc) => {
               addDetailedCityRoads(map, fc, scene.colors, scale, scene.strokeWeight);
+            })
+            .catch(() => {}));
+        }
+
+        if (kind === 'state' && scene.detailBias === 1) {
+          featureTasks.push(fetchDetailedStateFeatures(scene.viewport.bbox, signal)
+            .then((fc) => {
+              addDetailedStateFeatures(map, fc, scene.colors, scale, scene.strokeWeight);
+              try { map.moveLayer('mask-layer'); } catch {}
             })
             .catch(() => {}));
         }

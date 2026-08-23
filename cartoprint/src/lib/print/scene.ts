@@ -137,6 +137,8 @@ export function syncDetail(scene: PrintScene): PrintScene {
   const illustratedRoads = scene.illustration?.layers.roads;
   const stateRoads = illustratedRoads === 'hidden'
     ? 'none'
+    : scene.detailBias === 1
+      ? 'neutral'
     : illustratedRoads === 'minimal' || illustratedRoads === 'doodle'
       ? 'less'
       : density.roads;

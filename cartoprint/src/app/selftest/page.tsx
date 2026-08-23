@@ -295,6 +295,7 @@ export default function SelfTest() {
     const cleanWisconsin = normalizeScene({ ...wisconsin, detailBias: -1 });
     check('state clean removes rivers too', cleanWisconsin.detail.rivers === false);
     const denseWisconsin = normalizeScene({ ...wisconsin, detailBias: 1 });
+    check('state more detailed overrides doodle minimal roads', denseWisconsin.detail.roads === 'neutral');
     check('state more detailed adds county structure', denseWisconsin.detail.counties === true);
     check('state more detailed reveals the shared boundary layer', buildPrintLayerState('state', denseWisconsin.detail).states === true);
     const titledWisconsin = applyLayout(wisconsin, getLayout('poster'));

@@ -139,6 +139,90 @@ const CITY_ROAD_LAYERS = [
   'print-city-road-local',
 ] as const;
 
+const STATE_DETAIL_SOURCE_ID = 'print-state-details';
+const STATE_DETAIL_LAYERS = [
+  'print-state-detail-lakes',
+  'print-state-detail-county-boundaries',
+  'print-state-detail-rivers',
+  'print-state-detail-roads',
+] as const;
+
+export function removeDetailedStateFeatures(map: maplibregl.Map): void {
+  try {
+    STATE_DETAIL_LAYERS.forEach((id) => {
+      if (map.getLayer(id)) map.removeLayer(id);
+    });
+    if (map.getSource(STATE_DETAIL_SOURCE_ID)) map.removeSource(STATE_DETAIL_SOURCE_ID);
+  } catch {}
+}
+
+/** Add geography that low-zoom state tiles do not contain. */
+export function addDetailedStateFeatures(
+  map: maplibregl.Map,
+  collection: GeoJSON.FeatureCollection,
+  colors: PreviewColorSettings,
+  scale: StrokeScale = UNSCALED,
+  weight = 1,
+): boolean {
+  removeDetailedStateFeatures(map);
+  if (!collection.features.length) return false;
+
+  try {
+    map.addSource(STATE_DETAIL_SOURCE_ID, { type: 'geojson', data: collection });
+    const before = map.getLayer('mask-layer') ? 'mask-layer' : undefined;
+    map.addLayer({
+      id: 'print-state-detail-lakes',
+      type: 'fill',
+      source: STATE_DETAIL_SOURCE_ID,
+      filter: ['==', ['get', 'kind'], 'lake'],
+      paint: {
+        'fill-color': colors.water || getPrintInkColor(colors),
+        'fill-opacity': 1,
+      },
+    }, before);
+    map.addLayer({
+      id: 'print-state-detail-county-boundaries',
+      type: 'line',
+      source: STATE_DETAIL_SOURCE_ID,
+      filter: ['==', ['get', 'kind'], 'county'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': colors.roads || getPrintInkColor(colors),
+        'line-opacity': 0.25,
+        'line-width': scaledWidth(STROKE_CURVES.countyBorder, scale, weight),
+      },
+    }, before);
+    map.addLayer({
+      id: 'print-state-detail-rivers',
+      type: 'line',
+      source: STATE_DETAIL_SOURCE_ID,
+      filter: ['==', ['get', 'kind'], 'river'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': colors.water || getPrintInkColor(colors),
+        'line-opacity': 0.78,
+        'line-width': scaledWidth(STROKE_CURVES.waterway, scale, weight),
+      },
+    }, before);
+    map.addLayer({
+      id: 'print-state-detail-roads',
+      type: 'line',
+      source: STATE_DETAIL_SOURCE_ID,
+      filter: ['==', ['get', 'kind'], 'road'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': colors.roads || getPrintInkColor(colors),
+        'line-opacity': 0.58,
+        'line-width': scaledWidth(STROKE_CURVES.street, scale, weight),
+      },
+    }, before);
+    return true;
+  } catch {
+    removeDetailedStateFeatures(map);
+    return false;
+  }
+}
+
 /** Hide stale street coverage while a newly framed city extent is loading. */
 export function setDetailedCityRoadsVisible(map: maplibregl.Map, visible: boolean): void {
   CITY_ROAD_LAYERS.forEach((id) => {
