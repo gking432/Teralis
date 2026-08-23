@@ -249,7 +249,7 @@ export async function renderScene(
             .catch(() => {}));
         }
 
-        if (kind === 'state' && scene.detailBias === 1) {
+        if (kind === 'state') {
           featureTasks.push(fetchDetailedStateFeatures(scene.viewport.bbox, signal)
             .then((fc) => {
               addDetailedStateFeatures(map, fc, scene.colors, scale, scene.strokeWeight);

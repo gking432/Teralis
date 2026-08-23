@@ -400,19 +400,13 @@ export function LivePrintCanvas({
     return () => controller.abort();
   }, [scene.detail, scene.viewport.bbox, scene.colors, geometry, styleReady]);
 
-  // State-scale base tiles are generalized. Maximum detail uses a z9 feature
-  // pass so the control visibly adds secondary routes, smaller lakes, river
-  // geometry, and county boundaries in both the preview and final export.
+  // State-scale base tiles are generalized differently at preview and export
+  // sizes. Load one shared scale-aware geography pass for every state scene so
+  // lakes and rivers never disappear when the customer enters the personalizer;
+  // secondary routes and county structure are revealed only at maximum detail.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !styleReady || kind !== 'state') return;
-
-    if (scene.detailBias !== 1) {
-      removeDetailedStateFeatures(map);
-      setStateDetailLoaded(false);
-      map.triggerRepaint();
-      return;
-    }
 
     const controller = new AbortController();
     const detailBbox = bboxKey.split(',') as [string, string, string, string];
@@ -439,7 +433,7 @@ export function LivePrintCanvas({
       });
 
     return () => controller.abort();
-  }, [bboxKey, currentScale, kind, reportMapPreview, scene.detailBias, styleReady]);
+  }, [bboxKey, currentScale, kind, reportMapPreview, styleReady]);
 
   // City streets come from z12 transportation tiles decoded by our API. This
   // keeps the complete residential network independent of the visible camera

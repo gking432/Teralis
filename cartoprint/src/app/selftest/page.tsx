@@ -61,6 +61,11 @@ import { getLayout } from '@/lib/print/layouts';
 import { getPalette } from '@/lib/print/palettes';
 import { findWaterPlacement } from '@/lib/print/waterPlacement';
 import { splitCityRoadBbox } from '@/lib/print/cityRoads';
+import {
+  MAX_STATE_DETAIL_TILES,
+  stateDetailTileCount,
+  stateDetailZoomForBbox,
+} from '@/lib/print/stateDetails';
 
 function approx(a: number, b: number, tolerance = 0.02): boolean {
   return Math.abs(a - b) <= Math.abs(b) * tolerance + 1e-9;
@@ -451,13 +456,15 @@ export default function SelfTest() {
         && heritageIllustration.layers.landmarks === 'hidden');
     check('topographic removes all automatic doodle annotations',
       topographicIllustration.decorations.every((item) => item.source === 'personal'));
-    check('topographic uses only clean roads and water layers',
+    check('topographic uses clean geography with real terrain shading',
       topographicIllustration.layers.roads === 'map'
         && topographicIllustration.layers.water === 'map'
-        && topographicIllustration.layers.terrain === 'hidden'
+        && topographicIllustration.layers.terrain === 'minimal'
         && topographicIllustration.layers.landmarks === 'hidden');
 
     const doodleIllustration = illustrationForTheme('doodle-atlas', wisconsin.illustration, 'wisconsin');
+    check('doodle preset has no arbitrary Milwaukee heart',
+      !doodleIllustration.decorations.some((item) => item.id === 'wi-milwaukee-heart'));
     const doodleVisible = visibleDecorations({ illustration: doodleIllustration });
     const waterHidden = visibleDecorations({
       illustration: {
@@ -486,6 +493,25 @@ export default function SelfTest() {
     check('landmarks hidden removes every automatic landmark',
       !landmarksHidden.some((item) => item.layer === 'landmarks')
         && doodleVisible.some((item) => item.layer === 'landmarks'));
+
+    // State detail is selected by physical extent, not by a state-specific
+    // recipe. Every state stays within the bounded vector-tile budget.
+    const stateBboxes = {
+      rhodeIsland: ['41.1', '42.1', '-71.9', '-71.1'] as const,
+      texas: ['25.8', '36.5', '-106.7', '-93.5'] as const,
+      alaska: ['51.2', '71.4', '-179', '-129'] as const,
+    };
+    const stateZooms = Object.fromEntries(
+      Object.entries(stateBboxes).map(([name, bbox]) => [name, stateDetailZoomForBbox(bbox)]),
+    );
+    check('small states keep maximum geography source detail', stateZooms.rhodeIsland === 9,
+      `z${stateZooms.rhodeIsland}`);
+    check('large states automatically step down source detail',
+      stateZooms.texas < 9 && stateZooms.alaska < stateZooms.texas,
+      `Texas z${stateZooms.texas}, Alaska z${stateZooms.alaska}`);
+    check('every state detail request stays inside the tile budget',
+      Object.entries(stateBboxes).every(([name, bbox]) =>
+        stateDetailTileCount(bbox, stateZooms[name]) <= MAX_STATE_DETAIL_TILES));
 
     setLines(out);
   }, []);

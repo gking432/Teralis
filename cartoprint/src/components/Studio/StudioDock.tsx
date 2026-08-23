@@ -622,6 +622,7 @@ const STATE_THEMES: Array<{
 
 function StateStylePanel({ scene, update }: PanelProps) {
   const isDoodleTheme = scene.illustration.theme === 'doodle-atlas';
+  const isTopographicTheme = scene.illustration.theme === 'topographic';
   function chooseTheme(theme: typeof STATE_THEMES[number]) {
     update((current) => {
       const colored = applyPalette(current, getPalette(theme.palette));
@@ -701,10 +702,12 @@ function StateStylePanel({ scene, update }: PanelProps) {
           <p className="text-[11px] leading-5 text-[#68726c]">
             {isDoodleTheme
               ? 'Doodle draws the illustrated layer, Map or Topo uses geographic linework, and Hidden removes it.'
-              : 'Clean directions use geographic layers only. Switch to Doodle Atlas to use illustrated terrain and landmarks.'}
+              : isTopographicTheme
+                ? 'Topo uses real elevation shading. Roads, rivers, and lakes remain clean geographic layers.'
+                : 'Clean directions use geographic layers only. Switch to Doodle Atlas to use illustrated terrain and landmarks.'}
           </p>
           <LayerStyleControl label="Roads" value={scene.illustration.layers.roads} options={['map', 'minimal', 'hidden']} onChange={(value) => setLayer('roads', value)} />
-          {isDoodleTheme && <LayerStyleControl label="Terrain" value={scene.illustration.layers.terrain} options={['doodle', 'minimal', 'hidden']} onChange={(value) => setLayer('terrain', value)} />}
+          {(isDoodleTheme || isTopographicTheme) && <LayerStyleControl label="Terrain" value={scene.illustration.layers.terrain} options={isDoodleTheme ? ['doodle', 'minimal', 'hidden'] : ['minimal', 'hidden']} onChange={(value) => setLayer('terrain', value)} />}
           <LayerStyleControl label="Water" value={scene.illustration.layers.water} options={isDoodleTheme ? ['map', 'doodle', 'hidden'] : ['map', 'hidden']} onChange={(value) => setLayer('water', value)} />
           {isDoodleTheme && <LayerStyleControl label="Landmarks" value={scene.illustration.layers.landmarks} options={['doodle', 'minimal', 'hidden']} onChange={(value) => setLayer('landmarks', value)} />}
         </div>

@@ -170,7 +170,11 @@ export function addDetailedStateFeatures(
 
   try {
     map.addSource(STATE_DETAIL_SOURCE_ID, { type: 'geojson', data: collection });
-    const before = map.getLayer('mask-layer') ? 'mask-layer' : undefined;
+    const beforeMask = map.getLayer('mask-layer') ? 'mask-layer' : undefined;
+    const beforeRoads = map.getStyle()?.layers.find((layer) => {
+      const group = classifyLayer(layer.id);
+      return group === 'highways' || group === 'mainroads' || group === 'allroads';
+    })?.id ?? beforeMask;
     map.addLayer({
       id: 'print-state-detail-lakes',
       type: 'fill',
@@ -180,7 +184,7 @@ export function addDetailedStateFeatures(
         'fill-color': colors.water || getPrintInkColor(colors),
         'fill-opacity': 1,
       },
-    }, before);
+    }, beforeRoads);
     map.addLayer({
       id: 'print-state-detail-county-boundaries',
       type: 'line',
@@ -192,7 +196,7 @@ export function addDetailedStateFeatures(
         'line-opacity': 0.25,
         'line-width': scaledWidth(STROKE_CURVES.countyBorder, scale, weight),
       },
-    }, before);
+    }, beforeMask);
     map.addLayer({
       id: 'print-state-detail-rivers',
       type: 'line',
@@ -204,7 +208,7 @@ export function addDetailedStateFeatures(
         'line-opacity': 0.78,
         'line-width': scaledWidth(STROKE_CURVES.waterway, scale, weight),
       },
-    }, before);
+    }, beforeMask);
     map.addLayer({
       id: 'print-state-detail-roads',
       type: 'line',
@@ -216,7 +220,7 @@ export function addDetailedStateFeatures(
         'line-opacity': 0.58,
         'line-width': scaledWidth(STROKE_CURVES.street, scale, weight),
       },
-    }, before);
+    }, beforeMask);
     return true;
   } catch {
     removeDetailedStateFeatures(map);
@@ -664,15 +668,19 @@ export function applyIllustrationMapLayers(
     const group = classifyLayer(layer.id);
     const isDetailedLake = layer.id === 'print-state-detail-lakes';
     const isDetailedRiver = layer.id === 'print-state-detail-rivers';
+    const isDetailedRoad = layer.id === 'print-state-detail-roads';
+    const isDetailedCounty = layer.id === 'print-state-detail-county-boundaries';
     try {
-      if (group === 'water' || isDetailedLake) {
+      if (isDetailedRoad || isDetailedCounty) {
+        map.setLayoutProperty(layer.id, 'visibility', detail.counties ? 'visible' : 'none');
+      } else if (group === 'water' || isDetailedLake) {
         map.setLayoutProperty(layer.id, 'visibility', showWater ? 'visible' : 'none');
       } else if (group === 'rivers' || isDetailedRiver) {
         map.setLayoutProperty(layer.id, 'visibility', showWater && detail.rivers ? 'visible' : 'none');
       } else if (layer.id === 'hillshade-layer') {
         map.setLayoutProperty(layer.id, 'visibility', showTerrain ? 'visible' : 'none');
         if (showTerrain) {
-          map.setPaintProperty(layer.id, 'hillshade-exaggeration', 0.5);
+          map.setPaintProperty(layer.id, 'hillshade-exaggeration', 0.9);
         }
       }
     } catch {}
@@ -694,7 +702,11 @@ export function applyPrintMapStyle(
   scale: StrokeScale = UNSCALED,
   weight = 1,
 ): void {
-  try { addTerrain(map); } catch {}
+  try {
+    addTerrain(map);
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') console.warn('Terrain layer could not be initialized.', error);
+  }
   applyGreyscale(map);
   applyStyleOverrides(map);
   applyPrintDetail(map, kind, detail, scale, weight);

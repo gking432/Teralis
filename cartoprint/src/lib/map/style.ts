@@ -4,7 +4,12 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 // Nominatim base URL is. Defaults to the public OpenFreeMap style.
 export const STYLE_URL =
   process.env.NEXT_PUBLIC_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/liberty';
-export const TERRAIN_TILES_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+// Browser WebGL cannot consume the global AWS Terrarium tiles directly because
+// that bucket omits CORS headers. Route them through the same-origin app proxy
+// so every state gets real elevation coverage in previews and exports.
+export const TERRAIN_TILES_URL =
+  process.env.NEXT_PUBLIC_TERRAIN_TILES_URL
+  || '/api/terrain/{z}/{x}/{y}';
 export const BACKGROUND_COLOR = '#fafaf8';
 export const WATER_COLOR = '#ffffff';
 export const WATERWAY_COLOR = '#b7b7b1';
@@ -141,10 +146,10 @@ export function addTerrain(map: MaplibreMap): void {
       type: 'hillshade',
       source: 'terrain-dem',
       paint: {
-        'hillshade-exaggeration': 0.35,
-        'hillshade-shadow-color': '#555',
-        'hillshade-highlight-color': BACKGROUND_COLOR,
-        'hillshade-accent-color': '#777',
+        'hillshade-exaggeration': 0.9,
+        'hillshade-shadow-color': '#52645e',
+        'hillshade-highlight-color': '#ffffff',
+        'hillshade-accent-color': '#82918c',
       },
       layout: { visibility: 'none' },
     },

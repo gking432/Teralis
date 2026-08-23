@@ -85,7 +85,6 @@ export function wisconsinDoodleDecorations(): PrintDecoration[] {
     automatic('wi-michigan-waves', 'waves', -87.25, 44.10, 1.14, 90, 'water'),
     automatic('wi-door-light', 'lighthouse', -87.18, 45.12, 1.02, 4, 'landmarks'),
     automatic('wi-madison-star', 'star', -89.3842, 43.0747, 0.88, -8, 'landmarks'),
-    automatic('wi-milwaukee-heart', 'heart', -87.9065, 43.0389, 0.92, 5, 'landmarks'),
     automatic('wi-up-north', 'text', -89.72, 45.50, 1.18, -4, 'landmarks', 'Up North', 'hand'),
     automatic('wi-nicolet-label', 'text', -89.18, 46.13, 0.62, -5, 'terrain', 'Chequamegon–Nicolet', 'condensed'),
     automatic('wi-driftless-label', 'text', -90.60, 43.70, 0.72, -7, 'terrain', 'The Driftless', 'hand'),
@@ -121,7 +120,12 @@ export function illustrationForTheme(
   if (theme !== 'doodle-atlas') {
     return {
       theme,
-      layers: { roads: 'map', terrain: 'hidden', water: 'map', landmarks: 'hidden' },
+      layers: {
+        roads: 'map',
+        terrain: theme === 'topographic' ? 'minimal' : 'hidden',
+        water: 'map',
+        landmarks: 'hidden',
+      },
       decorations: personal,
     };
   }

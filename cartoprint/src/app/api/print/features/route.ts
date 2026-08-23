@@ -3,6 +3,10 @@ import { VectorTile } from '@mapbox/vector-tile';
 import Pbf from 'pbf';
 import usPlaces from '@/data/us_places_2025.json';
 import usTownships from '@/data/us_townships_2025.json';
+import {
+  MAX_STATE_DETAIL_TILES,
+  stateDetailZoomForBbox,
+} from '@/lib/print/stateDetails';
 
 type BBox = [string, string, string, string]; // south, north, west, east
 
@@ -30,7 +34,6 @@ const MAX_PLACE_LABELS = 4000;
 const MAX_BBOX_AREA = 90;
 const MAX_OVERPASS_BBOX_AREA = 6;
 const ROAD_TILE_ZOOM = 12;
-const STATE_DETAIL_TILE_ZOOM = 9;
 const MAX_ROAD_TILES = 180;
 const ROAD_TILEJSON_URL = process.env.PRINT_ROAD_TILEJSON_URL || 'https://tiles.openfreemap.org/planet';
 const ROAD_CLASSES = new Set([
@@ -344,11 +347,12 @@ function mergeStateDetailFeatures(features: GeoJSON.Feature[]): GeoJSON.Feature[
 /**
  * State maps render at a low camera zoom, where base tiles omit secondary
  * roads, smaller lakes, county boundaries, and much of the river geometry.
- * Pull those features from z9 so "More detailed" changes the actual artwork.
+ * Pull those features from the highest bounded source zoom for the state so
+ * small states retain fine geography and large states never fail the tile cap.
  */
 async function getStateDetailFeatures(bbox: BBox): Promise<GeoJSON.FeatureCollection> {
   const [south, north, west, east] = bbox.map(Number);
-  const zoom = STATE_DETAIL_TILE_ZOOM;
+  const zoom = stateDetailZoomForBbox(bbox);
   const minX = longitudeToTileX(west, zoom);
   const maxX = longitudeToTileX(east, zoom);
   const minY = latitudeToTileY(north, zoom);
@@ -358,7 +362,7 @@ async function getStateDetailFeatures(bbox: BBox): Promise<GeoJSON.FeatureCollec
   for (let x = minX; x <= maxX; x += 1) {
     for (let y = minY; y <= maxY; y += 1) coordinates.push([x, y]);
   }
-  if (coordinates.length > MAX_ROAD_TILES) {
+  if (coordinates.length > MAX_STATE_DETAIL_TILES) {
     return { type: 'FeatureCollection', features: [] };
   }
 
@@ -398,9 +402,11 @@ async function getStateDetailFeatures(bbox: BBox): Promise<GeoJSON.FeatureCollec
         }
       };
 
-      collect('transportation', 'road', (properties) =>
-        STATE_DETAIL_ROAD_CLASSES.has(String(properties.class || '')),
-      );
+      collect('transportation', 'road', (properties) => {
+        const roadClass = String(properties.class || '');
+        return STATE_DETAIL_ROAD_CLASSES.has(roadClass)
+          || (zoom < 9 && ['motorway', 'trunk', 'primary'].includes(roadClass));
+      });
       collect('waterway', 'river', () => true);
       collect('water', 'lake', () => true);
       collect('boundary', 'county', (properties) => Number(properties.admin_level) === 6);
