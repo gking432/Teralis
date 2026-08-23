@@ -125,6 +125,7 @@ export function applyStyleOverrides(map: MaplibreMap): void {
 }
 
 export function addTerrain(map: MaplibreMap): void {
+  if (map.getSource('terrain-dem')) return;
   map.addSource('terrain-dem', {
     type: 'raster-dem',
     tiles: [TERRAIN_TILES_URL],
@@ -133,6 +134,7 @@ export function addTerrain(map: MaplibreMap): void {
     maxzoom: 15,
   });
 
+  const before = map.getLayer('waterway_tunnel') ? 'waterway_tunnel' : undefined;
   map.addLayer(
     {
       id: 'hillshade-layer',
@@ -146,6 +148,6 @@ export function addTerrain(map: MaplibreMap): void {
       },
       layout: { visibility: 'none' },
     },
-    'waterway_tunnel'
+    before,
   );
 }

@@ -8,6 +8,7 @@ import { getPrintInkColor } from '@/lib/print/colorSchemes';
 import {
   addDetailedCityRoads,
   addDetailedStateFeatures,
+  applyIllustrationMapLayers,
   applyPrintMapStyle,
   applyPrintMaskColor,
   wantsEveryTown,
@@ -208,6 +209,7 @@ export async function renderScene(
         try { initIsolationLayers(map); } catch {}
 
         applyPrintMapStyle(map, scene.colors, kind, scene.detail, scale, scene.strokeWeight);
+        applyIllustrationMapLayers(map, scene.illustration, scene.detail);
 
         if (boundary && kind !== 'city') {
           try {
@@ -251,6 +253,7 @@ export async function renderScene(
           featureTasks.push(fetchDetailedStateFeatures(scene.viewport.bbox, signal)
             .then((fc) => {
               addDetailedStateFeatures(map, fc, scene.colors, scale, scene.strokeWeight);
+              applyIllustrationMapLayers(map, scene.illustration, scene.detail);
               try { map.moveLayer('mask-layer'); } catch {}
             })
             .catch(() => {}));

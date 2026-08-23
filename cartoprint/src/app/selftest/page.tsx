@@ -46,7 +46,7 @@ import {
 } from '@/lib/print/tileZoom';
 import { buildPrintLayerState } from '@/lib/print/printRender';
 import { exportWidthForSize, type SizeLabel } from '@/lib/print/sizeCatalog';
-import { illustrationForTheme } from '@/lib/print/decorations';
+import { illustrationForTheme, visibleDecorations } from '@/lib/print/decorations';
 import {
   printableTitleTextColor,
   resolveTitleColors,
@@ -456,6 +456,36 @@ export default function SelfTest() {
         && topographicIllustration.layers.water === 'map'
         && topographicIllustration.layers.terrain === 'hidden'
         && topographicIllustration.layers.landmarks === 'hidden');
+
+    const doodleIllustration = illustrationForTheme('doodle-atlas', wisconsin.illustration, 'wisconsin');
+    const doodleVisible = visibleDecorations({ illustration: doodleIllustration });
+    const waterHidden = visibleDecorations({
+      illustration: {
+        ...doodleIllustration,
+        layers: { ...doodleIllustration.layers, water: 'hidden' },
+      },
+    });
+    const terrainTopo = visibleDecorations({
+      illustration: {
+        ...doodleIllustration,
+        layers: { ...doodleIllustration.layers, terrain: 'minimal' },
+      },
+    });
+    const landmarksHidden = visibleDecorations({
+      illustration: {
+        ...doodleIllustration,
+        layers: { ...doodleIllustration.layers, landmarks: 'hidden' },
+      },
+    });
+    check('water hidden removes every automatic water decoration',
+      !waterHidden.some((item) => item.layer === 'water')
+        && doodleVisible.some((item) => item.layer === 'water'));
+    check('terrain topo replaces rather than retains terrain doodles',
+      !terrainTopo.some((item) => item.layer === 'terrain')
+        && doodleVisible.some((item) => item.layer === 'terrain'));
+    check('landmarks hidden removes every automatic landmark',
+      !landmarksHidden.some((item) => item.layer === 'landmarks')
+        && doodleVisible.some((item) => item.layer === 'landmarks'));
 
     setLines(out);
   }, []);

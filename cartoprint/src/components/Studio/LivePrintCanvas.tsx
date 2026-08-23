@@ -11,6 +11,7 @@ import {
   applyPrintMaskColor,
   addDetailedCityRoads,
   addDetailedStateFeatures,
+  applyIllustrationMapLayers,
   removeDetailedStateFeatures,
   setDetailedCityRoadsVisible,
 } from '@/lib/print/printRender';
@@ -206,6 +207,7 @@ export function LivePrintCanvas({
         strokeScaleFor(map.getCanvas().clientWidth || 900),
         active.strokeWeight,
       );
+      applyIllustrationMapLayers(map, active.illustration, active.detail);
       applyPrintMaskColor(map, active.colors);
       setStyleReady(true);
       fitViewport(active.viewport);
@@ -293,6 +295,14 @@ export function LivePrintCanvas({
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();
   }, [scene.detail, scene.strokeWeight, scene.colors, kind, styleReady, currentScale, reportMapPreview]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady || kind !== 'state') return;
+    applyIllustrationMapLayers(map, scene.illustration, scene.detail);
+    map.once('render', () => reportMapPreview(map));
+    map.triggerRepaint();
+  }, [kind, reportMapPreview, scene.detail, scene.illustration, styleReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -413,6 +423,7 @@ export function LivePrintCanvas({
         const active = sceneRef.current;
         const added = addDetailedStateFeatures(map, collection, active.colors, currentScale(), active.strokeWeight);
         setStateDetailLoaded(added);
+        applyIllustrationMapLayers(map, active.illustration, active.detail);
         try { map.moveLayer('mask-layer'); } catch {}
         map.once('idle', () => {
           onReadyStateChangeRef.current?.(true);
@@ -478,6 +489,7 @@ export function LivePrintCanvas({
     const scale = strokeScaleFor(map.getCanvas().clientWidth || canvasWidth);
     applyPrintDetail(map, kind, active.detail, scale, active.strokeWeight);
     applyPrintColors(map, active.colors, scale);
+    applyIllustrationMapLayers(map, active.illustration, active.detail);
     if (!active.freeViewport) fitViewport(active.viewport);
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();

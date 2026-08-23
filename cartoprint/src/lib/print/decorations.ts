@@ -185,7 +185,7 @@ export function visibleDecorations(scene: Pick<PrintScene, 'illustration'>): Pri
     const mode = scene.illustration.layers[item.layer];
     if (mode === 'hidden' || mode === 'map') return false;
     if (mode === 'minimal') {
-      if (item.layer === 'terrain') return item.kind === 'hills';
+      if (item.layer === 'terrain') return false;
       if (item.layer === 'water') return item.kind === 'text';
       if (item.layer === 'landmarks') return item.kind === 'text' || item.kind === 'star';
     }

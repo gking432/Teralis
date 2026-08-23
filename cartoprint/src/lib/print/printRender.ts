@@ -1,8 +1,9 @@
 import type maplibregl from 'maplibre-gl';
 import type { LayerState } from '@/types/map';
-import { applyGreyscale, applyStyleOverrides } from '@/lib/map/style';
-import { applyLayerVisibility } from '@/lib/map/layers';
+import { addTerrain, applyGreyscale, applyStyleOverrides } from '@/lib/map/style';
+import { applyLayerVisibility, classifyLayer } from '@/lib/map/layers';
 import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSchemes';
+import type { IllustrationDesign } from '@/lib/print/decorations';
 import {
   scaledValue,
   scaledWidth,
@@ -645,6 +646,40 @@ export function applyPrintDetail(
 }
 
 /**
+ * Apply the state art-direction layer choices to real map layers. Decoration
+ * visibility is handled by `visibleDecorations`; this handles the geography
+ * beneath it so Map/Doodle/Hidden are not cosmetic control labels.
+ */
+export function applyIllustrationMapLayers(
+  map: maplibregl.Map,
+  illustration: IllustrationDesign,
+  detail: PrintDetailSettings,
+): void {
+  const showWater = illustration.layers.water !== 'hidden';
+  const showTerrain = illustration.layers.terrain === 'minimal';
+  const style = map.getStyle();
+  if (!style) return;
+
+  style.layers.forEach((layer) => {
+    const group = classifyLayer(layer.id);
+    const isDetailedLake = layer.id === 'print-state-detail-lakes';
+    const isDetailedRiver = layer.id === 'print-state-detail-rivers';
+    try {
+      if (group === 'water' || isDetailedLake) {
+        map.setLayoutProperty(layer.id, 'visibility', showWater ? 'visible' : 'none');
+      } else if (group === 'rivers' || isDetailedRiver) {
+        map.setLayoutProperty(layer.id, 'visibility', showWater && detail.rivers ? 'visible' : 'none');
+      } else if (layer.id === 'hillshade-layer') {
+        map.setLayoutProperty(layer.id, 'visibility', showTerrain ? 'visible' : 'none');
+        if (showTerrain) {
+          map.setPaintProperty(layer.id, 'hillshade-exaggeration', 0.5);
+        }
+      }
+    } catch {}
+  });
+}
+
+/**
  * Full storefront print rendering pipeline. Run inside map 'load'.
  *
  * `scale` re-projects the authored stroke curves onto the canvas we are
@@ -659,6 +694,7 @@ export function applyPrintMapStyle(
   scale: StrokeScale = UNSCALED,
   weight = 1,
 ): void {
+  try { addTerrain(map); } catch {}
   applyGreyscale(map);
   applyStyleOverrides(map);
   applyPrintDetail(map, kind, detail, scale, weight);
