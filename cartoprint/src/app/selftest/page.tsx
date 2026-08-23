@@ -46,6 +46,7 @@ import {
 } from '@/lib/print/tileZoom';
 import { buildPrintLayerState } from '@/lib/print/printRender';
 import { exportWidthForSize, type SizeLabel } from '@/lib/print/sizeCatalog';
+import { illustrationForTheme } from '@/lib/print/decorations';
 import {
   printableTitleTextColor,
   resolveTitleColors,
@@ -434,6 +435,19 @@ export default function SelfTest() {
     check('design round-trips title', decoded?.title.text === recentered.title.text);
     check('design round-trips viewport', decoded?.viewport.bbox.join() === recentered.viewport.bbox.join());
     check('design round-trips detail', decoded?.detail.border === recentered.detail.border);
+
+    // State art directions own their automatic lettering. Personal labels keep
+    // the font the customer explicitly chose.
+    const heritageIllustration = illustrationForTheme('heritage', wisconsin.illustration, 'wisconsin');
+    const topographicIllustration = illustrationForTheme('topographic', wisconsin.illustration, 'wisconsin');
+    check('heritage remaps automatic labels to atlas lettering',
+      heritageIllustration.decorations
+        .filter((item) => item.kind === 'text' && item.source === 'automatic')
+        .every((item) => item.font === 'atlas'));
+    check('topographic remaps automatic labels to condensed lettering',
+      topographicIllustration.decorations
+        .filter((item) => item.kind === 'text' && item.source === 'automatic')
+        .every((item) => item.font === 'condensed'));
 
     setLines(out);
   }, []);

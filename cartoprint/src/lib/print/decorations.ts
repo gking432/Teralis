@@ -117,7 +117,17 @@ export function illustrationForTheme(
   current: IllustrationDesign,
   slug: string,
 ): IllustrationDesign {
-  const automaticDecorations = slug === 'wisconsin' ? wisconsinDoodleDecorations() : [];
+  const automaticDecorations = (slug === 'wisconsin' ? wisconsinDoodleDecorations() : []).map((item) => {
+    if (item.kind !== 'text' || theme === 'doodle-atlas') return item;
+    return {
+      ...item,
+      font: theme === 'heritage'
+        ? 'atlas' as const
+        : theme === 'topographic'
+          ? 'condensed' as const
+          : item.font,
+    };
+  });
   const personal = current.decorations.filter((item) => item.source === 'personal');
   if (theme === 'none') {
     return {

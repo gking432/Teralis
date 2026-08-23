@@ -14,6 +14,7 @@ import { encodeDesign } from '@/lib/print/designUrl';
 import { storeProof } from '@/lib/print/proof';
 import { formatPrice, getSizePrice } from '@/lib/print/sizeCatalog';
 import { trackDemoEvent } from '@/lib/demoAnalytics';
+import { displayTitleText, titleFontCss } from '@/lib/print/title';
 
 const DIRECTIONS: Array<{
   id: IllustrationTheme;
@@ -138,7 +139,22 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
           <aside className="self-start bg-[#f7f5ef] text-[#14201d] lg:sticky lg:top-5">
             <div className="border-b border-[#14201d]/12 px-6 py-7 sm:px-8 sm:py-9">
               <div className="studio-kicker">The illustrated state collection</div>
-              <h1 className="mt-4 font-hand text-[clamp(4rem,6vw,6.4rem)] font-semibold leading-[0.78] tracking-[-0.045em]">Wisconsin</h1>
+              <h1
+                className="mt-4 text-[clamp(4rem,6vw,6.4rem)] leading-[0.78]"
+                data-selected-font={scene.title.font}
+                style={{
+                  fontFamily: titleFontCss(scene.title.font),
+                  fontSize: scene.title.font === 'hand'
+                    ? 'clamp(4rem, 6vw, 6.4rem)'
+                    : scene.title.font === 'editorial'
+                      ? 'clamp(3.15rem, 4.3vw, 4.8rem)'
+                      : 'clamp(3.4rem, 5vw, 5.3rem)',
+                  fontWeight: scene.title.font === 'hand' ? 600 : scene.title.font === 'editorial' ? 400 : 500,
+                  letterSpacing: scene.title.font === 'hand' ? '-0.045em' : scene.title.font === 'condensed' ? '0.03em' : '-0.025em',
+                }}
+              >
+                {displayTitleText(scene.title)}
+              </h1>
               <p className="mt-5 max-w-md text-[13px] leading-6 text-[#53605a]">
                 A map with a point of view: Northwoods pines, Driftless hills, Great Lakes lettering, Door County light, and room for the places that are yours.
               </p>
@@ -156,7 +172,16 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
               <div className="mt-3 grid grid-cols-3 gap-2">
                 {DIRECTIONS.map((direction) => (
                   <button key={direction.id} type="button" aria-pressed={scene.illustration.theme === direction.id} onClick={() => chooseDirection(direction)} title={direction.note} className={`flex min-h-[62px] items-center justify-center border px-2 text-center transition-all ${scene.illustration.theme === direction.id ? 'border-[#173f35] bg-[#e9eee9] shadow-[inset_0_0_0_1px_#173f35]' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'}`}>
-                    <span className="text-[10px] font-medium leading-4">{direction.name}</span>
+                    <span
+                      className="text-[16px] font-medium leading-4"
+                      style={{
+                        fontFamily: titleFontCss(direction.font),
+                        textTransform: direction.font === 'hand' ? 'none' : 'uppercase',
+                        letterSpacing: direction.font === 'condensed' ? '0.08em' : undefined,
+                      }}
+                    >
+                      {direction.name}
+                    </span>
                   </button>
                 ))}
               </div>
