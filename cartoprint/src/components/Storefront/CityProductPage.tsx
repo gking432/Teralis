@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import { getCityCatalogPrints } from '@/lib/catalog/prints';
 import { CITY_PRODUCT_PALETTES, createCityProductScene } from '@/lib/catalog/cityProduct';
@@ -11,6 +12,10 @@ import { StudioHeader } from '@/components/Storefront/StudioHeader';
 import { trackDemoEvent } from '@/lib/demoAnalytics';
 import { encodeDesign } from '@/lib/print/designUrl';
 import { getPalette } from '@/lib/print/palettes';
+import { renderScene } from '@/lib/print/renderScene';
+import { storeScene } from '@/lib/print/scene';
+import { storeProof } from '@/lib/print/proof';
+import { formatPrice, getSizePrice } from '@/lib/print/sizeCatalog';
 
 type PreviewMode = 'artwork' | 'room';
 
@@ -23,9 +28,11 @@ export function CityProductPage({
   customizeBaseHref: string;
   canonical?: boolean;
 }) {
+  const router = useRouter();
   const [paletteId, setPaletteId] = useState('slate');
   const [previewMode, setPreviewMode] = useState<PreviewMode>('artwork');
   const [customizeHref, setCustomizeHref] = useState(customizeBaseHref);
+  const [buying, setBuying] = useState(false);
   const scene = useMemo(() => createCityProductScene(print, paletteId), [paletteId, print]);
   const staticArtwork = canonical && paletteId === 'slate' ? `/thumbnails/${print.slug}.png` : null;
   const { image, status } = useCityArtwork(scene, 1100, !staticArtwork);
@@ -60,6 +67,25 @@ export function CityProductPage({
 
   function startCustomizing() {
     trackDemoEvent('product_customize_started', { place: print.slug, palette: paletteId });
+  }
+
+  const price = formatPrice(getSizePrice('medium', 'none', false));
+
+  /** The finished design goes straight to size and framing, exactly as shown. */
+  async function buyAsShown() {
+    if (buying || status !== 'ready') return;
+    setBuying(true);
+    try {
+      // The default colorway shows a pre-rendered thumbnail, so the live
+      // artwork may not exist yet — render the real proof on demand.
+      const proof = image ?? await renderScene(scene, null, { width: 1200 });
+      storeScene(scene);
+      storeProof(scene, proof);
+      trackDemoEvent('product_customize_started', { place: print.slug, palette: paletteId, buyAsShown: true });
+      router.push(`/size?print=${encodeURIComponent(print.slug)}&o=${scene.orientation}`);
+    } finally {
+      setBuying(false);
+    }
   }
 
   return (
@@ -114,8 +140,15 @@ export function CityProductPage({
               </h1>
               <p className="mt-4 text-[10px] uppercase tracking-[0.2em] text-[#7a847e]">{print.defaultSubtitle}</p>
               <p className="mt-6 max-w-md text-[13px] leading-6 text-[#53605a]">
-                Every available street, shaped into a print that is already composed for the wall. Start here, then change as much or as little as you want.
+                Every available street, shaped into a print that is already composed for the wall. Buy it as shown, or make a few changes that turn it into your print.
               </p>
+              <div className="mt-6 flex items-end justify-between border-t border-[#14201d]/12 pt-5">
+                <div>
+                  <div className="text-[8px] uppercase tracking-[0.18em] text-[#7a847e]">18 × 24 archival print</div>
+                  <div className="mt-1 font-display text-4xl font-light">{price}</div>
+                </div>
+                <div className="text-right text-[9px] leading-4 text-[#7a847e]">Four sizes<br />Framing available</div>
+              </div>
             </div>
 
             <div className="px-6 py-6 sm:px-8">
@@ -146,13 +179,22 @@ export function CityProductPage({
                 })}
               </div>
 
+              <button
+                type="button"
+                onClick={buyAsShown}
+                disabled={buying || status !== 'ready'}
+                className="mt-6 flex min-h-14 w-full items-center justify-center bg-[#173f35] px-6 text-[10px] font-medium uppercase tracking-[0.2em] text-white transition-colors hover:bg-[#c66b4e] disabled:opacity-50"
+              >
+                {buying ? 'Preparing the print…' : 'Buy as shown'}
+              </button>
               <Link
                 href={customizeHref}
                 onClick={startCustomizing}
-                className="mt-6 flex min-h-14 w-full items-center justify-center bg-[#173f35] px-6 text-[10px] font-medium uppercase tracking-[0.2em] text-white transition-colors hover:bg-[#c66b4e]"
+                className="mt-3 flex min-h-12 w-full items-center justify-center border border-[#173f35] px-6 text-[10px] font-medium uppercase tracking-[0.18em] text-[#173f35] transition-colors hover:bg-[#e9eee9]"
               >
-                Customize {print.name}
+                Personalize this map
               </Link>
+              <p className="mt-3 text-center text-[9px] leading-4 text-[#7a847e]">Add your wording, a heart where it happened, and the places that matter.</p>
               <Link href="/" className="mt-4 flex min-h-11 items-center justify-center text-[9px] uppercase tracking-[0.16em] text-[#68736d] underline underline-offset-4">
                 Choose another place
               </Link>

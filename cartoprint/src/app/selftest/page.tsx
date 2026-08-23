@@ -56,6 +56,11 @@ import {
   defaultTitleDesign,
 } from '@/lib/print/title';
 import { buildPlaceCatalogPrint } from '@/lib/catalog/placeFromQuery';
+import { getCatalogPrint } from '@/lib/catalog/prints';
+import {
+  STATE_COLLECTION_DESIGNS,
+  sceneForCollectionDesign,
+} from '@/lib/catalog/stateCollection';
 import { applyLayout, applyPalette } from '@/lib/print/scene';
 import { getLayout } from '@/lib/print/layouts';
 import { getPalette } from '@/lib/print/palettes';
@@ -512,6 +517,37 @@ export default function SelfTest() {
     check('every state detail request stays inside the tile budget',
       Object.entries(stateBboxes).every(([name, bbox]) =>
         stateDetailTileCount(bbox, stateZooms[name]) <= MAX_STATE_DETAIL_TILES));
+
+    // --- the storefront-to-personalizer seam ---
+    // The product page sells finished designs; the personalizer opens the
+    // exact same scene. One source of truth, so the transition cannot drift:
+    // same wording, same fonts, same geography, and no second styling step.
+    const wisconsinPrint = getCatalogPrint('wisconsin')!;
+    const collectionScenes = STATE_COLLECTION_DESIGNS.map((design) =>
+      [design, sceneForCollectionDesign(wisconsinPrint, design)] as const);
+    const [doodleDesign, doodleScene] = collectionScenes[0];
+    check('collection sells three finished designs',
+      STATE_COLLECTION_DESIGNS.map((design) => design.id).join() === 'doodle-atlas,heritage,topographic');
+    check('storefront scene uses the real state wording',
+      doodleScene.title.text === 'Wisconsin'
+        && doodleScene.title.subtitle === "America's Dairyland"
+        && doodleScene.title.detail === 'EST. 1848');
+    check('each collection design carries its own typography',
+      new Set(collectionScenes.map(([, scene]) => scene.title.font)).size === collectionScenes.length);
+    check('each collection design carries its own palette',
+      new Set(collectionScenes.map(([, scene]) => scene.paletteId)).size === collectionScenes.length);
+    check('only the doodle atlas ships automatic illustrations',
+      collectionScenes.every(([design, scene]) => design.id === 'doodle-atlas'
+        ? scene.illustration.decorations.some((item) => item.source === 'automatic')
+        : scene.illustration.decorations.every((item) => item.source === 'personal')));
+    const seamEncoded = encodeDesign(doodleScene);
+    const seamDecoded = decodeDesign(seamEncoded);
+    check('personalize link restores the exact storefront design',
+      seamDecoded?.illustration.theme === doodleDesign.id
+        && seamDecoded?.title.font === doodleDesign.font
+        && seamDecoded?.paletteId === doodleDesign.palette
+        && seamDecoded?.title.subtitle === doodleScene.title.subtitle
+        && seamDecoded?.viewport.bbox.join() === doodleScene.viewport.bbox.join());
 
     setLines(out);
   }, []);

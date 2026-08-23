@@ -52,17 +52,23 @@ interface StudioDockProps {
   onHeightChange?: (height: number) => void;
   suggestions?: Palette[];
   waterAvailable?: boolean;
-  viewLocked?: boolean;
-  onViewLockedChange?: (locked: boolean) => void;
-  onOpenStyle?: () => void;
-  onFinishFraming?: () => void;
+  /** Current art direction / colorway, shown on the "Change design" chip. */
+  designLabel?: string;
+  onOpenDesign?: () => void;
 }
 
 export const MOVES: Array<{ id: Move; label: string; question: string }> = [
-  { id: 'view', label: 'Frame map', question: 'Choose the part of the place that belongs on your wall.' },
-  { id: 'style', label: 'Style', question: 'Choose a complete art direction, then refine its illustrated layers.' },
-  { id: 'title', label: 'Personalize', question: 'Add your wording, places, and personal markers.' },
+  { id: 'view', label: 'Composition', question: 'Frame the place and choose how much map the print carries.' },
+  { id: 'title', label: 'Make it yours', question: 'Add your wording, places, and personal markers.' },
+  { id: 'style', label: 'Design', question: 'Swap the whole art direction. Everything personal stays.' },
 ];
+
+/**
+ * The two primary moves. The design itself is chosen on the product page;
+ * changing it here is the secondary "Change design" action, not a main tab —
+ * the personalizer must never re-ask a question the storefront already asked.
+ */
+export const PRIMARY_MOVES = MOVES.filter((move) => move.id !== 'style');
 
 const PANELS: Array<{ value: TitlePanel; label: string }> = [
   { value: 'solid', label: 'Solid' },
@@ -88,11 +94,11 @@ export function MoveTabs({
   return (
     <nav
       className={rail
-        ? 'grid grid-cols-3 gap-1 rounded-sm border border-[#d8d9d3] bg-white p-1'
+        ? 'grid grid-cols-2 gap-1 rounded-sm border border-[#d8d9d3] bg-white p-1'
         : 'pointer-events-auto flex gap-1 rounded-full border border-white/15 bg-[#14201d]/94 p-1 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur'}
       aria-label="Design controls"
     >
-      {MOVES.map((move) => {
+      {PRIMARY_MOVES.map((move) => {
         const selected = active === move.id;
         return (
           <button
@@ -122,32 +128,15 @@ export function StudioPanels({
   active,
   suggestions,
   waterAvailable,
-  viewLocked = false,
-  onViewLockedChange,
-  onOpenStyle,
-  onFinishFraming,
 }: {
   scene: PrintScene;
   update: StudioDockProps['update'];
   active: Move;
   suggestions?: Palette[];
   waterAvailable?: boolean;
-  viewLocked?: boolean;
-  onViewLockedChange?: (locked: boolean) => void;
-  onOpenStyle?: () => void;
-  onFinishFraming?: () => void;
 }) {
   if (active === 'view') {
-    return (
-      <ViewPanel
-        scene={scene}
-        update={update}
-        locked={viewLocked}
-        onLockedChange={onViewLockedChange}
-        onOpenStyle={onOpenStyle}
-        onFinishFraming={onFinishFraming}
-      />
-    );
+    return <ViewPanel scene={scene} update={update} />;
   }
   if (active === 'style') {
     return (
@@ -170,10 +159,8 @@ export function StudioDock({
   onHeightChange,
   suggestions,
   waterAvailable,
-  viewLocked,
-  onViewLockedChange,
-  onOpenStyle,
-  onFinishFraming,
+  designLabel,
+  onOpenDesign,
 }: StudioDockProps) {
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -193,7 +180,7 @@ export function StudioDock({
         <div className="pointer-events-auto w-full max-w-[760px] px-3">
           <div
             className="studio-dock-panel overflow-y-auto overscroll-contain"
-            style={{ maxHeight: active === 'view' && !viewLocked ? '38dvh' : active === 'title' ? '48dvh' : '44dvh' }}
+            style={{ maxHeight: active === 'title' ? '48dvh' : '42dvh' }}
           >
             <StudioPanels
               scene={scene}
@@ -201,34 +188,27 @@ export function StudioDock({
               active={active}
               suggestions={suggestions}
               waterAvailable={waterAvailable}
-              viewLocked={viewLocked}
-              onViewLockedChange={onViewLockedChange}
-              onOpenStyle={onOpenStyle}
-              onFinishFraming={onFinishFraming}
             />
           </div>
         </div>
       )}
-      <div className="mb-3 mt-2">
+      <div className="mb-3 mt-2 flex flex-col items-center gap-2">
+        {designLabel && onOpenDesign && (
+          <button
+            type="button"
+            onClick={onOpenDesign}
+            className="pointer-events-auto rounded-full border border-white/20 bg-[#14201d]/92 px-3.5 py-1.5 text-[11px] text-[#dce2dd]/85 backdrop-blur transition-colors hover:border-white/45 hover:text-white"
+          >
+            {designLabel} <span className="opacity-55">· Change design</span>
+          </button>
+        )}
         <MoveTabs active={active} onActiveChange={onActiveChange} />
       </div>
     </div>
   );
 }
 
-function ViewPanel({
-  scene,
-  update,
-  locked,
-  onLockedChange,
-  onOpenStyle,
-  onFinishFraming,
-}: PanelProps & {
-  locked: boolean;
-  onLockedChange?: (locked: boolean) => void;
-  onOpenStyle?: () => void;
-  onFinishFraming?: () => void;
-}) {
+function ViewPanel({ scene, update }: PanelProps) {
   const isState = scene.place.kind === 'state';
   const stateMinimum = isState ? minimumStateRadius(scene) : 0;
   const presets = isState
@@ -256,7 +236,7 @@ function ViewPanel({
       <div className="rounded-sm border border-[#dfc8b9] bg-[#fbf4ef] px-4 py-3 text-[11px] leading-5 text-[#754b36]">
         {isState
           ? 'The complete state stays centered and print-safe. Use the slider to change its scale.'
-          : 'Framing is editable. Drag or zoom deliberately, then lock the view before styling.'}
+          : 'Drag or zoom the map directly, or start from a preset. The print follows exactly.'}
       </div>
       <Field
         label={isState ? 'Zoom' : 'Framing'}
@@ -363,16 +343,6 @@ function ViewPanel({
         </Field>
       )}
 
-      <button
-        type="button"
-        onClick={() => {
-          onLockedChange?.(true);
-          onFinishFraming?.();
-        }}
-        className="sticky bottom-0 rounded-sm bg-[#173f35] px-5 py-3 text-[12px] font-medium text-white shadow-[0_-10px_22px_rgba(251,250,246,0.9)] transition-colors hover:bg-[#0f2f27]"
-      >
-        Next →
-      </button>
     </div>
   );
 }
@@ -908,8 +878,7 @@ function TitlePanel({ scene, update }: PanelProps) {
         </>
       )}
 
-      {scene.place.kind === 'state' && (
-        <section className="border-t border-[#e0ddd4] pt-5">
+      <section className="border-t border-[#e0ddd4] pt-5">
           <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#a35b3f]">Your story</div>
           <h3 className="mt-1 font-display text-[25px] font-light leading-none">Add something personal</h3>
           <p className="mt-2 text-[11px] leading-5 text-[#68726c]">Add it once, then drag it directly into place on the print.</p>
@@ -998,7 +967,6 @@ function TitlePanel({ scene, update }: PanelProps) {
             </div>
           )}
         </section>
-      )}
     </div>
   );
 }

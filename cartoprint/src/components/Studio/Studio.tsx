@@ -8,7 +8,6 @@ import type { CatalogPrint } from '@/lib/catalog/prints';
 import { LivePrintCanvas } from '@/components/Studio/LivePrintCanvas';
 import { TitleOverlay } from '@/components/Studio/TitleOverlay';
 import { DoodleOverlay } from '@/components/Studio/DoodleOverlay';
-import { StyleGallery } from '@/components/Studio/StyleGallery';
 import { MOVES, MoveTabs, StudioDock, StudioPanels, type Move } from '@/components/Studio/StudioDock';
 import { useSceneHistory } from '@/hooks/useSceneHistory';
 import {
@@ -28,23 +27,42 @@ import { formatRadius } from '@/lib/print/framing';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 import { renderScene } from '@/lib/print/renderScene';
 import { DESIGN_PARAM, decodeDesign, encodeDesign } from '@/lib/print/designUrl';
-import { restoreIllustrationDesign } from '@/lib/print/decorations';
+import { restoreIllustrationDesign, type IllustrationTheme } from '@/lib/print/decorations';
 import { storeProof } from '@/lib/print/proof';
 import { checkPrintReadiness } from '@/lib/print/readiness';
+import { SIZE_CATALOG, formatPrice, getSizePrice } from '@/lib/print/sizeCatalog';
 import type { Orientation } from '@/lib/print/orientation';
 
 /**
- * The studio.
+ * The personalizer.
  *
- * Layout principle: the artwork is the largest thing on screen at every
- * viewport, and the controls float over it. The old two-column layout put a
- * 520px print in a 1000px column of empty space and pushed the primary action
- * below the fold; on a phone the entire first screen was the preview with
- * every control scrolled off beneath it.
+ * The customer arrives here from a product page with a finished design already
+ * chosen, so the art direction is settled the moment the studio opens: the
+ * exact storefront scene is decoded from the URL and rendered unchanged.
+ *
+ * The studio therefore asks only two primary questions — how the place is
+ * framed (Composition) and what makes it personal (Make it yours) — and keeps
+ * the purchase visible at all times. Changing the whole art direction remains
+ * possible, but as a secondary "Change design" action, never as a second
+ * styling step: the flow must not re-ask what the storefront already asked.
  */
 
 /** Width of the small composite handed to the size/frame mockups. */
 const PREVIEW_EXPORT_WIDTH = 1200;
+
+const THEME_NAMES: Record<IllustrationTheme, string> = {
+  'doodle-atlas': 'Doodle Atlas',
+  heritage: 'Heritage',
+  topographic: 'Topographic',
+  none: 'Map Study',
+};
+
+/** The design's name on the "Change design" chip. */
+function designLabelFor(scene: PrintScene): string {
+  if (scene.place.kind === 'state') return THEME_NAMES[scene.illustration.theme];
+  if (scene.paletteId === 'custom') return 'Custom colors';
+  return getPalette(scene.paletteId).name;
+}
 
 interface StudioProps {
   print: CatalogPrint;
@@ -63,11 +81,10 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
   const [activeMove, setActiveMove] = useState<Move | null>(null);
   // The rail always has something open, so it needs its own current move.
   const [railMove, setRailMove] = useState<Move>('view');
+  const [designOpen, setDesignOpen] = useState(false);
   const [waterShare, setWaterShare] = useState<number | null>(null);
   const [waterPlacementAvailable, setWaterPlacementAvailable] = useState<boolean | undefined>(undefined);
   const [mapReady, setMapReady] = useState(false);
-  const [mapPreview, setMapPreview] = useState<string | null>(null);
-  const [styleGalleryOpen, setStyleGalleryOpen] = useState(false);
   const [viewLocked, setViewLocked] = useState(false);
   const [continuing, setContinuing] = useState(false);
   const [shared, setShared] = useState(false);
@@ -108,6 +125,9 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
       }));
       userTouched.current = true;
       setViewLocked(true);
+      // They chose this design on the product page — open on making it theirs,
+      // not on re-deciding anything.
+      setRailMove('title');
       return;
     }
 
@@ -116,6 +136,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
       reset(normalizeScene(stored));
       userTouched.current = true;
       setViewLocked(true);
+      setRailMove('title');
     }
   }, [print, reset, searchParams]);
 
@@ -244,42 +265,32 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     }
   }
 
-  function openStyleGallery() {
+  function changeMove(move: Move | null, surface: 'dock' | 'rail') {
+    if (move === 'view') setViewLocked(false);
+    if (move === 'title') setViewLocked(true);
+    if (surface === 'dock') setActiveMove(move);
+    else if (move) setRailMove(move);
+  }
+
+  function openDesign() {
     setViewLocked(true);
-    if (scene.place.kind === 'state') {
-      setStyleGalleryOpen(false);
-      setRailMove('style');
-      setActiveMove('style');
-      return;
-    }
     setActiveMove(null);
-    setStyleGalleryOpen(true);
+    setDesignOpen(true);
   }
 
-  function closeStyleGallery() {
-    setStyleGalleryOpen(false);
-    setViewLocked(false);
-    setRailMove('view');
-    setActiveMove('view');
-  }
-
-  function finishStyleGallery(target: PrintScene) {
-    setStyleGalleryOpen(false);
-    void handleContinue(target);
-  }
-
+  const designLabel = designLabelFor(scene);
   const currentStep = MOVES.find((move) => move.id === railMove) ?? MOVES[0];
-  const layout = getLayout(scene.layoutId);
-  const palette = getPalette(scene.paletteId);
   const readiness = checkPrintReadiness(scene);
   const canContinue = mapReady && readiness.ready;
   const readinessLabel = !mapReady
     ? 'Loading map'
     : readiness.ready
-      ? 'Map ready'
+      ? 'Ready to print'
       : 'Needs adjustment';
-  // Suggestions live inside the Look panel rather than floating over the print,
-  // and retire as soon as the user has expressed a preference of their own.
+  const sizeOption = SIZE_CATALOG[scene.orientation][scene.size];
+  const price = formatPrice(getSizePrice(scene.size, 'none', false));
+  // Suggestions live inside the Design panel rather than floating over the
+  // print, and retire as soon as the user has expressed a preference.
   const showSuggestions = !userTouched.current;
 
   return (
@@ -309,12 +320,12 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
           </button>
           <button
             type="button"
-            onClick={() => scene.place.kind === 'state' ? void handleContinue() : openStyleGallery()}
-            disabled={scene.place.kind === 'state' ? !canContinue : !mapReady}
+            onClick={() => void handleContinue()}
+            disabled={!canContinue}
             title={!canContinue ? readiness.issues[0] ?? 'Waiting for the map to finish loading.' : undefined}
-            className="rounded-full bg-[#f7f4eb] px-5 py-2 text-[13px] font-medium text-[#14201d] transition-colors hover:bg-white disabled:opacity-60 lg:hidden"
+            className="rounded-full bg-[#f7f4eb] px-4 py-2 text-[13px] font-medium text-[#14201d] transition-colors hover:bg-white disabled:opacity-60 lg:hidden"
           >
-            {scene.place.kind === 'state' ? 'Choose finish' : 'Next'}
+            Finish · {price}
           </button>
         </div>
       </header>
@@ -340,7 +351,6 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
               onReadyStateChange={setMapReady}
               onWaterShare={setWaterShare}
               onWaterPlacement={handleWaterPlacement}
-              onMapPreview={setMapPreview}
               interactive={!viewLocked && scene.place.kind !== 'state'}
               className="h-full w-full"
             >
@@ -372,7 +382,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
           className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 text-[11px] text-white/35"
           style={{ bottom: dockHeight + 2 }}
         >
-          {palette.name} · {layout.name} · {scene.freeViewport ? 'custom view' : formatRadius(scene.radiusMiles)}
+          {designLabel} · {scene.freeViewport ? 'custom view' : formatRadius(scene.radiusMiles)}
         </div>
 
         {/* Bottom sheet: phones and tablets only. */}
@@ -381,21 +391,12 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
             scene={scene}
             update={touchedUpdate}
             active={activeMove}
-            onActiveChange={(move) => {
-              if (activeMove === 'view' && move !== 'view') setViewLocked(true);
-              if (move === 'style' && scene.place.kind !== 'state') openStyleGallery();
-              else {
-                if (move === 'title') setViewLocked(true);
-                setActiveMove(move);
-              }
-            }}
+            onActiveChange={(move) => changeMove(move, 'dock')}
             onHeightChange={setDockHeight}
             suggestions={showSuggestions ? suggestions : undefined}
             waterAvailable={waterPlacementAvailable}
-            viewLocked={viewLocked}
-            onViewLockedChange={setViewLocked}
-            onOpenStyle={openStyleGallery}
-            onFinishFraming={openStyleGallery}
+            designLabel={designLabel}
+            onOpenDesign={openDesign}
           />
         </div>
       </main>
@@ -406,17 +407,24 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
       <aside className="hidden w-[400px] flex-none flex-col border-l border-white/10 bg-[#fbfaf6] text-[#14201d] transition-[width] duration-200 lg:flex xl:w-[480px]">
         <div className="flex-none border-b border-[#e0ddd4] p-4">
           <MoveTabs
-            active={styleGalleryOpen ? 'style' : railMove}
-            onActiveChange={(move) => {
-              if (move === 'style' && scene.place.kind !== 'state') openStyleGallery();
-              else if (move) {
-                if (move === 'title') setViewLocked(true);
-                setRailMove(move);
-              }
-            }}
+            active={railMove}
+            onActiveChange={(move) => changeMove(move, 'rail')}
             variant="rail"
           />
           <p className="mt-3 text-[13px] text-[#44504b]">{currentStep.question}</p>
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-sm border border-[#e0ddd4] bg-white px-3 py-2">
+            <div className="min-w-0">
+              <div className="text-[9px] uppercase tracking-[0.14em] text-[#7b837e]">Design</div>
+              <div className="truncate text-[13px] font-medium text-[#14201d]">{designLabel}</div>
+            </div>
+            <button
+              type="button"
+              onClick={openDesign}
+              className="shrink-0 text-[11px] text-[#173f35] underline underline-offset-4 transition-colors hover:text-[#0f2f27]"
+            >
+              Change design
+            </button>
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
@@ -426,53 +434,84 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
             active={railMove}
             suggestions={showSuggestions ? suggestions : undefined}
             waterAvailable={waterPlacementAvailable}
-            viewLocked={viewLocked}
-            onViewLockedChange={setViewLocked}
-            onOpenStyle={openStyleGallery}
-            onFinishFraming={openStyleGallery}
           />
         </div>
 
         <div className="flex flex-none items-center gap-3 border-t border-[#e0ddd4] p-4">
           <div className="min-w-0 flex-1">
-            <div className={`flex items-center gap-2 text-[12px] font-medium ${
-              canContinue ? 'text-[#173f35]' : 'text-[#8a5a3f]'
+            <div className="text-[13px] font-medium text-[#14201d]">
+              {sizeOption.dimensionStr} print · {price}
+            </div>
+            <div className={`mt-0.5 flex items-center gap-1.5 text-[11px] ${
+              canContinue ? 'text-[#5c6a63]' : 'text-[#8a5a3f]'
             }`}>
-              <span className={`h-2 w-2 rounded-full ${
+              <span className={`h-1.5 w-1.5 rounded-full ${
                 canContinue ? 'bg-[#2f7d62]' : mapReady ? 'bg-[#c66b4e]' : 'animate-pulse bg-[#aeb5b0]'
               }`} />
-              {readinessLabel}
+              {canContinue ? 'Sizes and framing next' : readiness.issues[0] ?? readinessLabel}
             </div>
-            {!canContinue && (
-              <p className="mt-1 truncate text-[10px] text-[#7b837e]">
-                {readiness.issues[0] ?? 'Finishing the live map…'}
-              </p>
-            )}
           </div>
-          {scene.place.kind !== 'state' && <button type="button" onClick={openStyleGallery} disabled={!mapReady} className="studio-ghost-button hidden px-3 sm:block disabled:opacity-40">
-            Skip
-          </button>}
           <button
             type="button"
-            onClick={() => scene.place.kind === 'state' ? void handleContinue() : openStyleGallery()}
-            disabled={scene.place.kind === 'state' ? !canContinue : !mapReady}
+            onClick={() => void handleContinue()}
+            disabled={!canContinue}
             className="rounded-sm bg-[#173f35] px-5 py-2.5 text-[13px] text-white transition-colors hover:bg-[#0f2f27] disabled:opacity-45"
           >
-            {scene.place.kind === 'state' ? 'Choose finish' : 'Next'}
+            Choose size &amp; frame
           </button>
         </div>
       </aside>
       </div>
 
-      {styleGalleryOpen && (
-        <StyleGallery
-          scene={scene}
-          mapImage={mapPreview}
-          waterAvailable={waterPlacementAvailable}
-          update={touchedUpdate}
-          onClose={closeStyleGallery}
-          onFinish={finishStyleGallery}
-        />
+      {designOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex justify-end bg-[#0c1512]/55 backdrop-blur-[2px]"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Change the design"
+          onClick={() => setDesignOpen(false)}
+        >
+          <div
+            className="flex h-full w-full max-w-[460px] flex-col bg-[#fbfaf6] text-[#14201d] shadow-[-24px_0_60px_rgba(0,0,0,0.35)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex flex-none items-start justify-between gap-4 border-b border-[#e0ddd4] p-5">
+              <div>
+                <div className="text-[9px] uppercase tracking-[0.16em] text-[#a35b3f]">Change design</div>
+                <h2 className="mt-1 font-display text-[24px] font-light leading-none">{designLabel}</h2>
+                <p className="mt-2 text-[12px] leading-5 text-[#68726c]">
+                  Your framing, wording, and personal markers stay exactly where you put them.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDesignOpen(false)}
+                aria-label="Close design panel"
+                className="grid h-9 w-9 flex-none place-items-center rounded-full border border-[#d8d9d3] text-[16px] text-[#44504b] transition-colors hover:border-[#173f35]"
+              >
+                ×
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              <StudioPanels
+                scene={scene}
+                update={touchedUpdate}
+                active="style"
+                suggestions={showSuggestions ? suggestions : undefined}
+                waterAvailable={waterPlacementAvailable}
+              />
+            </div>
+            <div className="flex-none border-t border-[#e0ddd4] p-4">
+              <button
+                type="button"
+                onClick={() => setDesignOpen(false)}
+                className="w-full rounded-sm bg-[#173f35] px-5 py-3 text-[13px] text-white transition-colors hover:bg-[#0f2f27]"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {continuing && (
         <div className="fixed inset-0 z-[90] grid place-items-center bg-[#101a17]/82 text-white backdrop-blur-sm">
