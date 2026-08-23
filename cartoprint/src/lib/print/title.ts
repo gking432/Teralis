@@ -1,4 +1,4 @@
-import { contrastRatio, isDark, readableInk } from '@/lib/print/contrast';
+import { contrastRatio, isDark, makePrintable, readableInk } from '@/lib/print/contrast';
 import type { PreviewColorSettings } from '@/lib/print/colorSchemes';
 
 /**
@@ -26,6 +26,7 @@ export type TitleSlot =
 
 export type TitlePanel = 'solid' | 'glass' | 'none';
 export type TitleAlign = 'left' | 'center';
+export type TitleFont = 'editorial' | 'hand' | 'modern' | 'condensed';
 
 export interface TitleDesign {
   enabled: boolean;
@@ -35,9 +36,12 @@ export interface TitleDesign {
   slot: TitleSlot;
   panel: TitlePanel;
   align: TitleAlign;
+  font: TitleFont;
   /** Undefined means "derive from the palette" — the safe default. */
   textColor?: string;
   panelColor?: string;
+  /** Sampled map color beneath a freely placed transparent/glass label. */
+  backdropColor?: string;
   /**
    * True when the block is sitting on open water, so its colours must be
    * derived from the water rather than the paper. This is what makes the
@@ -154,6 +158,40 @@ export interface ResolvedTitleColors {
   transparent: boolean;
 }
 
+/** The actual surface behind title text, shared by the controls and renderer. */
+export function titleBackdropColor(
+  design: TitleDesign,
+  colors: PreviewColorSettings,
+): string {
+  const paper = colors.land || '#ffffff';
+  const water = colors.water || colors.roads || '#07122a';
+  if (design.panel === 'none') {
+    return design.backdropColor || (design.onWater ? water : paper);
+  }
+  return design.panelColor || (design.onWater ? water : paper);
+}
+
+/** Preserve the requested hue while guaranteeing that it will print clearly. */
+export function printableTitleTextColor(
+  design: TitleDesign,
+  colors: PreviewColorSettings,
+  requested: string,
+): string {
+  return makePrintable(requested, titleBackdropColor(design, colors));
+}
+
+/** Exchange the colors the customer can currently see, not unresolved defaults. */
+export function swappedTitleColors(
+  design: TitleDesign,
+  colors: PreviewColorSettings,
+): Pick<TitleDesign, 'textColor' | 'panelColor'> {
+  const resolved = resolveTitleColors(design, colors);
+  return {
+    textColor: resolved.panel,
+    panelColor: resolved.text,
+  };
+}
+
 /**
  * Derive title colors from the palette unless explicitly overridden. Auto
  * derivation guarantees a readable pairing, which is why it is the default
@@ -172,7 +210,7 @@ export function resolveTitleColors(
     // WHAT is underneath: open water for the on-the-water layout, paper
     // otherwise. Deriving from the paper while floating on a navy lake is
     // exactly how the label became invisible.
-    const backdrop = design.onWater ? water : paper;
+    const backdrop = titleBackdropColor(design, colors);
     // On water, prefer the paper colour — white type on a dark lake is the
     // look — falling back to whatever actually contrasts.
     const preferred = design.onWater ? paper : ink;
@@ -186,12 +224,14 @@ export function resolveTitleColors(
     };
   }
 
-  const panel = design.panelColor || (design.onWater ? water : paper);
+  const panel = titleBackdropColor(design, colors);
   const glass = design.panel === 'glass';
   // On a glass panel the effective background is a blend of the panel and the
   // map beneath it, so pick text against the panel but bias toward the safer
   // of the two when the panel is very translucent.
-  const backdrop = glass ? (isDark(panel) ? panel : paper) : panel;
+  const backdrop = glass
+    ? design.backdropColor || (isDark(panel) ? panel : paper)
+    : panel;
 
   return {
     text: design.textColor && contrastRatio(design.textColor, backdrop) >= 3
@@ -224,6 +264,43 @@ const BODY_FONT = '"DM Sans", system-ui, sans-serif';
 
 export const TITLE_FONT_STACK = TITLE_FONT;
 export const BODY_FONT_STACK = BODY_FONT;
+
+export const TITLE_FONT_OPTIONS: Array<{ value: TitleFont; label: string; sample: string }> = [
+  { value: 'editorial', label: 'Editorial', sample: 'Wisconsin' },
+  { value: 'hand', label: 'Hand drawn', sample: 'Up North' },
+  { value: 'modern', label: 'Modern', sample: 'WISCONSIN' },
+  { value: 'condensed', label: 'Atlas', sample: 'WISCONSIN' },
+];
+
+export function titleFontCss(font: TitleFont): string {
+  if (font === 'hand') return 'var(--font-hand), cursive';
+  if (font === 'modern') return 'var(--font-body), system-ui, sans-serif';
+  if (font === 'condensed') return 'var(--font-condensed), sans-serif';
+  return 'var(--font-display), Georgia, serif';
+}
+
+/** Canvas needs the generated next/font face, which is stored in the CSS var. */
+export function titleFontCanvas(font: TitleFont): string {
+  if (typeof document !== 'undefined') {
+    const variable = font === 'hand'
+      ? '--font-hand'
+      : font === 'modern'
+        ? '--font-body'
+        : font === 'condensed'
+          ? '--font-condensed'
+          : '--font-display';
+    const resolved = getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
+    if (resolved) return resolved;
+  }
+  if (font === 'hand') return 'cursive';
+  if (font === 'modern' || font === 'condensed') return 'sans-serif';
+  return TITLE_FONT;
+}
+
+export function displayTitleText(design: Pick<TitleDesign, 'text' | 'font'>): string {
+  const value = design.text.trim();
+  return design.font === 'hand' ? value : value.toUpperCase();
+}
 
 let measureContext: CanvasRenderingContext2D | null = null;
 
@@ -263,9 +340,10 @@ export function titleTypography(
   blockWidthPx: number,
   blockHeightPx: number,
 ): TitleTypography {
-  const title = design.text.trim().toUpperCase();
+  const title = displayTitleText(design);
   const subtitle = design.subtitle.trim().toUpperCase();
   const detail = design.detail.trim().toUpperCase();
+  const titleFont = titleFontCanvas(design.font ?? 'editorial');
   const hasSubtitle = subtitle.length > 0;
   const hasDetail = detail.length > 0;
   const vertical = design.slot === 'side-rail';
@@ -284,14 +362,15 @@ export function titleTypography(
   const detailSizePx = acrossPx * 0.105;
 
   // Longer names get tighter tracking so they stay on one line for longer.
-  const tracking = title.length > 24 ? 0.06
+  const tracking = design.font === 'hand' ? 0.015
+    : title.length > 24 ? 0.06
     : title.length > 16 ? 0.1
       : title.length > 10 ? 0.16
         : 0.24;
 
   const padding = 0.92; // keep the text off the block edges
   const widths = [
-    measureTracked(title, `300 ${titleSizePx}px ${TITLE_FONT}`, titleSizePx, tracking),
+    measureTracked(title, `${design.font === 'hand' ? 600 : 300} ${titleSizePx}px ${titleFont}`, titleSizePx, tracking),
     hasSubtitle ? measureTracked(subtitle, `400 ${subtitleSizePx}px ${BODY_FONT}`, subtitleSizePx, 0.24) : 0,
     hasDetail ? measureTracked(detail, `400 ${detailSizePx}px ${BODY_FONT}`, detailSizePx, 0.14) : 0,
   ];
@@ -314,15 +393,14 @@ export function titleTypography(
 
 export function defaultTitleDesign(name: string, subtitle: string, detail: string): TitleDesign {
   return {
-    // On by default. The whole product promise is "make the title say whatever
-    // you want" — starting with no title made that invisible.
-    enabled: true,
+    enabled: false,
     text: name,
     subtitle,
     detail,
     slot: 'footer',
     panel: 'solid',
     align: 'center',
+    font: 'editorial',
     onWater: false,
     autoPlaced: false,
     x: 0,
@@ -337,8 +415,8 @@ export function titleCacheTag(design: TitleDesign): string {
   if (!design.enabled) return 'notitle';
   return [
     design.text, design.subtitle, design.detail,
-    design.slot, design.panel, design.align,
-    design.textColor || 'auto', design.panelColor || 'auto',
+    design.slot, design.panel, design.align, design.font,
+    design.textColor || 'auto', design.panelColor || 'auto', design.backdropColor || 'unsampled',
     design.onWater ? 'water' : 'land',
     design.x.toFixed(4), design.y.toFixed(4),
     design.w.toFixed(4), design.h.toFixed(4),

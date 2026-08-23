@@ -43,6 +43,7 @@ const ALL_SLUGS = [
   'south-carolina','south-dakota','tennessee','texas','utah','vermont',
   'virginia','washington','west-virginia','wisconsin','wyoming',
   'district-of-columbia',
+  'madison-wi','milwaukee-wi','chicago-il','austin-tx','denver-co','portland-or',
 ];
 
 const slugs = args.only

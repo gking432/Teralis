@@ -74,6 +74,16 @@ export const LAYOUTS: Layout[] = [
     titleEnabled: true,
   },
   {
+    id: 'overlay',
+    name: 'On map',
+    blurb: 'Movable type directly over the geography',
+    titleSlot: 'top-left',
+    titlePanel: 'none',
+    align: 'left',
+    border: 'thin',
+    titleEnabled: true,
+  },
+  {
     id: 'bare',
     name: 'Bare',
     blurb: 'Map only, no words',

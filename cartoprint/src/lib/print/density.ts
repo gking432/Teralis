@@ -28,8 +28,8 @@ import type { Orientation } from '@/lib/print/orientation';
  *     paper size, because a city is only ~10–30 miles across.
  *   • A metro framed at 80 miles does not, because at that scale the streets
  *     would overlap into a solid tone whatever the paper size.
- *   • A state can show every town — but only once the paper is big enough to
- *     give each town label somewhere to sit.
+ *   • A state uses roads and waterways as its structure; place labels are
+ *     intentionally omitted because they collapse into a grey mass on screen.
  */
 
 // --- Thresholds, in ground miles per inch of paper --------------------------
@@ -223,21 +223,25 @@ export function resolveDensity({
   let places = step(PLACE_LADDER, autoPlaces(milesPerInch), bias, placeMax);
 
   if (kind === 'city') {
-    // A city print is named by its title block, so place labels inside it are
-    // noise — the streets are the subject.
+    // Streets are the product. City prints always carry the complete street
+    // network; style and paper choices may alter its treatment, never remove
+    // residential roads.
+    roads = 'more';
     places = 'none';
   } else if (kind === 'country') {
     // Roads at national scale are clutter; state outlines carry the structure.
     // "Maximum" can bring motorways back, nothing denser.
     roads = step(ROAD_LADDER, 'none', bias, 'less');
   } else {
-    // A state print is a gazetteer: never show its residential streets, however
-    // large the paper, or the towns stop being findable.
-    if (roads === 'more') roads = 'neutral';
+    // State controls are explicit recipes rather than suggestions. The three
+    // choices must stay visibly distinct at every paper size.
+    roads = bias === -1 ? 'none' : bias === 1 ? 'more' : 'neutral';
+    places = 'none';
   }
 
   // Legibility said yes; now check the tiles can actually supply it.
   if (
+    kind !== 'city' &&
     roads === 'more' &&
     lonSpanDegrees !== undefined &&
     !everyStreetIsRenderable(lonSpanDegrees, size, orientation)

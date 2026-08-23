@@ -16,6 +16,7 @@ import {
   viewportForRadius,
   radiusForViewport,
   radiusForPlaceBbox,
+  radiusForPlaceBboxAtRatio,
   framingPresets,
   radiusFromSlider,
   sliderFromRadius,
@@ -24,12 +25,18 @@ import { printGeometry } from '@/lib/print/geometry';
 import { strokeScaleFor, scaledWidth, STROKE_CURVES, STROKE_REFERENCE_WIDTH } from '@/lib/print/strokes';
 import { checkPalette, contrastRatio, makePrintable } from '@/lib/print/contrast';
 import { encodeDesign, decodeDesign } from '@/lib/print/designUrl';
-import { createPrintScene, setFreeViewport, resetFraming, reframe, syncViewport, sceneDensity } from '@/lib/print/scene';
+import {
+  createPrintScene,
+  minimumStateRadius,
+  normalizeScene,
+  setFreeViewport,
+  resetFraming,
+  reframe,
+  syncViewport,
+  sceneDensity,
+} from '@/lib/print/scene';
 import {
   resolveDensity,
-  smallestSizeForEveryTown,
-  everyStreetIsRenderable,
-  maxRadiusForEveryStreet,
   type DetailBias,
 } from '@/lib/print/density';
 import {
@@ -37,13 +44,22 @@ import {
   supersampleFactor,
   DENSE_ROAD_TILE_ZOOM,
 } from '@/lib/print/tileZoom';
+import { buildPrintLayerState } from '@/lib/print/printRender';
 import { exportWidthForSize, type SizeLabel } from '@/lib/print/sizeCatalog';
-import { snapToSlot, titleTypography, defaultTitleDesign, resolveTitleColors } from '@/lib/print/title';
+import {
+  printableTitleTextColor,
+  resolveTitleColors,
+  snapToSlot,
+  swappedTitleColors,
+  titleTypography,
+  defaultTitleDesign,
+} from '@/lib/print/title';
 import { buildPlaceCatalogPrint } from '@/lib/catalog/placeFromQuery';
 import { applyLayout, applyPalette } from '@/lib/print/scene';
 import { getLayout } from '@/lib/print/layouts';
 import { getPalette } from '@/lib/print/palettes';
 import { findWaterPlacement } from '@/lib/print/waterPlacement';
+import { splitCityRoadBbox } from '@/lib/print/cityRoads';
 
 function approx(a: number, b: number, tolerance = 0.02): boolean {
   return Math.abs(a - b) <= Math.abs(b) * tolerance + 1e-9;
@@ -87,13 +103,13 @@ export default function SelfTest() {
     // --- presets are round ladder values bracketing the place ---
     const madisonRadius = radiusForPlaceBbox(['43.0', '43.15', '-89.55', '-89.25']);
     const presets = framingPresets(madisonRadius);
-    check('4 presets', presets.length === 4, presets.map((p) => p.label).join(' / '));
+    check('3 presets', presets.length === 3, presets.map((p) => p.label).join(' / '));
     check('presets ascend', presets.every((p, i) => i === 0 || p.miles > presets[i - 1].miles));
     const mid = radiusFromSlider(sliderFromRadius(7, presets), presets);
     check('slider round-trip', approx(mid, 7, 0.05), `got ${mid.toFixed(2)}`);
 
     // --- geometry: border + title band change the map ratio ---
-    const title = defaultTitleDesign('Madison', 'Wisconsin', '');
+    const title = { ...defaultTitleDesign('Madison', 'Wisconsin', ''), enabled: true };
     const plain = printGeometry('portrait', 'none', { enabled: false, slot: 'footer' });
     const withBand = printGeometry('portrait', 'none', title);
     const withBorder = printGeometry('portrait', 'thick', title);
@@ -142,6 +158,27 @@ export default function SelfTest() {
     check('auto title text readable on dark paper', contrastRatio(onDark.text, '#0b0f14') >= 4.5,
       `${onDark.text} ratio ${contrastRatio(onDark.text, '#0b0f14').toFixed(2)}`);
 
+    const solidTitle = {
+      ...title,
+      panel: 'solid' as const,
+      textColor: '#173f35',
+      panelColor: '#f4ead7',
+    };
+    const swapped = swappedTitleColors(solidTitle, {
+      land: '#ffffff', water: '#53616f', roads: '#53616f',
+    });
+    check('label color swap exchanges visible colors',
+      swapped.textColor === '#f4ead7' && swapped.panelColor === '#173f35',
+      `${swapped.textColor} on ${swapped.panelColor}`);
+    const safeManualTitle = printableTitleTextColor(
+      { ...solidTitle, panelColor: '#ffffff' },
+      { land: '#ffffff', water: '#53616f', roads: '#53616f' },
+      '#fefefe',
+    );
+    check('manual label color becomes visibly print-safe',
+      safeManualTitle !== '#fefefe' && contrastRatio(safeManualTitle, '#ffffff') >= 4,
+      `${safeManualTitle} ratio ${contrastRatio(safeManualTitle, '#ffffff').toFixed(2)}`);
+
     // --- typography fits long titles ---
     const shortFit = titleTypography(title, 800, 100);
     const longFit = titleTypography({ ...title, text: 'Llanfairpwllgwyngyllgogerychwyrndrobwllllantysiliogogogoch' }, 800, 100);
@@ -158,7 +195,13 @@ export default function SelfTest() {
     });
     const scene = createPrintScene(print, 'portrait');
     check('new scene is not custom', scene.freeViewport === false);
-    check('new scene radius = place radius', approx(scene.radiusMiles, scene.place.placeRadiusMiles));
+    check('new scene starts without a label', scene.title.enabled === false);
+    check('new scene starts slate on white',
+      scene.colors.land === '#ffffff'
+      && scene.colors.roads === '#53616f'
+      && scene.colors.water === '#53616f');
+    check('new scene radius uses the whole-city preset',
+      approx(scene.radiusMiles, framingPresets(scene.place.placeRadiusMiles, 'city')[1].miles));
 
     const panned = setFreeViewport(scene, viewportForRadius([-89.2, 43.2], 4, 4 / 3), 4);
     check('pan marks custom', panned.freeViewport === true);
@@ -192,47 +235,83 @@ export default function SelfTest() {
     // Even a sprawling city bbox still qualifies.
     check('city 25mi on small = every street', den('city', 25, 'small').everyStreet,
       `${den('city', 25, 'small').milesPerInch.toFixed(2)} mi/in`);
-    // But a whole metro at 80mi genuinely cannot, at any size.
-    check('city 80mi on xlarge is NOT every street', !den('city', 80, 'xlarge').everyStreet);
-    check('city 80mi still shows main roads', den('city', 80, 'xlarge').roads === 'neutral');
+    check('city 80mi still keeps every street', den('city', 80, 'xlarge').everyStreet);
 
-    // A state shows every town only once the paper is big enough.
-    check('state 150mi on small is not every town', !den('state', 150, 'small').everyTown,
-      `${den('state', 150, 'small').milesPerInch.toFixed(1)} mi/in`);
-    check('state 150mi on large IS every town', den('state', 150, 'large').everyTown,
-      `${den('state', 150, 'large').milesPerInch.toFixed(1)} mi/in`);
-    check('state 150mi on xlarge IS every town', den('state', 150, 'xlarge').everyTown);
-    check('state never shows residential streets', den('state', 150, 'xlarge').roads !== 'more');
-    check('a huge state on xlarge is not every town', !den('state', 400, 'xlarge').everyTown);
+    // State prints are road-and-water studies, not low-zoom gazetteers.
+    check('state small omits place names', den('state', 150, 'small').places === 'none');
+    check('state large still omits place names', den('state', 150, 'large').places === 'none');
+    check('state maximum still omits place names', den('state', 150, 'xlarge', 1).places === 'none');
+    check('state clean removes every road', den('state', 150, 'medium', -1).roads === 'none');
+    check('state detailed shows main roads', den('state', 150, 'medium').roads === 'neutral');
+    check('state more detailed enables local roads', den('state', 150, 'medium', 1).roads === 'more');
+    const stateLayers = buildPrintLayerState('state', {
+      ...scene.detail,
+      places: 'more',
+      labels: { ...scene.detail.labels, cities: true, towns: true },
+    });
+    check('state layer gate rejects restored place labels',
+      !stateLayers.capitals && !stateLayers.cities && !stateLayers.towns && !stateLayers.statelabels);
+    check('state more detailed layer enables local roads',
+      buildPrintLayerState('state', { ...scene.detail, roads: 'more' }).allroads === true);
 
     // Cities carry no place labels — the title block names them.
     check('city print has no place labels', den('city', 8, 'medium').places === 'none');
     // Country prints drop roads.
     check('country drops roads', den('country', 1400, 'xlarge').roads === 'none');
 
-    // Bias nudges one rung, and cannot make a dense frame unreadable.
-    check('cleaner bias steps down', den('city', 8, 'medium', -1).roads === 'neutral');
+    // No style or density bias may remove streets from a city.
+    check('cleaner bias keeps every city street', den('city', 8, 'medium', -1).roads === 'more');
     check('maximum bias cannot exceed every street', den('city', 8, 'medium', 1).roads === 'more');
-    check('maximum bias on a wide frame stays legible',
-      den('city', 200, 'small', 1).roads !== 'more');
+    check('wide city frame keeps every street', den('city', 200, 'small', 1).roads === 'more');
+    check('city layer state overrides stale lower-road settings',
+      buildPrintLayerState('city', { ...scene.detail, roads: 'none' }).allroads === true);
 
-    // The upsell hint only fires when a bigger sheet really would cross over.
-    check('smallestSizeForEveryTown finds a size for 150mi',
-      smallestSizeForEveryTown(150, 'portrait') === 'large',
-      String(smallestSizeForEveryTown(150, 'portrait')));
-    check('smallestSizeForEveryTown gives up on 400mi',
-      smallestSizeForEveryTown(400, 'portrait') === null);
-
-    // Density is derived, so reframing changes it without any user action.
+    // City streets survive reframing; state place labels remain absent.
     const wide = reframe(scene, 120);
     const tight = reframe(scene, 5);
-    check('reframing wide drops every street', !sceneDensity(wide).everyStreet);
+    check('reframing wide keeps every street', sceneDensity(wide).everyStreet);
     check('reframing tight restores every street', sceneDensity(tight).everyStreet);
-    // ...and so does changing the paper.
     const stateScene = { ...scene, place: { ...scene.place, kind: 'state' as const }, radiusMiles: 150 };
-    check('bigger paper alone unlocks every town',
-      !sceneDensity({ ...stateScene, size: 'small' }).everyTown &&
-      sceneDensity({ ...stateScene, size: 'large' }).everyTown);
+    check('paper size never turns state names back on',
+      sceneDensity({ ...stateScene, size: 'small' }).places === 'none' &&
+      sceneDensity({ ...stateScene, size: 'large' }).places === 'none');
+
+    const wisconsinBbox: [string, string, string, string] = ['42.491', '47.08', '-92.889', '-86.805'];
+    const wisconsinRadius = radiusForPlaceBboxAtRatio(wisconsinBbox, 4 / 3) * 1.06;
+    const wisconsinViewport = viewportForRadius([-89.847, 44.786], wisconsinRadius, 4 / 3);
+    const stateHeight = Number(wisconsinBbox[1]) - Number(wisconsinBbox[0]);
+    const frameHeight = Number(wisconsinViewport.bbox[1]) - Number(wisconsinViewport.bbox[0]);
+    check('Wisconsin fills a portrait frame without cropping', stateHeight / frameHeight > 0.72,
+      `${Math.round((stateHeight / frameHeight) * 100)}% of map height`);
+
+    const wisconsin = createPrintScene(buildPlaceCatalogPrint({
+      name: 'Wisconsin',
+      displayName: 'Wisconsin, United States',
+      kind: 'state',
+      bbox: wisconsinBbox.map(Number) as [number, number, number, number],
+      center: [-89.847, 44.786],
+    }), 'portrait');
+    const cleanWisconsin = normalizeScene({ ...wisconsin, detailBias: -1 });
+    check('state clean removes rivers too', cleanWisconsin.detail.rivers === false);
+    const denseWisconsin = normalizeScene({ ...wisconsin, detailBias: 1 });
+    check('state more detailed adds county structure', denseWisconsin.detail.counties === true);
+    check('state more detailed reveals the shared boundary layer', buildPrintLayerState('state', denseWisconsin.detail).states === true);
+    const titledWisconsin = applyLayout(wisconsin, getLayout('poster'));
+    const [safeSouth, safeNorth, safeWest, safeEast] = titledWisconsin.viewport.bbox.map(Number);
+    check('adding a state title preserves the whole state',
+      safeSouth <= Number(wisconsinBbox[0])
+      && safeNorth >= Number(wisconsinBbox[1])
+      && safeWest <= Number(wisconsinBbox[2])
+      && safeEast >= Number(wisconsinBbox[3]),
+      `radius ${titledWisconsin.radiusMiles.toFixed(1)} >= safe ${minimumStateRadius(titledWisconsin).toFixed(1)}`);
+    const attemptedStatePan = setFreeViewport(
+      wisconsin,
+      viewportForRadius([-87, 43], 20, 4 / 3),
+      20,
+    );
+    check('state framing cannot pan away from the subject',
+      !attemptedStatePan.freeViewport
+      && approx(attemptedStatePan.focus[0], wisconsin.place.center[0], 0.0001));
 
     // --- tile zoom: the detail has to EXIST in the tiles, not just be enabled ---
     // Ground truth measured from a live map: a canvas 1076 CSS px wide showing
@@ -264,25 +343,31 @@ export default function SelfTest() {
       Math.floor(zoomForLonSpan(MADISON_SPAN, 630)) < DENSE_ROAD_TILE_ZOOM,
       `z=${zoomForLonSpan(MADISON_SPAN, 630).toFixed(2)}`);
 
-    // The promise must match the pixels: never claim every street for a frame
-    // too wide for the tiles.
-    check('Madison can render every street', everyStreetIsRenderable(MADISON_SPAN, 'medium', 'portrait'));
-    check('Houston at full extent cannot', !everyStreetIsRenderable(0.78, 'medium', 'portrait'));
-    check('Houston framed in can', everyStreetIsRenderable(0.40, 'medium', 'portrait'));
-    check('resolver drops the claim when tiles cannot supply it',
-      resolveDensity({ kind: 'city', radiusMiles: 23.4, size: 'medium', orientation: 'portrait', bias: 0, lonSpanDegrees: 0.78 }).everyStreet === false);
-    check('resolver keeps the claim when they can',
-      resolveDensity({ kind: 'city', radiusMiles: 8, size: 'medium', orientation: 'portrait', bias: 0, lonSpanDegrees: 0.3 }).everyStreet === true);
+    const denver = createPrintScene(buildPlaceCatalogPrint({
+      name: 'Denver',
+      displayName: 'Denver, Colorado, United States',
+      kind: 'city',
+      bbox: [39.6143008, 39.9142087, -105.1098845, -104.5996997],
+      center: [-104.984862, 39.7392364],
+    }), 'landscape');
+    check('Denver scene always requests every street',
+      denver.detail.roads === 'more' && sceneDensity(denver).everyStreet);
 
-    // The advice given for a too-wide frame must actually work.
-    const advised = maxRadiusForEveryStreet(29.76, 'medium', 'portrait');
-    const advisedSpan = (advised * 2) / (69 * Math.cos((29.76 * Math.PI) / 180));
-    check('advised radius does render every street', everyStreetIsRenderable(advisedSpan, 'medium', 'portrait'),
-      `${advised.toFixed(1)} mi -> ${advisedSpan.toFixed(3)} deg`);
+    const roadChunks = splitCityRoadBbox(['38.88', '40.60', '-105.94', '-104.04']);
+    check('wide city roads split below the server tile cap',
+      roadChunks.length > 1
+      && roadChunks.every(([south, north, west, east]) =>
+        Number(north) - Number(south) <= 0.57
+        && Number(east) - Number(west) <= 0.77));
+    check('road chunks still cover the full print extent',
+      Math.min(...roadChunks.map((chunk) => Number(chunk[0]))) === 38.88
+      && Math.max(...roadChunks.map((chunk) => Number(chunk[1]))) === 40.60
+      && Math.min(...roadChunks.map((chunk) => Number(chunk[2]))) === -105.94
+      && Math.max(...roadChunks.map((chunk) => Number(chunk[3]))) === -104.04);
 
     // Export resolution follows the finished size at 300 dpi.
     check('export is 300 dpi on the small print', exportWidthForSize('small', 'portrait') === 3600);
-    check('export is 300 dpi on the largest print', exportWidthForSize('xlarge', 'portrait') === 9000,
+    check('export is 300 dpi on the largest print', exportWidthForSize('xlarge', 'portrait') === 8400,
       String(exportWidthForSize('xlarge', 'portrait')));
 
     // --- layout and colour are independent axes ---

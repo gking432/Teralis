@@ -1,4 +1,5 @@
 import type { Orientation } from '@/lib/print/orientation';
+import type { CatalogPrintKind } from '@/lib/catalog/prints';
 
 /**
  * Radius-based framing.
@@ -82,6 +83,27 @@ export function radiusForPlaceBbox(bbox: [string, string, string, string]): numb
 }
 
 /**
+ * Radius that fits a real place bbox into a specific sheet shape.
+ *
+ * Using the place's longest axis for both dimensions made tall states tiny on
+ * portrait paper: Wisconsin's height was treated as its width, then stretched
+ * again by the portrait ratio. This solves the two axes independently and
+ * returns the tightest radius that contains both.
+ */
+export function radiusForPlaceBboxAtRatio(
+  bbox: [string, string, string, string],
+  ratio: number,
+): number {
+  const [south, north, west, east] = bbox.map(Number);
+  const latitude = (south + north) / 2;
+  const halfHeightMiles = ((north - south) / 2) * MILES_PER_LAT_DEGREE;
+  const halfWidthMiles = ((east - west) / 2) * milesPerLonDegree(latitude);
+  return clampRadius(ratio >= 1
+    ? Math.max(halfWidthMiles, halfHeightMiles / ratio)
+    : Math.max(halfHeightMiles, halfWidthMiles * ratio));
+}
+
+/**
  * A ladder of human-friendly radii. Presets are picked from this ladder rather
  * than computed, so the numbers people see are always round.
  */
@@ -102,26 +124,51 @@ export interface FramingPreset {
   name: string;
 }
 
-// Semantic names for the four rungs we show, relative to the place's own size.
-const PRESET_NAMES = ['Close in', 'Core', 'Whole place', 'With context'];
+const PRESET_NAMES: Record<CatalogPrintKind, string[]> = {
+  city: ['Neighborhood', 'Whole city', 'City + surroundings'],
+  state: ['Detailed region', 'Full state', 'State + neighbors'],
+  country: ['Closer view', 'Full country', 'Country + neighbors'],
+};
 
 /**
- * Four presets bracketing the place's natural extent, drawn from the ladder.
- * The place's own extent lands on the third rung ("Whole place"), so the
+ * Three presets bracketing the place's natural extent, drawn from the ladder.
+ * The place's own extent lands on the middle rung, so the
  * default is always the recognisable view of what the user searched for.
  */
-export function framingPresets(placeRadiusMiles: number): FramingPreset[] {
+export function framingPresets(
+  placeRadiusMiles: number,
+  kind: CatalogPrintKind = 'city',
+): FramingPreset[] {
+  if (kind !== 'city') {
+    const factors = [0.72, 1, 1.38];
+    return factors.map((factor, index) => {
+      const miles = clampRadius(placeRadiusMiles * factor);
+      return {
+        miles,
+        label: formatRadius(miles),
+        name: PRESET_NAMES[kind][index] ?? formatRadius(miles),
+      };
+    });
+  }
+
   // Index of the ladder rung closest to (but not below) the place extent.
   let anchor = RADIUS_LADDER.findIndex((rung) => rung >= placeRadiusMiles);
   if (anchor === -1) anchor = RADIUS_LADDER.length - 1;
 
-  // Two rungs tighter, the anchor, one rung wider.
-  const start = Math.min(Math.max(anchor - 2, 0), RADIUS_LADDER.length - 4);
-  return RADIUS_LADDER.slice(start, start + 4).map((miles, index) => ({
+  // One rung tighter, the anchor, one rung wider.
+  const start = Math.min(Math.max(anchor - 1, 0), RADIUS_LADDER.length - 3);
+  return RADIUS_LADDER.slice(start, start + 3).map((miles, index) => ({
     miles,
     label: formatRadius(miles),
-    name: PRESET_NAMES[index] ?? formatRadius(miles),
+    name: PRESET_NAMES[kind][index] ?? formatRadius(miles),
   }));
+}
+
+export function defaultFramingRadius(
+  placeRadiusMiles: number,
+  kind: CatalogPrintKind,
+): number {
+  return framingPresets(placeRadiusMiles, kind)[1].miles;
 }
 
 /** Continuous zoom for the slider: maps a 0–1 position onto the ladder range. */

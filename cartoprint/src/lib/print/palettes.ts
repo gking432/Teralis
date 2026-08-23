@@ -86,8 +86,8 @@ export const PALETTES: Palette[] = [
   {
     id: 'slate',
     name: 'Slate',
-    blurb: 'Quiet grey-blue',
-    colors: { land: PAPER_WHITE, water: '#54616f', roads: '#404b57' },
+    blurb: 'Slate linework on white',
+    colors: { land: PAPER_WHITE, water: '#53616f', roads: '#53616f' },
     accents: ['#404b57', '#333c46', '#4d5a63', '#3d4a4f', '#2f3841'],
     darkPaper: false,
     strokeWeight: 0.85,
@@ -121,7 +121,7 @@ export const PALETTES: Palette[] = [
   },
 ];
 
-export const DEFAULT_PALETTE = PALETTES[0];
+export const DEFAULT_PALETTE = PALETTES.find((palette) => palette.id === 'slate')!;
 
 export function getPalette(id: string | undefined | null): Palette {
   return PALETTES.find((palette) => palette.id === id) ?? DEFAULT_PALETTE;

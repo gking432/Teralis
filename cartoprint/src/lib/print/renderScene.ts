@@ -5,13 +5,20 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { STYLE_URL } from '@/lib/map/style';
 import { getStateCatalogPrints } from '@/lib/catalog/prints';
 import { getPrintInkColor } from '@/lib/print/colorSchemes';
-import { applyPrintMapStyle, applyPrintMaskColor, wantsEveryTown } from '@/lib/print/printRender';
+import {
+  addDetailedCityRoads,
+  applyPrintMapStyle,
+  applyPrintMaskColor,
+  wantsEveryTown,
+} from '@/lib/print/printRender';
+import { fetchDetailedCityRoads } from '@/lib/print/cityRoads';
 import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
 import { strokeScaleFor } from '@/lib/print/strokes';
 import { printGeometry } from '@/lib/print/geometry';
 import { supersampleFactor } from '@/lib/print/tileZoom';
 import { bakeTitle } from '@/lib/print/bakeTitle';
 import type { PrintScene } from '@/lib/print/scene';
+import { drawDecorations } from '@/lib/print/decorations';
 
 /**
  * The high-resolution renderer.
@@ -135,17 +142,19 @@ export async function renderScene(
   // scale.)
   const targetMapW = Math.max(Math.round(geo.mapRect.w * sheetW), 1);
   const targetMapH = Math.max(Math.round(geo.mapRect.h * sheetH), 1);
+  const kind = scene.place.kind === 'country' ? 'country' : scene.place.kind === 'state' ? 'state' : 'city';
 
   // Dense street work needs a high enough zoom that the tiles actually contain
   // residential roads. Render larger and downsample; the stroke scale is taken
   // from the render width, so the downsampled result still matches. This is the
   // same rule the live preview uses, so the two stay the same picture.
-  const denseFactor = supersampleFactor(scene.viewport.bbox, targetMapW, scene.detail.roads, targetMapH);
+  const denseFactor = kind === 'city'
+    ? 1
+    : supersampleFactor(scene.viewport.bbox, targetMapW, scene.detail.roads, targetMapH);
   const renderMapW = Math.round(targetMapW * denseFactor);
   const renderMapH = Math.round(targetMapH * denseFactor);
 
   const scale = strokeScaleFor(renderMapW);
-  const kind = scene.place.kind === 'country' ? 'country' : scene.place.kind === 'state' ? 'state' : 'city';
   const ink = getPrintInkColor(scene.colors);
   const paper = scene.colors.land || '#ffffff';
 
@@ -170,6 +179,7 @@ export async function renderScene(
   };
 
   let styleLoaded = false;
+  let settled = false;
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -177,10 +187,18 @@ export async function renderScene(
       // the style never loaded there is nothing to draw, and silently handing
       // back a blank sheet would be worse than saying so.
       const timer = window.setTimeout(() => {
-        if (styleLoaded) resolve();
-        else reject(new Error('Map tiles are unavailable.'));
+        if (settled) return;
+        settled = true;
+        reject(new Error(styleLoaded
+          ? 'Map tiles did not finish loading.'
+          : 'Map tiles are unavailable.'));
       }, TILE_TIMEOUT_MS);
-      const onAbort = () => { window.clearTimeout(timer); reject(new Error('aborted')); };
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        reject(new Error('aborted'));
+      };
       signal?.addEventListener('abort', onAbort, { once: true });
 
       map.on('load', () => {
@@ -210,30 +228,49 @@ export async function renderScene(
         map.fitBounds([[west, south], [east, north]], { padding: 0, animate: false, duration: 0 });
 
         const finish = () => {
+          if (settled) return;
+          settled = true;
           window.clearTimeout(timer);
           signal?.removeEventListener('abort', onAbort);
           resolve();
         };
 
-        const maybeFinish = () => {
-          if (map.areTilesLoaded()) finish();
-        };
+        const featureTasks: Promise<void>[] = [];
+
+        if (kind === 'city') {
+          featureTasks.push(fetchDetailedCityRoads(scene.viewport.bbox, signal)
+            .then((fc) => {
+              addDetailedCityRoads(map, fc, scene.colors, scale, scene.strokeWeight);
+            })
+            .catch(() => {}));
+        }
 
         if (wantsEveryTown(scene.detail)) {
-          fetch('/api/print/features', {
+          featureTasks.push(fetch('/api/print/features', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ bbox: scene.viewport.bbox, geometry: boundary, towns: true }),
+            signal,
           })
             .then((response) => (response.ok ? response.json() : null))
             .then((fc: GeoJSON.FeatureCollection | null) => {
               if (fc) addEveryTownLayer(map, fc, ink, paper, 1.4 * scale.widthScale);
             })
-            .catch(() => {})
-            .finally(() => { map.once('idle', finish); maybeFinish(); });
+            .catch(() => {}));
+        }
+
+        if (featureTasks.length) {
+          Promise.all(featureTasks).finally(() => {
+            if (settled) return;
+            map.once('idle', finish);
+            map.triggerRepaint();
+          });
         } else {
-          map.on('idle', maybeFinish);
-          maybeFinish();
+          // Style mutations are asynchronous. Waiting for the first full idle
+          // frame after applying them prevents the exporter from capturing the
+          // untouched base style while `areTilesLoaded()` still reports true.
+          map.once('idle', finish);
+          map.triggerRepaint();
         }
       });
 
@@ -271,6 +308,11 @@ export async function renderScene(
       targetMapH,
     );
 
+    // Illustrated geography and personal story elements use sheet coordinates
+    // and are drawn after the map, before the title. The live overlay uses the
+    // same scene objects, so none of the customer's additions disappear when
+    // the print is exported.
+    drawDecorations(ctx, scene, sheetW, sheetH);
     bakeTitle(ctx, scene.title, scene.colors, sheetW, sheetH);
 
     return canvas.toDataURL('image/png');

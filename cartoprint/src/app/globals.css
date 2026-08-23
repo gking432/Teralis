@@ -22,6 +22,15 @@
   --header-height: 64px;
 }
 
+.studio-scene-strip {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.studio-scene-strip::-webkit-scrollbar {
+  display: none;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -35,6 +44,14 @@ body {
   color: var(--text);
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+.font-hand {
+  font-family: var(--font-hand), cursive;
+}
+
+.font-condensed {
+  font-family: var(--font-condensed), sans-serif;
 }
 
 ::selection {
@@ -213,10 +230,10 @@ input {
 /* --- Studio dock: controls that float over the artwork -------------------- */
 
 .studio-dock-panel {
-  max-height: min(56vh, 460px);
+  max-height: min(62dvh, 560px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 20px;
+  padding: 16px 20px;
   border: 1px solid rgba(20, 32, 29, 0.14);
   border-radius: 4px;
   background: rgba(251, 250, 246, 0.985);

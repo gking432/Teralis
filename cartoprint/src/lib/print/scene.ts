@@ -7,14 +7,23 @@ import { DEFAULT_LAYOUT, getLayout, type Layout } from '@/lib/print/layouts';
 import { DEFAULT_PALETTE, getPalette, type Palette } from '@/lib/print/palettes';
 import {
   radiusForPlaceBbox,
+  radiusForPlaceBboxAtRatio,
+  defaultFramingRadius,
+  ratioForOrientation,
   viewportForRadius,
   type Viewport,
 } from '@/lib/print/framing';
 import { printGeometry } from '@/lib/print/geometry';
 import { resolveDensity, type DetailBias, type ResolvedDensity } from '@/lib/print/density';
 import type { SizeLabel } from '@/lib/print/sizeCatalog';
+import { makePalettePrintable } from '@/lib/print/contrast';
+import {
+  decorationCacheTag,
+  defaultIllustrationDesign,
+  type IllustrationDesign,
+} from '@/lib/print/decorations';
 
-export const PRINT_SCENE_VERSION = 8;
+export const PRINT_SCENE_VERSION = 15;
 export const SESSION_SCENE_KEY = 'teralis:print-scene';
 
 export type PrintViewport = Viewport;
@@ -23,11 +32,15 @@ export interface PrintPlace {
   slug: string;
   name: string;
   kind: CatalogPrintKind;
+  /** Human geography subtype, while `kind` remains the rendering mode. */
+  placeType: string;
   subtitle: string;
   establishedYear?: string;
   searchQuery: string;
   /** The place's own extent, used to reset framing. */
   placeRadiusMiles: number;
+  /** Authoritative place bounds, used to keep an isolated state on the sheet. */
+  bbox: [string, string, string, string];
   center: [number, number];
 }
 
@@ -64,6 +77,8 @@ export interface PrintScene {
   labelsAuto: boolean;
   detail: PrintDetailSettings;
   title: TitleDesign;
+  /** Illustrated geography and personal story elements baked into the print. */
+  illustration: IllustrationDesign;
   updatedAt: number;
 }
 
@@ -88,8 +103,10 @@ export function detailForLayout(layout: Layout, kind: CatalogPrintKind): PrintDe
     counties: false,
     states: isCountry,
     labels: {
-      cities: kind !== 'city',
-      towns: kind === 'state',
+      // City prints are named by their optional title; state prints are
+      // structural road-and-water studies rather than crowded gazetteers.
+      cities: kind === 'country',
+      towns: false,
       roads: false,
       water: false,
       rivers: false,
@@ -116,19 +133,32 @@ export function sceneDensity(scene: PrintScene): ResolvedDensity {
  */
 export function syncDetail(scene: PrintScene): PrintScene {
   const density = sceneDensity(scene);
+  const isState = scene.place.kind === 'state';
+  const illustratedRoads = scene.illustration?.layers.roads;
+  const stateRoads = illustratedRoads === 'hidden'
+    ? 'none'
+    : illustratedRoads === 'minimal' || illustratedRoads === 'doodle'
+      ? 'less'
+      : density.roads;
   return {
     ...scene,
     detail: {
       ...scene.detail,
-      roads: density.roads,
-      places: density.places,
+      roads: isState ? stateRoads : density.roads,
+      places: isState ? 'none' : density.places,
+      rivers: isState
+        ? scene.illustration.layers.water !== 'hidden' && scene.detailBias !== -1
+        : scene.detail.rivers,
+      counties: isState ? scene.detailBias === 1 : scene.detail.counties,
       labels: scene.labelsAuto
         ? {
             ...scene.detail.labels,
-            cities: scene.place.kind !== 'city' && density.places !== 'none',
-            towns: scene.place.kind !== 'city' && (density.places === 'more' || density.places === 'neutral'),
+            cities: scene.place.kind === 'country' && density.places !== 'none',
+            towns: false,
           }
-        : scene.detail.labels,
+        : isState
+          ? { ...scene.detail.labels, cities: false, towns: false }
+          : scene.detail.labels,
     },
   };
 }
@@ -140,6 +170,26 @@ export function syncDetail(scene: PrintScene): PrintScene {
  */
 export function mapRatioForScene(scene: Pick<PrintScene, 'orientation' | 'detail' | 'title'>): number {
   return printGeometry(scene.orientation, scene.detail.border, scene.title).mapRatio;
+}
+
+/** Closest safe state framing for the current sheet, border, and title band. */
+export function minimumStateRadius(scene: PrintScene): number {
+  if (scene.place.kind !== 'state') return 0;
+  return radiusForPlaceBboxAtRatio(scene.place.bbox, mapRatioForScene(scene)) * 1.06;
+}
+
+/**
+ * State prints are product compositions, not free maps. Keep the complete
+ * isolated state centered and let the zoom slider add breathing room only.
+ */
+function constrainStateFraming(scene: PrintScene): PrintScene {
+  if (scene.place.kind !== 'state') return scene;
+  return {
+    ...scene,
+    focus: [...scene.place.center] as [number, number],
+    radiusMiles: Math.max(scene.radiusMiles, minimumStateRadius(scene)),
+    freeViewport: false,
+  };
 }
 
 /**
@@ -160,7 +210,13 @@ export function createPrintScene(
   palette: Palette = DEFAULT_PALETTE,
   layout: Layout = DEFAULT_LAYOUT,
 ): PrintScene {
-  const placeRadiusMiles = radiusForPlaceBbox(print.bbox);
+  const effectivePalette = print.kind === 'state' && palette.id === DEFAULT_PALETTE.id
+    ? getPalette('bone')
+    : palette;
+  const placeRadiusMiles = print.kind === 'city'
+    ? radiusForPlaceBbox(print.bbox)
+    : radiusForPlaceBboxAtRatio(print.bbox, ratioForOrientation(orientation)) * 1.06;
+  const radiusMiles = defaultFramingRadius(placeRadiusMiles, print.kind);
   const center: [number, number] = [...print.center];
 
   const base: PrintScene = {
@@ -169,32 +225,44 @@ export function createPrintScene(
       slug: print.slug,
       name: print.name,
       kind: print.kind,
+      placeType: print.placeType || print.kind,
       subtitle: print.defaultSubtitle,
       establishedYear: print.establishedYear,
       searchQuery: print.searchQuery,
       placeRadiusMiles,
+      bbox: [...print.bbox],
       center,
     },
     orientation,
     layoutId: layout.id,
-    paletteId: palette.id,
-    radiusMiles: placeRadiusMiles,
+    paletteId: effectivePalette.id,
+    radiusMiles,
     focus: [...center] as [number, number],
     freeViewport: false,
     viewport: { bbox: [...print.bbox], center },
-    colors: { ...palette.colors },
-    strokeWeight: palette.strokeWeight,
+    colors: { ...effectivePalette.colors },
+    strokeWeight: effectivePalette.strokeWeight,
     size: 'medium',
     detailBias: 0,
     labelsAuto: true,
     detail: detailForLayout(layout, print.kind),
-    title: applyLayoutToTitle(defaultTitleDesign(
-      print.defaultTitle,
-      print.defaultSubtitle,
-      print.kind === 'city'
-        ? coordinateLine(center)
-        : print.establishedYear ? `EST. ${print.establishedYear}` : '',
-    ), layout),
+    title: {
+      ...applyLayoutToTitle(defaultTitleDesign(
+        print.defaultTitle,
+        print.defaultSubtitle,
+        print.kind === 'city'
+          ? coordinateLine(center)
+          : print.establishedYear ? `EST. ${print.establishedYear}` : '',
+      ), layout),
+      // Framing and color come first. The label is introduced only when the
+      // customer reaches the composition step.
+      ...(print.kind === 'state'
+        ? { slot: 'footer-tall' as const, ...rectForSlot('footer-tall') }
+        : {}),
+      enabled: print.kind === 'state',
+      font: print.kind === 'state' ? 'hand' : 'editorial',
+    },
+    illustration: defaultIllustrationDesign(print.slug, print.kind),
     updatedAt: Date.now(),
   };
 
@@ -207,7 +275,16 @@ export function createPrintScene(
  * this so no control can leave the scene in a state that contradicts itself.
  */
 export function normalizeScene(scene: PrintScene): PrintScene {
-  return syncDetail(syncViewport(scene));
+  return syncDetail(syncViewport(constrainStateFraming({
+    ...scene,
+    place: {
+      ...scene.place,
+      placeType: scene.place.placeType || scene.place.kind,
+    },
+    illustration: scene.illustration ?? defaultIllustrationDesign(scene.place.slug, scene.place.kind),
+    title: { ...scene.title, font: scene.title.font ?? 'editorial' },
+    colors: makePalettePrintable(scene.colors),
+  })));
 }
 
 /** Move the title block to wherever a layout puts it, keeping the words. */
@@ -223,6 +300,7 @@ export function applyLayoutToTitle(title: TitleDesign, layout: Layout): TitleDes
     // survive into a scheme it was never chosen for.
     textColor: undefined,
     panelColor: undefined,
+    backdropColor: undefined,
     // Auto-placed layouts get their rect computed from the artwork once it has
     // rendered. Until then, fall back to the slot's own geometry.
     autoPlaced: Boolean(layout.autoPlace),
@@ -290,6 +368,7 @@ export function resetFraming(scene: PrintScene): PrintScene {
 
 /** Record a camera move the user made by hand. */
 export function setFreeViewport(scene: PrintScene, viewport: PrintViewport, radiusMiles: number): PrintScene {
+  if (scene.place.kind === 'state') return reframe(scene, radiusMiles);
   return {
     ...scene,
     viewport,
@@ -339,7 +418,10 @@ export function sceneCacheTag(scene: PrintScene): string {
   const labels = d.labels;
   return [
     `v${scene.version}`,
+    scene.place.slug,
     scene.orientation,
+    scene.size,
+    scene.detailBias,
     scene.layoutId,
     scene.paletteId,
     scene.viewport.bbox.join(','),
@@ -355,5 +437,6 @@ export function sceneCacheTag(scene: PrintScene): string {
     labels.water ? 'lw1' : 'lw0',
     labels.rivers ? 'lrv1' : 'lrv0',
     titleCacheTag(scene.title),
+    decorationCacheTag(scene.illustration),
   ].join(':');
 }

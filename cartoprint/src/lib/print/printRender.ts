@@ -79,16 +79,17 @@ export function getBorderFraction(weight: BorderWeight): number {
 
 // --- per-kind base layer states ---
 
-// State / city prints: cities + towns, highways + main roads, water + rivers.
+// State / city prints: highways + main roads, water + rivers. City streets are
+// supplied separately; state place names are intentionally omitted.
 // No borders — the isolation mask defines the region edge.
 const STATE_PRINT_LAYER_STATE: LayerState = {
   countries: false,
   states: false,
   counties: false,
-  capitals: true,
-  cities: true,
-  towns: true,
-  statelabels: true,
+  capitals: false,
+  cities: false,
+  towns: false,
+  statelabels: false,
   countrylabels: false,
   highways: true,
   mainroads: true,
@@ -133,6 +134,92 @@ export function wantsEveryTown(detail: PrintDetailSettings): boolean {
   return detail.places === 'more';
 }
 
+const CITY_ROAD_SOURCE_ID = 'print-city-road-network';
+const CITY_ROAD_LAYERS = [
+  'print-city-road-local',
+] as const;
+
+/** Hide stale street coverage while a newly framed city extent is loading. */
+export function setDetailedCityRoadsVisible(map: maplibregl.Map, visible: boolean): void {
+  CITY_ROAD_LAYERS.forEach((id) => {
+    if (!map.getLayer(id)) return;
+    try { map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none'); } catch {}
+  });
+}
+
+/** Remove incomplete coverage rather than leaving a rectangular remnant. */
+export function removeDetailedCityRoads(map: maplibregl.Map): void {
+  try {
+    CITY_ROAD_LAYERS.forEach((id) => {
+      if (map.getLayer(id)) map.removeLayer(id);
+    });
+    if (map.getSource(CITY_ROAD_SOURCE_ID)) map.removeSource(CITY_ROAD_SOURCE_ID);
+  } catch {}
+}
+
+function hideBaseCityLocalRoadLayers(map: maplibregl.Map): void {
+  map.getStyle()?.layers.forEach((layer) => {
+    if (CITY_ROAD_LAYERS.includes(layer.id as typeof CITY_ROAD_LAYERS[number])) return;
+    if (
+      layer.type !== 'line' ||
+      !/(minor|tertiary|service|track|street)/.test(layer.id) ||
+      !/road|bridge|tunnel/.test(layer.id)
+    ) return;
+    try { map.setLayoutProperty(layer.id, 'visibility', 'none'); } catch {}
+  });
+}
+
+function styleDetailedCityRoads(map: maplibregl.Map, scale: StrokeScale, weight: number): void {
+  const widths: Record<typeof CITY_ROAD_LAYERS[number], ReturnType<typeof scaledWidth>> = {
+    'print-city-road-local': scaledWidth(STROKE_CURVES.street, scale, weight),
+  };
+  CITY_ROAD_LAYERS.forEach((id) => {
+    if (!map.getLayer(id)) return;
+    try {
+      map.setLayoutProperty(id, 'visibility', 'visible');
+      map.setPaintProperty(id, 'line-width', widths[id]);
+    } catch {}
+  });
+}
+
+/** Add the complete z12 city street network shared by editor and export. */
+export function addDetailedCityRoads(
+  map: maplibregl.Map,
+  collection: GeoJSON.FeatureCollection,
+  colors: PreviewColorSettings,
+  scale: StrokeScale = UNSCALED,
+  weight = 1,
+): void {
+  if (!collection.features.length) {
+    removeDetailedCityRoads(map);
+    return;
+  }
+  try {
+    removeDetailedCityRoads(map);
+    map.addSource(CITY_ROAD_SOURCE_ID, { type: 'geojson', data: collection });
+
+    const before = map.getStyle()?.layers.find((layer) => layer.type === 'symbol')?.id;
+    const add = (id: typeof CITY_ROAD_LAYERS[number], classes: string[], opacity: number) => {
+      map.addLayer({
+        id,
+        type: 'line',
+        source: CITY_ROAD_SOURCE_ID,
+        filter: ['match', ['get', 'class'], classes, true, false],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': colors.roads || getPrintInkColor(colors),
+          'line-opacity': opacity,
+          'line-width': 1,
+        },
+      }, before);
+    };
+
+    add('print-city-road-local', ['tertiary', 'minor', 'service', 'track', 'street', 'street_limited'], 0.7);
+    hideBaseCityLocalRoadLayers(map);
+    styleDetailedCityRoads(map, scale, weight);
+  } catch {}
+}
+
 /** Build the LayerState for a storefront print given kind + user detail prefs. */
 export function buildPrintLayerState(
   kind: 'country' | 'state' | 'city',
@@ -144,8 +231,8 @@ export function buildPrintLayerState(
   // Places: none < less (major cities) < neutral (+towns) < more (every town).
   // The base style ranks city/town labels by importance, so "less" naturally
   // surfaces only the largest cities.
-  const cities = detail.labels?.cities ?? (p !== 'none');
-  const towns = detail.labels?.towns ?? (p === 'neutral' || p === 'more');
+  const cities = kind === 'state' ? false : detail.labels?.cities ?? (p !== 'none');
+  const towns = kind === 'state' ? false : detail.labels?.towns ?? (p === 'neutral' || p === 'more');
 
   // Roads: none < less (highways) < neutral (+main roads) < more (+streets).
   const highways = r !== 'none';
@@ -180,9 +267,9 @@ export function buildPrintLayerState(
       capitals: false,
       cities: false,
       towns: false,
-      highways,
-      mainroads,
-      allroads,
+      highways: true,
+      mainroads: true,
+      allroads: true,
       roadlabels: detail.labels?.roads ?? false,
       waterlabels: detail.labels?.water ?? false,
       riverlabels: detail.labels?.rivers ?? false,
@@ -192,21 +279,23 @@ export function buildPrintLayerState(
     };
   }
 
-  // State prints never show residential streets.
+  // State prints use road and water structure without place-name clutter.
   return {
     ...STATE_PRINT_LAYER_STATE,
-    capitals: cities,
-    cities,
-    towns,
+    capitals: false,
+    cities: false,
+    towns: false,
     highways,
     mainroads,
-    allroads: false,
+    allroads,
     roadlabels: detail.labels?.roads ?? false,
     waterlabels: detail.labels?.water ?? false,
     riverlabels: detail.labels?.rivers ?? false,
     rivers: detail.rivers ?? true,
     counties: detail.counties ?? false,
-    states: detail.states ?? false,
+    // Liberty's boundary_3 line contains admin levels 3-6. For an isolated US
+    // state, this shared layer is also where the county boundaries live.
+    states: (detail.states ?? false) || (detail.counties ?? false),
   };
 }
 
@@ -358,7 +447,11 @@ function applyPrintPreviewOverrides(
     // toggle, and expands the zoom range to 3-24 so the road shows at any
     // print zoom (immune to small zoom shifts from border resizing). Roads
     // are completely decoupled from the cities/towns toggle here.
-    if (layer.type === 'line' && /road|bridge|tunnel/.test(id) && !/casing/.test(id)) {
+    if (
+      layer.type === 'line' &&
+      /road|bridge|tunnel/.test(id) &&
+      !/casing|rail|transit/.test(id)
+    ) {
       const isHighway = /motorway|trunk/.test(id);
       const isMain = !isHighway && /(primary|secondary)/.test(id);
       const shouldBeVisible =
@@ -398,6 +491,14 @@ export function applyPrintColors(
   style.layers.forEach((layer) => {
     const id = layer.id;
     try {
+      // Isolation and exclusion layers are compositing surfaces, not map
+      // geography. Recoloring every generic fill to land made the outside mask
+      // white again after a resize, revealing roads from neighboring states.
+      if (
+        id === 'mask-layer' ||
+        id === 'selection-outline-layer' ||
+        id.startsWith('print-exclusions-')
+      ) return;
       if (layer.type === 'background') {
         map.setPaintProperty(id, 'background-color', land);
         return;
@@ -453,6 +554,10 @@ export function applyPrintDetail(
   const layers = buildPrintLayerState(kind, detail);
   applyLayerVisibility(map, layers, scale, weight);
   applyPrintPreviewOverrides(map, layers, detail.places === 'more', scale, weight);
+  if (kind === 'city' && map.getSource(CITY_ROAD_SOURCE_ID)) {
+    hideBaseCityLocalRoadLayers(map);
+    styleDetailedCityRoads(map, scale, weight);
+  }
 }
 
 /**

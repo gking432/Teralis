@@ -141,3 +141,13 @@ export function makePrintable(color: string, paper: string): string {
 
   return best;
 }
+
+export function makePalettePrintable<T extends { land: string; water: string; roads: string }>(
+  colors: T,
+): T {
+  return {
+    ...colors,
+    water: makePrintable(colors.water, colors.land),
+    roads: makePrintable(colors.roads, colors.land),
+  };
+}

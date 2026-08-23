@@ -7,10 +7,12 @@ import type maplibregl from 'maplibre-gl';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import { LivePrintCanvas } from '@/components/Studio/LivePrintCanvas';
 import { TitleOverlay } from '@/components/Studio/TitleOverlay';
+import { DoodleOverlay } from '@/components/Studio/DoodleOverlay';
+import { StyleGallery } from '@/components/Studio/StyleGallery';
 import { MOVES, MoveTabs, StudioDock, StudioPanels, type Move } from '@/components/Studio/StudioDock';
 import { useSceneHistory } from '@/hooks/useSceneHistory';
 import {
-  applyPalette,
+  applyLayout,
   createPrintScene,
   readStoredScene,
   setFreeViewport,
@@ -26,7 +28,9 @@ import { formatRadius } from '@/lib/print/framing';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 import { renderScene } from '@/lib/print/renderScene';
 import { DESIGN_PARAM, decodeDesign, encodeDesign } from '@/lib/print/designUrl';
-import { SESSION_PREVIEW_KEY, exportWidthForSize } from '@/lib/print/sizeCatalog';
+import { restoreIllustrationDesign } from '@/lib/print/decorations';
+import { storeProof } from '@/lib/print/proof';
+import { checkPrintReadiness } from '@/lib/print/readiness';
 import type { Orientation } from '@/lib/print/orientation';
 
 /**
@@ -58,10 +62,14 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
   const [boundary, setBoundary] = useState<GeoJSON.Geometry | null>(null);
   const [activeMove, setActiveMove] = useState<Move | null>(null);
   // The rail always has something open, so it needs its own current move.
-  const [railMove, setRailMove] = useState<Move>('frame');
+  const [railMove, setRailMove] = useState<Move>('view');
   const [waterShare, setWaterShare] = useState<number | null>(null);
+  const [waterPlacementAvailable, setWaterPlacementAvailable] = useState<boolean | undefined>(undefined);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapPreview, setMapPreview] = useState<string | null>(null);
+  const [styleGalleryOpen, setStyleGalleryOpen] = useState(false);
+  const [viewLocked, setViewLocked] = useState(false);
   const [continuing, setContinuing] = useState(false);
-  const [downloading, setDownloading] = useState(false);
   const [shared, setShared] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [dockHeight, setDockHeight] = useState(96);
@@ -70,7 +78,6 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const restored = useRef(false);
   const userTouched = useRef(false);
-  const autoApplied = useRef(false);
 
   // --- Restore: URL design first (shareable), then the session, then default.
   useEffect(() => {
@@ -81,7 +88,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     const decoded = decodeDesign(encoded);
     if (decoded) {
       const base = createPrintScene(print, decoded.orientation);
-      reset({
+      reset(normalizeScene({
         ...base,
         orientation: decoded.orientation,
         layoutId: decoded.layoutId,
@@ -97,15 +104,18 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
         labelsAuto: decoded.labelsAuto,
         detail: decoded.detail,
         title: decoded.title,
-      });
+        illustration: restoreIllustrationDesign(decoded.illustration, base.illustration, print.slug),
+      }));
       userTouched.current = true;
+      setViewLocked(true);
       return;
     }
 
     const stored = readStoredScene(print);
     if (stored) {
-      reset(stored);
+      reset(normalizeScene(stored));
       userTouched.current = true;
+      setViewLocked(true);
     }
   }, [print, reset, searchParams]);
 
@@ -137,9 +147,8 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     return () => { cancelled = true; };
   }, [print.slug, print.center, print.kind]);
 
-  // --- Start from a good print rather than a blank one. Once the map has
-  // painted we know how much of the frame is water, which is the single most
-  // useful signal for which look suits this place.
+  // Water share still informs recommendations, but the print always opens in
+  // the neutral slate default. Suggestions must never recolor work silently.
   const suggestions = suggestPalettes({
     kind: print.kind,
     radiusMiles: scene.place.placeRadiusMiles,
@@ -147,23 +156,12 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     seed: seedFromSlug(print.slug),
   });
 
-  useEffect(() => {
-    if (autoApplied.current || userTouched.current) return;
-    if (waterShare === null) return;
-    autoApplied.current = true;
-    const best = suggestions[0];
-    if (best && best.id !== scene.paletteId) {
-      update((current) => applyPalette(current, best), 'auto-palette');
-    }
-    // `suggestions` is derived from waterShare; recomputing on it would loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [waterShare]);
-
   /**
    * Accept an automatic placement. Only while the title is still auto-placed —
    * the instant the user drags it, `autoPlaced` clears and their position wins.
    */
   const handleWaterPlacement = useCallback((rect: { x: number; y: number; w: number; h: number } | null) => {
+    setWaterPlacementAvailable(Boolean(rect));
     update((current) => {
       if (!current.title.autoPlaced) return current;
       const found = Boolean(rect);
@@ -190,6 +188,15 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     update((current) => setFreeViewport(current, viewport, radiusMiles), 'pan');
   }, [update]);
 
+  useEffect(() => {
+    if (
+      waterPlacementAvailable !== false
+      || scene.layoutId !== 'on-water'
+      || !scene.title.autoPlaced
+    ) return;
+    update((current) => applyLayout(current, getLayout('footer')), 'water-fallback');
+  }, [scene.layoutId, scene.title.autoPlaced, update, waterPlacementAvailable]);
+
   /**
    * Every edit funnels through here so the framing radius stays meaningful.
    * Orientation, border weight, and a reserved title band all change the shape
@@ -205,46 +212,25 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     }, label);
   }, [update]);
 
-  async function exportPng(width: number): Promise<string> {
-    return renderScene(scene, boundary, { width });
+  async function exportPng(target: PrintScene, width: number): Promise<string> {
+    return renderScene(target, boundary, { width });
   }
 
-  async function handleContinue() {
-    if (continuing) return;
+  async function handleContinue(target: PrintScene = scene) {
+    if (continuing || !mapReady || !checkPrintReadiness(target).ready) return;
     setContinuing(true);
     setExportError(null);
     try {
-      const preview = await exportPng(PREVIEW_EXPORT_WIDTH);
-      sessionStorage.setItem(SESSION_PREVIEW_KEY, preview);
-      storeScene(scene);
+      const preview = await exportPng(target, PREVIEW_EXPORT_WIDTH);
+      storeProof(target, preview);
+      storeScene(target);
       const params = new URLSearchParams(window.location.search);
-      params.set('o', scene.orientation);
+      params.set('o', target.orientation);
       router.push(`/size?${params.toString()}`);
     } catch (error) {
       console.warn('Could not prepare the print preview', error);
       setExportError('We could not prepare the print preview. Please try again.');
       setContinuing(false);
-    }
-  }
-
-  async function handleDownload() {
-    if (downloading) return;
-    setDownloading(true);
-    setExportError(null);
-    try {
-      // 300 dpi at the chosen finished size, not a flat 3600 px — which was
-      // only 120 dpi on a 30x40, and also capped how much map detail the
-      // largest prints could physically contain.
-      const url = await exportPng(exportWidthForSize(scene.size, scene.orientation));
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `${print.slug}-${scene.orientation}.png`;
-      anchor.click();
-    } catch (error) {
-      console.warn('Download failed', error);
-      setExportError('The artwork could not be generated. Please try again.');
-    } finally {
-      setDownloading(false);
     }
   }
 
@@ -258,10 +244,40 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     }
   }
 
-  const stepIndex = Math.max(MOVES.findIndex((move) => move.id === railMove), 0);
-  const currentStep = MOVES[stepIndex];
+  function openStyleGallery() {
+    setViewLocked(true);
+    if (scene.place.kind === 'state') {
+      setStyleGalleryOpen(false);
+      setRailMove('style');
+      setActiveMove('style');
+      return;
+    }
+    setActiveMove(null);
+    setStyleGalleryOpen(true);
+  }
+
+  function closeStyleGallery() {
+    setStyleGalleryOpen(false);
+    setViewLocked(false);
+    setRailMove('view');
+    setActiveMove('view');
+  }
+
+  function finishStyleGallery(target: PrintScene) {
+    setStyleGalleryOpen(false);
+    void handleContinue(target);
+  }
+
+  const currentStep = MOVES.find((move) => move.id === railMove) ?? MOVES[0];
   const layout = getLayout(scene.layoutId);
   const palette = getPalette(scene.paletteId);
+  const readiness = checkPrintReadiness(scene);
+  const canContinue = mapReady && readiness.ready;
+  const readinessLabel = !mapReady
+    ? 'Loading map'
+    : readiness.ready
+      ? 'Map ready'
+      : 'Needs adjustment';
   // Suggestions live inside the Look panel rather than floating over the print,
   // and retire as soon as the user has expressed a preference of their own.
   const showSuggestions = !userTouched.current;
@@ -293,19 +309,12 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
           </button>
           <button
             type="button"
-            onClick={handleDownload}
-            disabled={downloading}
-            className="hidden rounded-full border border-white/15 px-3.5 py-2 text-[12px] text-[#dce2dd]/80 transition-colors hover:border-white/40 hover:text-white disabled:opacity-40 md:block"
+            onClick={() => scene.place.kind === 'state' ? void handleContinue() : openStyleGallery()}
+            disabled={scene.place.kind === 'state' ? !canContinue : !mapReady}
+            title={!canContinue ? readiness.issues[0] ?? 'Waiting for the map to finish loading.' : undefined}
+            className="rounded-full bg-[#f7f4eb] px-5 py-2 text-[13px] font-medium text-[#14201d] transition-colors hover:bg-white disabled:opacity-60 lg:hidden"
           >
-            {downloading ? 'Preparing…' : 'Download'}
-          </button>
-          <button
-            type="button"
-            onClick={handleContinue}
-            disabled={continuing}
-            className="rounded-full bg-[#f7f4eb] px-5 py-2 text-[13px] font-medium text-[#14201d] transition-colors hover:bg-white disabled:opacity-60"
-          >
-            {continuing ? 'Preparing…' : 'Choose print'}
+            {scene.place.kind === 'state' ? 'Choose finish' : 'Next'}
           </button>
         </div>
       </header>
@@ -328,10 +337,21 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
               geometry={boundary}
               onViewportChange={handleViewportChange}
               onReady={(map) => { mapRef.current = map; }}
+              onReadyStateChange={setMapReady}
               onWaterShare={setWaterShare}
               onWaterPlacement={handleWaterPlacement}
+              onMapPreview={setMapPreview}
+              interactive={!viewLocked && scene.place.kind !== 'state'}
               className="h-full w-full"
             >
+              <DoodleOverlay
+                scene={scene}
+                containerRef={sheetRef}
+                onChange={(decorations) => touchedUpdate((current) => ({
+                  ...current,
+                  illustration: { ...current.illustration, decorations },
+                }), 'decoration-drag')}
+              />
               <TitleOverlay
                 design={scene.title}
                 colors={scene.colors}
@@ -361,9 +381,21 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
             scene={scene}
             update={touchedUpdate}
             active={activeMove}
-            onActiveChange={setActiveMove}
+            onActiveChange={(move) => {
+              if (activeMove === 'view' && move !== 'view') setViewLocked(true);
+              if (move === 'style' && scene.place.kind !== 'state') openStyleGallery();
+              else {
+                if (move === 'title') setViewLocked(true);
+                setActiveMove(move);
+              }
+            }}
             onHeightChange={setDockHeight}
             suggestions={showSuggestions ? suggestions : undefined}
+            waterAvailable={waterPlacementAvailable}
+            viewLocked={viewLocked}
+            onViewLockedChange={setViewLocked}
+            onOpenStyle={openStyleGallery}
+            onFinishFraming={openStyleGallery}
           />
         </div>
       </main>
@@ -371,9 +403,19 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
       {/* Right rail: on a wide screen there is room to keep the controls
           permanently beside the artwork instead of over it, so nothing has to
           be opened and closed and the print never has to shrink. */}
-      <aside className="hidden w-[372px] flex-none flex-col border-l border-white/10 bg-[#fbfaf6] text-[#14201d] lg:flex xl:w-[400px]">
+      <aside className="hidden w-[400px] flex-none flex-col border-l border-white/10 bg-[#fbfaf6] text-[#14201d] transition-[width] duration-200 lg:flex xl:w-[480px]">
         <div className="flex-none border-b border-[#e0ddd4] p-4">
-          <MoveTabs active={railMove} onActiveChange={(move) => move && setRailMove(move)} variant="rail" />
+          <MoveTabs
+            active={styleGalleryOpen ? 'style' : railMove}
+            onActiveChange={(move) => {
+              if (move === 'style' && scene.place.kind !== 'state') openStyleGallery();
+              else if (move) {
+                if (move === 'title') setViewLocked(true);
+                setRailMove(move);
+              }
+            }}
+            variant="rail"
+          />
           <p className="mt-3 text-[13px] text-[#44504b]">{currentStep.question}</p>
         </div>
 
@@ -383,44 +425,63 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
             update={touchedUpdate}
             active={railMove}
             suggestions={showSuggestions ? suggestions : undefined}
+            waterAvailable={waterPlacementAvailable}
+            viewLocked={viewLocked}
+            onViewLockedChange={setViewLocked}
+            onOpenStyle={openStyleGallery}
+            onFinishFraming={openStyleGallery}
           />
         </div>
 
-        {/* One question at a time, with a way forward. The steps are still
-            directly addressable above, so this guides without trapping. */}
-        <div className="flex flex-none items-center justify-between gap-3 border-t border-[#e0ddd4] p-4">
+        <div className="flex flex-none items-center gap-3 border-t border-[#e0ddd4] p-4">
+          <div className="min-w-0 flex-1">
+            <div className={`flex items-center gap-2 text-[12px] font-medium ${
+              canContinue ? 'text-[#173f35]' : 'text-[#8a5a3f]'
+            }`}>
+              <span className={`h-2 w-2 rounded-full ${
+                canContinue ? 'bg-[#2f7d62]' : mapReady ? 'bg-[#c66b4e]' : 'animate-pulse bg-[#aeb5b0]'
+              }`} />
+              {readinessLabel}
+            </div>
+            {!canContinue && (
+              <p className="mt-1 truncate text-[10px] text-[#7b837e]">
+                {readiness.issues[0] ?? 'Finishing the live map…'}
+              </p>
+            )}
+          </div>
+          {scene.place.kind !== 'state' && <button type="button" onClick={openStyleGallery} disabled={!mapReady} className="studio-ghost-button hidden px-3 sm:block disabled:opacity-40">
+            Skip
+          </button>}
           <button
             type="button"
-            onClick={() => setRailMove(MOVES[Math.max(stepIndex - 1, 0)].id)}
-            disabled={stepIndex === 0}
-            className="studio-ghost-button disabled:opacity-30"
+            onClick={() => scene.place.kind === 'state' ? void handleContinue() : openStyleGallery()}
+            disabled={scene.place.kind === 'state' ? !canContinue : !mapReady}
+            className="rounded-sm bg-[#173f35] px-5 py-2.5 text-[13px] text-white transition-colors hover:bg-[#0f2f27] disabled:opacity-45"
           >
-            Back
+            {scene.place.kind === 'state' ? 'Choose finish' : 'Next'}
           </button>
-          <span className="text-[12px] text-[#8a918d]">
-            Step {stepIndex + 1} of {MOVES.length}
-          </span>
-          {stepIndex < MOVES.length - 1 ? (
-            <button
-              type="button"
-              onClick={() => setRailMove(MOVES[stepIndex + 1].id)}
-              className="rounded-sm bg-[#173f35] px-5 py-2 text-[13px] text-white transition-colors hover:bg-[#0f2f27]"
-            >
-              Next
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleContinue}
-              disabled={continuing}
-              className="rounded-sm bg-[#173f35] px-4 py-2 text-[13px] text-white transition-colors hover:bg-[#0f2f27] disabled:opacity-60"
-            >
-              {continuing ? 'Preparing…' : 'Size & frame'}
-            </button>
-          )}
         </div>
       </aside>
       </div>
+
+      {styleGalleryOpen && (
+        <StyleGallery
+          scene={scene}
+          mapImage={mapPreview}
+          waterAvailable={waterPlacementAvailable}
+          update={touchedUpdate}
+          onClose={closeStyleGallery}
+          onFinish={finishStyleGallery}
+        />
+      )}
+      {continuing && (
+        <div className="fixed inset-0 z-[90] grid place-items-center bg-[#101a17]/82 text-white backdrop-blur-sm">
+          <div className="text-center">
+            <div className="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-white/25 border-t-white" />
+            <p className="mt-4 text-[11px] uppercase tracking-[0.18em] text-white/75">Preparing your print…</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

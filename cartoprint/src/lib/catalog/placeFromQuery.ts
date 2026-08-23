@@ -99,6 +99,7 @@ export function buildPlaceCatalogPrint(input: {
   name: string;
   displayName?: string;
   kind: CatalogPrintKind;
+  placeType?: string;
   bbox: [number, number, number, number]; // south, north, west, east
   center?: [number, number]; // longitude, latitude from the geocoder
 }): CatalogPrint {
@@ -126,6 +127,7 @@ export function buildPlaceCatalogPrint(input: {
     slug,
     name: input.name,
     kind: input.kind,
+    placeType: input.placeType || input.kind,
     bbox: [south.toString(), north.toString(), west.toString(), east.toString()],
     center,
     defaultZoom,
@@ -147,6 +149,7 @@ export function placeFromSearchParams(params: URLSearchParams): CatalogPrint | n
   if (south >= north || west >= east) return null;
 
   const kind = (params.get('kind') as CatalogPrintKind) || 'city';
+  const placeType = params.get('type') || kind;
   const displayName = params.get('display') || undefined;
   const centerParts = params.get('center')?.split(',').map(Number);
   const center = centerParts?.length === 2 && centerParts.every(Number.isFinite)
@@ -157,6 +160,7 @@ export function placeFromSearchParams(params: URLSearchParams): CatalogPrint | n
     name,
     displayName,
     kind,
+    placeType,
     bbox: [south, north, west, east],
     center,
   });

@@ -1,5 +1,5 @@
 import type { PrintScene } from '@/lib/print/scene';
-import type { TitleDesign, TitlePanel, TitleSlot } from '@/lib/print/title';
+import type { TitleDesign, TitleFont, TitlePanel, TitleSlot } from '@/lib/print/title';
 import type { Orientation } from '@/lib/print/orientation';
 import type { BorderWeight, Density } from '@/lib/print/printRender';
 import type { DetailBias } from '@/lib/print/density';
@@ -37,11 +37,13 @@ interface PackedDesign {
   sz: SizeLabel;          // paper size — changes what the art can carry
   db: DetailBias;         // detail bias
   la: 0 | 1;              // place labels still following the resolver
+  /** Recipe choice plus personal/moved elements; untouched geography is rebuilt. */
+  i: PrintScene['illustration'];
 }
 
 // Bumped when the packed shape changes; older links decode to null and fall
 // back to a fresh scene rather than restoring a half-populated design.
-const DESIGN_VERSION = 3;
+const DESIGN_VERSION = 5;
 
 function encodeBase64Url(input: string): string {
   const bytes = new TextEncoder().encode(input);
@@ -92,7 +94,7 @@ export function encodeDesign(scene: PrintScene): string | null {
         scene.title.panel,
         scene.title.textColor ?? '',
         scene.title.panelColor ?? '',
-        '',
+        scene.title.font ?? 'editorial',
       ],
       tr: [
         Number(scene.title.x.toFixed(4)),
@@ -108,6 +110,11 @@ export function encodeDesign(scene: PrintScene): string | null {
       sz: scene.size,
       db: scene.detailBias,
       la: scene.labelsAuto ? 1 : 0,
+      i: {
+        ...scene.illustration,
+        decorations: scene.illustration.decorations.filter((item) =>
+          item.source === 'personal' || item.anchor === 'sheet'),
+      },
     };
     return encodeBase64Url(JSON.stringify(packed));
   } catch {
@@ -129,6 +136,7 @@ export interface DecodedDesign {
   labelsAuto: boolean;
   detail: PrintScene['detail'];
   title: TitleDesign;
+  illustration: PrintScene['illustration'];
 }
 
 export function decodeDesign(encoded: string | null): DecodedDesign | null {
@@ -173,6 +181,7 @@ export function decodeDesign(encoded: string | null): DecodedDesign | null {
         slot: packed.t[3],
         panel: packed.t[4],
         align: packed.ta,
+        font: (packed.t[7] || 'editorial') as TitleFont,
         onWater: packed.tw === 1,
         autoPlaced: packed.tap === 1,
         textColor: packed.t[5] || undefined,
@@ -183,6 +192,7 @@ export function decodeDesign(encoded: string | null): DecodedDesign | null {
         h: packed.tr[3],
         rotation: packed.tr[4],
       },
+      illustration: packed.i,
     };
   } catch {
     return null;

@@ -58,6 +58,7 @@ export function CustomizePageClient() {
           name: top.name || freeQuery,
           displayName: top.display_name,
           kind,
+          placeType: top.addresstype || top.type || kind,
           bbox: bb,
           center: [Number(top.lon), Number(top.lat)],
         });
@@ -65,6 +66,7 @@ export function CustomizePageClient() {
         const next = new URLSearchParams({
           place: print.name,
           kind: print.kind,
+          type: print.placeType || print.kind,
           bbox: bb.join(','),
           center: print.center.join(','),
           display: top.display_name,

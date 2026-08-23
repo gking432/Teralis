@@ -6,6 +6,8 @@ export interface CatalogPrint {
   slug: string;
   name: string;
   kind: CatalogPrintKind;
+  /** What the geocoder actually called this place (town, village, state, etc.). */
+  placeType?: string;
   bbox: [string, string, string, string];
   center: [number, number];
   defaultZoom: number;
@@ -20,7 +22,9 @@ interface CatalogPrintInput {
   slug: string;
   name: string;
   kind: CatalogPrintKind;
+  placeType?: string;
   bbox: [number, number, number, number];
+  center?: [number, number];
   defaultZoom: number;
   establishedYear?: string;
   slogan?: string;
@@ -41,7 +45,7 @@ function createCatalogPrint(input: CatalogPrintInput): CatalogPrint {
   return {
     ...input,
     bbox: stringifyBbox(input.bbox),
-    center: getBboxCenter(input.bbox),
+    center: input.center || getBboxCenter(input.bbox),
     defaultTitle: input.name,
     slogan: input.slogan,
     defaultSubtitle: input.slogan || input.defaultSubtitle || (input.kind === 'state' ? 'United States' : ''),
@@ -139,7 +143,76 @@ const STATE_PRINTS = [
   }),
 ];
 
-export const CATALOG_PRINTS: CatalogPrint[] = [UNITED_STATES, ...STATE_PRINTS];
+const CITY_PRINTS = [
+  createCatalogPrint({
+    slug: 'madison-wi',
+    name: 'Madison',
+    kind: 'city',
+    placeType: 'city',
+    bbox: [42.9981494, 43.171916, -89.571661, -89.2320848],
+    center: [-89.3841663, 43.07469],
+    defaultZoom: 10.2,
+    defaultSubtitle: 'Wisconsin',
+    searchQuery: 'Madison, Wisconsin, United States',
+  }),
+  createCatalogPrint({
+    slug: 'milwaukee-wi',
+    name: 'Milwaukee',
+    kind: 'city',
+    placeType: 'city',
+    bbox: [42.9208, 43.1943, -88.0692, -87.8639],
+    center: [-87.9065, 43.0389],
+    defaultZoom: 10.1,
+    defaultSubtitle: 'Wisconsin',
+    searchQuery: 'Milwaukee, Wisconsin, United States',
+  }),
+  createCatalogPrint({
+    slug: 'chicago-il',
+    name: 'Chicago',
+    kind: 'city',
+    placeType: 'city',
+    bbox: [41.6445, 42.023, -87.9401, -87.5237],
+    center: [-87.6298, 41.8781],
+    defaultZoom: 9.5,
+    defaultSubtitle: 'Illinois',
+    searchQuery: 'Chicago, Illinois, United States',
+  }),
+  createCatalogPrint({
+    slug: 'austin-tx',
+    name: 'Austin',
+    kind: 'city',
+    placeType: 'city',
+    bbox: [30.0987, 30.5169, -97.9384, -97.5619],
+    center: [-97.7431, 30.2672],
+    defaultZoom: 9.6,
+    defaultSubtitle: 'Texas',
+    searchQuery: 'Austin, Texas, United States',
+  }),
+  createCatalogPrint({
+    slug: 'denver-co',
+    name: 'Denver',
+    kind: 'city',
+    placeType: 'city',
+    bbox: [39.6144, 39.9142, -105.1098, -104.5996],
+    center: [-104.9903, 39.7392],
+    defaultZoom: 9.5,
+    defaultSubtitle: 'Colorado',
+    searchQuery: 'Denver, Colorado, United States',
+  }),
+  createCatalogPrint({
+    slug: 'portland-or',
+    name: 'Portland',
+    kind: 'city',
+    placeType: 'city',
+    bbox: [45.4324, 45.6525, -122.8367, -122.472],
+    center: [-122.6765, 45.5231],
+    defaultZoom: 9.8,
+    defaultSubtitle: 'Oregon',
+    searchQuery: 'Portland, Oregon, United States',
+  }),
+];
+
+export const CATALOG_PRINTS: CatalogPrint[] = [UNITED_STATES, ...STATE_PRINTS, ...CITY_PRINTS];
 
 export function getAllCatalogPrints(): CatalogPrint[] {
   return CATALOG_PRINTS;
@@ -151,6 +224,24 @@ export function getFeaturedCatalogPrint(): CatalogPrint {
 
 export function getStateCatalogPrints(): CatalogPrint[] {
   return STATE_PRINTS;
+}
+
+export function getCityCatalogPrints(): CatalogPrint[] {
+  return CITY_PRINTS;
+}
+
+export function getCityCatalogPrint(slug: string | null | undefined): CatalogPrint | null {
+  if (!slug) return null;
+  return CITY_PRINTS.find((print) => print.slug === slug) || null;
+}
+
+export function findCityCatalogPrint(name: string, displayName = ''): CatalogPrint | null {
+  const normalizedName = name.trim().toLowerCase();
+  const normalizedDisplay = displayName.toLowerCase();
+  return CITY_PRINTS.find((print) => {
+    if (print.name.toLowerCase() !== normalizedName) return false;
+    return !print.defaultSubtitle || normalizedDisplay.includes(print.defaultSubtitle.toLowerCase());
+  }) || null;
 }
 
 export function getCatalogPrint(slug: string | null | undefined): CatalogPrint | null {

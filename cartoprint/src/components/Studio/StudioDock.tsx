@@ -2,10 +2,17 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { PrintScene } from '@/lib/print/scene';
-import { applyLayout, applyPalette, reframe, resetFraming } from '@/lib/print/scene';
-import { LAYOUTS, getLayout } from '@/lib/print/layouts';
+import {
+  applyPalette,
+  reframe,
+  resetFraming,
+  sceneDensity,
+  minimumStateRadius,
+} from '@/lib/print/scene';
+import { getLayout } from '@/lib/print/layouts';
 import { PALETTES, getPalette, type Palette } from '@/lib/print/palettes';
-import { LayoutSwatch, PaletteSwatch } from '@/components/Studio/DesignSwatch';
+import { PaletteSwatch } from '@/components/Studio/DesignSwatch';
+import { DoodleGlyph } from '@/components/Studio/DoodleOverlay';
 import {
   formatRadius,
   framingPresets,
@@ -13,80 +20,59 @@ import {
   sliderFromRadius,
 } from '@/lib/print/framing';
 import { ORIENTATIONS, type Orientation } from '@/lib/print/orientation';
-import { SLOT_OPTIONS, type TitlePanel, type TitleSlot } from '@/lib/print/title';
-import { checkPalette, makePrintable } from '@/lib/print/contrast';
-import { sceneDensity } from '@/lib/print/scene';
 import {
-  maxRadiusForEveryStreet,
-  smallestSizeForEveryStreet,
-  smallestSizeForEveryTown,
-  type DetailBias,
-} from '@/lib/print/density';
-import { SIZE_CATALOG, SIZE_LABELS, type SizeLabel } from '@/lib/print/sizeCatalog';
-import type { BorderWeight, PrintDetailSettings } from '@/lib/print/printRender';
+  SLOT_OPTIONS,
+  TITLE_FONT_OPTIONS,
+  rectForSlot,
+  type TitleAlign,
+  type TitlePanel,
+  type TitleSlot,
+  type TitleFont,
+} from '@/lib/print/title';
+import { checkPalette, makePrintable } from '@/lib/print/contrast';
+import { applyStyleRecipe, styleRecipesFor, type StyleRecipe } from '@/lib/print/recipes';
+import type { DetailBias } from '@/lib/print/density';
+import { trackDemoEvent } from '@/lib/demoAnalytics';
+import {
+  createPersonalDecoration,
+  illustrationForTheme,
+  type DecorationFont,
+  type DecorationKind,
+  type IllustrationLayerMode,
+  type IllustrationTheme,
+} from '@/lib/print/decorations';
 
-/**
- * Three moves: Frame, Look, Words.
- *
- * The previous panel had two always-open sections, a four-tab bar, two nested
- * <details> disclosures, and orientation buried three levels deep — with no
- * principle for what lived where. Everything here is grouped by the question
- * the user is actually asking, and every advanced control sits behind exactly
- * one "Fine tune" disclosure.
- *
- * The dock overlays the artwork rather than sitting beside it, so the print
- * stays the largest thing on screen at every viewport size.
- */
-
-export type Move = 'frame' | 'layout' | 'colour' | 'words';
+export type Move = 'view' | 'style' | 'title';
 
 interface StudioDockProps {
   scene: PrintScene;
   update: (next: PrintScene | ((current: PrintScene) => PrintScene), label?: string) => void;
   active: Move | null;
   onActiveChange: (move: Move | null) => void;
-  /** Reports the dock's height so the stage can keep the whole print visible. */
   onHeightChange?: (height: number) => void;
-  /** Three suggested starting points, shown until the user makes a choice. */
   suggestions?: Palette[];
+  waterAvailable?: boolean;
+  viewLocked?: boolean;
+  onViewLockedChange?: (locked: boolean) => void;
+  onOpenStyle?: () => void;
+  onFinishFraming?: () => void;
 }
 
-/**
- * One question per step, in the order the decisions actually depend on each
- * other: what the map shows, how it is composed, what colour it is, what it
- * says. Layout and colour used to be a single "Look", so choosing a colour
- * moved the title and choosing a composition recoloured the map.
- */
 export const MOVES: Array<{ id: Move; label: string; question: string }> = [
-  { id: 'frame', label: 'Frame', question: 'What should the map show?' },
-  { id: 'layout', label: 'Layout', question: 'Where should the words go?' },
-  { id: 'colour', label: 'Colour', question: 'What colour should it be?' },
-  { id: 'words', label: 'Words', question: 'What should it say?' },
-];
-
-const BORDERS: Array<{ value: BorderWeight; label: string }> = [
-  { value: 'none', label: 'None' },
-  { value: 'thin', label: 'Thin' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'thick', label: 'Wide' },
-];
-
-const WEIGHTS: Array<{ value: number; label: string }> = [
-  { value: 0.75, label: 'Fine' },
-  { value: 1, label: 'Normal' },
-  { value: 1.35, label: 'Bold' },
-];
-
-const DETAIL_BIASES: Array<{ value: DetailBias; label: string }> = [
-  { value: -1, label: 'Cleaner' },
-  { value: 0, label: 'Balanced' },
-  { value: 1, label: 'Maximum' },
+  { id: 'view', label: 'Frame map', question: 'Choose the part of the place that belongs on your wall.' },
+  { id: 'style', label: 'Style', question: 'Choose a complete art direction, then refine its illustrated layers.' },
+  { id: 'title', label: 'Personalize', question: 'Add your wording, places, and personal markers.' },
 ];
 
 const PANELS: Array<{ value: TitlePanel; label: string }> = [
   { value: 'solid', label: 'Solid' },
-  { value: 'glass', label: 'Glass' },
-  { value: 'none', label: 'None' },
+  { value: 'none', label: 'Transparent' },
+];
+
+const DETAIL_OPTIONS: Array<{ value: DetailBias; label: string }> = [
+  { value: -1, label: 'Clean' },
+  { value: 0, label: 'Detailed' },
+  { value: 1, label: 'More detailed' },
 ];
 
 export function MoveTabs({
@@ -102,26 +88,24 @@ export function MoveTabs({
   return (
     <nav
       className={rail
-        ? 'grid grid-cols-4 gap-1 rounded-sm border border-[#d8d9d3] bg-white p-1'
-        : 'pointer-events-auto flex gap-1 rounded-full border border-white/15 bg-[#14201d]/92 p-1 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur'}
+        ? 'grid grid-cols-3 gap-1 rounded-sm border border-[#d8d9d3] bg-white p-1'
+        : 'pointer-events-auto flex gap-1 rounded-full border border-white/15 bg-[#14201d]/94 p-1 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur'}
       aria-label="Design controls"
     >
       {MOVES.map((move) => {
-        const isActive = active === move.id;
+        const selected = active === move.id;
         return (
           <button
             key={move.id}
             type="button"
-            aria-expanded={isActive}
-            // In the rail a move is always open, so tapping the active tab must
-            // not collapse it into an empty column.
-            onClick={() => onActiveChange(isActive && !rail ? null : move.id)}
+            aria-expanded={selected}
+            onClick={() => onActiveChange(selected && !rail ? null : move.id)}
             className={rail
-              ? `rounded-sm px-1.5 py-2 text-[12px] transition-colors ${
-                  isActive ? 'bg-[#173f35] text-white' : 'text-[#44504b] hover:bg-[#eef1ed]'
+              ? `rounded-sm px-2 py-2 text-[12px] transition-colors ${
+                  selected ? 'bg-[#173f35] text-white' : 'text-[#44504b] hover:bg-[#eef1ed]'
                 }`
               : `rounded-full px-6 py-2.5 text-[13px] transition-colors ${
-                  isActive ? 'bg-[#f7f4eb] text-[#14201d]' : 'text-[#dce2dd]/75 hover:bg-white/10 hover:text-white'
+                  selected ? 'bg-[#f7f4eb] text-[#14201d]' : 'text-[#dce2dd]/75 hover:bg-white/10 hover:text-white'
                 }`}
           >
             {move.label}
@@ -132,28 +116,67 @@ export function MoveTabs({
   );
 }
 
-export function StudioPanels({ scene, update, active, suggestions }: {
+export function StudioPanels({
+  scene,
+  update,
+  active,
+  suggestions,
+  waterAvailable,
+  viewLocked = false,
+  onViewLockedChange,
+  onOpenStyle,
+  onFinishFraming,
+}: {
   scene: PrintScene;
   update: StudioDockProps['update'];
   active: Move;
   suggestions?: Palette[];
+  waterAvailable?: boolean;
+  viewLocked?: boolean;
+  onViewLockedChange?: (locked: boolean) => void;
+  onOpenStyle?: () => void;
+  onFinishFraming?: () => void;
 }) {
-  return (
-    <>
-      {active === 'frame' && <FramePanel scene={scene} update={update} />}
-      {active === 'layout' && <LayoutPanel scene={scene} update={update} />}
-      {active === 'colour' && <ColourPanel scene={scene} update={update} suggestions={suggestions} />}
-      {active === 'words' && <WordsPanel scene={scene} update={update} />}
-    </>
-  );
+  if (active === 'view') {
+    return (
+      <ViewPanel
+        scene={scene}
+        update={update}
+        locked={viewLocked}
+        onLockedChange={onViewLockedChange}
+        onOpenStyle={onOpenStyle}
+        onFinishFraming={onFinishFraming}
+      />
+    );
+  }
+  if (active === 'style') {
+    return (
+      <StylePanel
+        scene={scene}
+        update={update}
+        suggestions={suggestions}
+        waterAvailable={waterAvailable}
+      />
+    );
+  }
+  return <TitlePanel scene={scene} update={update} />;
 }
 
-/** Mobile presentation: a bottom sheet floating over the artwork. */
-export function StudioDock({ scene, update, active, onActiveChange, onHeightChange, suggestions }: StudioDockProps) {
+export function StudioDock({
+  scene,
+  update,
+  active,
+  onActiveChange,
+  onHeightChange,
+  suggestions,
+  waterAvailable,
+  viewLocked,
+  onViewLockedChange,
+  onOpenStyle,
+  onFinishFraming,
+}: StudioDockProps) {
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // The artwork must never be hidden behind the controls, so the stage needs
-  // to know how much room the dock is taking at any moment.
   useEffect(() => {
     const element = rootRef.current;
     if (!element || !onHeightChange) return;
@@ -167,13 +190,25 @@ export function StudioDock({ scene, update, active, onActiveChange, onHeightChan
   return (
     <div ref={rootRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex flex-col items-center">
       {active && (
-        <div className="pointer-events-auto w-full max-w-[860px] px-3">
-          <div className="studio-dock-panel">
-            <StudioPanels scene={scene} update={update} active={active} suggestions={suggestions} />
+        <div className="pointer-events-auto w-full max-w-[760px] px-3">
+          <div
+            className="studio-dock-panel overflow-y-auto overscroll-contain"
+            style={{ maxHeight: active === 'view' && !viewLocked ? '38dvh' : active === 'title' ? '48dvh' : '44dvh' }}
+          >
+            <StudioPanels
+              scene={scene}
+              update={update}
+              active={active}
+              suggestions={suggestions}
+              waterAvailable={waterAvailable}
+              viewLocked={viewLocked}
+              onViewLockedChange={onViewLockedChange}
+              onOpenStyle={onOpenStyle}
+              onFinishFraming={onFinishFraming}
+            />
           </div>
         </div>
       )}
-
       <div className="mb-3 mt-2">
         <MoveTabs active={active} onActiveChange={onActiveChange} />
       </div>
@@ -181,36 +216,69 @@ export function StudioDock({ scene, update, active, onActiveChange, onHeightChan
   );
 }
 
-// --- Frame ------------------------------------------------------------------
-
-function FramePanel({ scene, update }: { scene: PrintScene; update: StudioDockProps['update'] }) {
-  const presets = framingPresets(scene.place.placeRadiusMiles);
+function ViewPanel({
+  scene,
+  update,
+  locked,
+  onLockedChange,
+  onOpenStyle,
+  onFinishFraming,
+}: PanelProps & {
+  locked: boolean;
+  onLockedChange?: (locked: boolean) => void;
+  onOpenStyle?: () => void;
+  onFinishFraming?: () => void;
+}) {
+  const isState = scene.place.kind === 'state';
+  const stateMinimum = isState ? minimumStateRadius(scene) : 0;
+  const presets = isState
+    ? [
+        { miles: stateMinimum, label: formatRadius(stateMinimum), name: 'Larger state' },
+        { miles: stateMinimum * 1.55, label: formatRadius(stateMinimum * 1.55), name: 'More space' },
+      ]
+    : framingPresets(scene.place.placeRadiusMiles, scene.place.kind);
   const sliderId = useId();
+  const density = sceneDensity(scene);
+  const detailPromise = scene.place.kind === 'city'
+    ? density.everyStreet
+      ? 'Every street will remain clear at the selected print size.'
+      : density.description.replace('Showing ', '') + ' will remain clear in print.'
+    : scene.place.kind === 'state'
+      ? scene.detailBias === -1
+        ? 'Water only. Roads and rivers are removed.'
+        : scene.detailBias === 1
+          ? 'Highways, local routes, county lines, rivers, and water are included.'
+          : 'Highways, main roads, rivers, and water are included.'
+      : density.description.replace('Showing ', '') + ' will remain clear in print.';
 
   return (
     <div className="grid gap-5">
+      <div className="rounded-sm border border-[#dfc8b9] bg-[#fbf4ef] px-4 py-3 text-[11px] leading-5 text-[#754b36]">
+        {isState
+          ? 'The complete state stays centered and print-safe. Use the slider to change its scale.'
+          : 'Framing is editable. Drag or zoom deliberately, then lock the view before styling.'}
+      </div>
       <Field
-        label="How much ground"
-        help="Measured as a real radius, so it means the same thing in every city."
+        label={isState ? 'Zoom' : 'Framing'}
+        help={isState ? 'Make the state larger or add more breathing room.' : 'Pick a starting point, then drag or zoom the map directly.'}
       >
-        <div className="grid grid-cols-4 gap-2">
+        {!isState && <div className="grid grid-cols-3 gap-2">
           {presets.map((preset) => {
-            const isActive = !scene.freeViewport
+            const selected = !scene.freeViewport
               && Math.abs(scene.radiusMiles - preset.miles) < preset.miles * 0.02;
             return (
               <Choice
                 key={preset.miles}
-                active={isActive}
+                active={selected}
                 onClick={() => update((current) => reframe(current, preset.miles), 'radius')}
               >
-                <span className="block text-[13px]">{preset.label}</span>
-                <span className="mt-0.5 block text-[11px] opacity-60">{preset.name}</span>
+                <span className="block text-[12px] font-medium">{preset.name}</span>
+                <span className="mt-0.5 block text-[10px] opacity-55">{preset.label}</span>
               </Choice>
             );
           })}
-        </div>
-
-        <div className="mt-3 flex items-center gap-3">
+        </div>}
+        <div className={`${isState ? '' : 'mt-3'} flex items-center gap-3`}>
           <input
             id={sliderId}
             type="range"
@@ -223,362 +291,506 @@ function FramePanel({ scene, update }: { scene: PrintScene; update: StudioDockPr
               update((current) => reframe(current, miles), 'radius');
             }}
             className="studio-range flex-1"
-            aria-label="Framing radius"
+            aria-label={isState ? 'State zoom' : 'Fine-tune framing'}
           />
-          <span className="w-[68px] text-right text-[13px] tabular-nums">
+          <span className="w-[58px] text-right text-[12px] tabular-nums text-[#68726c]">
             {formatRadius(scene.radiusMiles)}
           </span>
         </div>
+        {isState && (
+          <div className="mt-1 flex justify-between text-[10px] text-[#7b837e]">
+            <span>Larger state</span>
+            <span>More breathing room</span>
+          </div>
+        )}
       </Field>
 
       <Field label="Shape">
-        <div className="flex items-center gap-2">
+        <div className="flex gap-2">
           <div className="grid flex-1 grid-cols-3 gap-2">
-            {ORIENTATIONS.map((option: Orientation) => (
+            {ORIENTATIONS.map((orientation: Orientation) => (
               <Choice
-                key={option}
-                active={scene.orientation === option}
-                onClick={() => update((current) => ({ ...current, orientation: option }), 'orientation')}
+                key={orientation}
+                active={scene.orientation === orientation}
+                onClick={() => update((current) => ({ ...current, orientation }), 'orientation')}
               >
                 <span
                   className={`mx-auto mb-1.5 block border border-current ${
-                    option === 'portrait' ? 'h-6 w-[18px]' : option === 'landscape' ? 'h-[18px] w-6' : 'h-5 w-5'
+                    orientation === 'portrait'
+                      ? 'h-6 w-[18px]'
+                      : orientation === 'landscape'
+                        ? 'h-[18px] w-6'
+                        : 'h-5 w-5'
                   }`}
                 />
-                <span className="block text-[12px] capitalize">{option}</span>
+                <span className="block text-[11px] capitalize">{orientation}</span>
               </Choice>
             ))}
           </div>
-          <button
+          {!isState && <button
             type="button"
             onClick={() => update((current) => resetFraming(current), 'reset')}
-            className="studio-ghost-button self-stretch px-4"
+            className="studio-ghost-button px-4"
           >
-            Recenter
-          </button>
+            Reset view
+          </button>}
         </div>
       </Field>
 
-      <Field
-        label="Print size"
-        help="Bigger paper holds more detail for the same piece of ground, so this changes the artwork — not just the price."
-      >
-        <div className="grid grid-cols-4 gap-2">
-          {SIZE_LABELS.map((size) => {
-            const option = SIZE_CATALOG[scene.orientation][size];
-            return (
-              <Choice
-                key={size}
-                active={scene.size === size}
-                onClick={() => update((current) => ({ ...current, size }), 'size')}
-              >
-                <span className="block text-[12px] capitalize">{option.displayLabel}</span>
-                <span className="mt-0.5 block text-[11px] opacity-60">{option.dimensionStr}</span>
-              </Choice>
-            );
-          })}
-        </div>
-      </Field>
-
-      <p className="text-[12px] leading-5 text-[#68726c]">
-        Drag the map to move it and pinch or scroll to zoom — the print follows exactly.
-      </p>
-    </div>
-  );
-}
-
-// --- Layout -----------------------------------------------------------------
-
-function LayoutPanel({ scene, update }: { scene: PrintScene; update: StudioDockProps['update'] }) {
-  const layout = getLayout(scene.layoutId);
-  const onWaterUnavailable = layout.autoPlace === 'water' && scene.title.autoPlaced && !scene.title.onWater;
-
-  return (
-    <div className="grid gap-5">
-      <Field label="Layout" help="Where the words sit. Colour is the next step.">
-        <div className="grid grid-cols-5 gap-2">
-          {LAYOUTS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              aria-pressed={scene.layoutId === option.id}
-              title={`${option.name} — ${option.blurb}`}
-              onClick={() => update((current) => applyLayout(current, option), `layout-${option.id}`)}
-              className={`rounded-sm border p-1 transition-colors ${
-                scene.layoutId === option.id
-                  ? 'border-[#173f35] bg-[#eef1ed]'
-                  : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
-              }`}
-            >
-              <LayoutSwatch layout={option} width={48} />
-              <span className="mt-1 block truncate text-[11px] leading-4">{option.name}</span>
-            </button>
-          ))}
-        </div>
-        <p className="mt-2 text-[12px] leading-5 text-[#68726c]">{layout.blurb}</p>
-        {layout.autoPlace === 'water' && (
-          <p className="mt-1.5 text-[12px] leading-5 text-[#68726c]">
-            The title is placed on the largest stretch of water in the frame and
-            coloured to contrast it. Drag it if you want it somewhere else.
-          </p>
-        )}
-        {onWaterUnavailable && (
-          <p className="mt-1.5 text-[12px] leading-5 text-[#8a5a3f]">
-            No open water big enough in this frame — the title has stayed in the
-            corner. Try widening the view or another layout.
-          </p>
-        )}
-      </Field>
-
-      <Field label="Border">
-        <Segmented
-          options={BORDERS.map((border) => ({ value: border.value, label: border.label }))}
-          value={scene.detail.border}
-          onChange={(value) => update((current) => ({
-            ...current,
-            detail: { ...current.detail, border: value as BorderWeight },
-          }), 'border')}
-        />
-      </Field>
-    </div>
-  );
-}
-
-// --- Colour -----------------------------------------------------------------
-
-function ColourPanel({ scene, update, suggestions }: {
-  scene: PrintScene;
-  update: StudioDockProps['update'];
-  suggestions?: Palette[];
-}) {
-  const [fineTune, setFineTune] = useState(false);
-  const palette = getPalette(scene.paletteId);
-  const contrast = checkPalette(scene.colors);
-  const density = sceneDensity(scene);
-
-  const isCity = scene.place.kind === 'city';
-  const lonSpan = Math.abs(Number(scene.viewport.bbox[3]) - Number(scene.viewport.bbox[2]));
-  const wantedSize = isCity
-    ? smallestSizeForEveryStreet(scene.radiusMiles, scene.orientation, lonSpan)
-    : smallestSizeForEveryTown(scene.radiusMiles, scene.orientation);
-  const missing = isCity ? !density.everyStreet : !density.everyTown;
-  const biggerHelps = Boolean(wantedSize) && SIZE_LABELS.indexOf(wantedSize!) > SIZE_LABELS.indexOf(scene.size);
-  const tighterRadius = isCity && missing && !biggerHelps
-    ? maxRadiusForEveryStreet(scene.viewport.center[1], scene.size, scene.orientation)
-    : null;
-  const upgradeHint = missing && biggerHelps
-    ? `A ${SIZE_CATALOG[scene.orientation][wantedSize!].dimensionStr} print would fit ${
-        isCity ? 'every street' : 'every town'
-      } at this framing.`
-    : tighterRadius && tighterRadius < scene.radiusMiles
-      ? `Frame in to about ${formatRadius(tighterRadius)} to show every street.`
-      : null;
-
-  return (
-    <div className="grid gap-5">
-      {suggestions && suggestions.length > 0 && (
-        <Field
-          label={`Suits ${scene.place.name}`}
-          help="Picked from the place itself — how much water is in frame, and how much ground."
-        >
-          <div className="grid grid-cols-3 gap-2">
-            {suggestions.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => update((current) => applyPalette(current, option), `suggest-${option.id}`)}
-                className={`flex min-w-0 flex-col items-center gap-1.5 rounded-sm border p-2 transition-colors ${
-                  scene.paletteId === option.id
-                    ? 'border-[#173f35] bg-[#eef1ed]'
-                    : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
-                }`}
-              >
-                <PaletteSwatch palette={option} width={44} />
-                <span className="w-full truncate text-center text-[12px]">{option.name}</span>
-              </button>
-            ))}
+      {scene.place.kind === 'city' ? (
+        <div className="rounded-sm border border-[#cad4cd] bg-[#eef3ef] px-4 py-3">
+          <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-[#173f35]">
+            Complete street network
           </div>
+          <p className="mt-1 text-[12px] leading-5 text-[#44504b]">
+            Every available city street is always included. Styles change the linework, never remove it.
+          </p>
+        </div>
+      ) : (
+        <Field label="Map detail" help={isState ? 'Choose how much linework the print carries.' : 'The studio caps density before roads or labels can turn into a blur.'}>
+          <Segmented
+            options={DETAIL_OPTIONS.map((option) => ({
+              value: String(option.value),
+              label: option.label,
+            }))}
+            value={String(scene.detailBias)}
+            onChange={(value) => update(
+              (current) => ({ ...current, detailBias: Number(value) as DetailBias }),
+              'detail-bias',
+            )}
+          />
+          <p className="mt-2 text-[12px] leading-5 text-[#44504b]">{capitalize(detailPromise)}</p>
         </Field>
       )}
 
-      <Field label={suggestions && suggestions.length > 0 ? 'Or any scheme' : 'Colour scheme'}>
-        <div className="grid grid-cols-5 gap-2">
-          {PALETTES.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              aria-pressed={scene.paletteId === option.id}
-              title={`${option.name} — ${option.blurb}`}
-              onClick={() => update((current) => applyPalette(current, option), `palette-${option.id}`)}
-              className={`rounded-sm border p-1 transition-colors ${
-                scene.paletteId === option.id
-                  ? 'border-[#173f35] bg-[#eef1ed]'
-                  : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
-              }`}
-            >
-              <PaletteSwatch palette={option} width={48} />
-              <span className="mt-1 block truncate text-[11px] leading-4">{option.name}</span>
-            </button>
-          ))}
-        </div>
-        <p className="mt-2 text-[12px] leading-5 text-[#68726c]">{palette.blurb}</p>
-      </Field>
-
-      <Field label="Accent">
-        <div className="flex flex-wrap items-center gap-2">
-          {palette.accents.map((accent) => (
-            <button
-              key={accent}
-              type="button"
-              aria-label={`Accent ${accent}`}
-              aria-pressed={scene.colors.roads.toLowerCase() === accent.toLowerCase()}
-              onClick={() => update((current) => ({
-                ...current,
-                colors: { ...current.colors, roads: accent },
-              }), 'accent')}
-              className={`h-8 w-8 rounded-full border-2 transition-transform hover:scale-105 ${
-                scene.colors.roads.toLowerCase() === accent.toLowerCase()
-                  ? 'border-[#173f35]'
-                  : 'border-transparent shadow-[0_0_0_1px_rgba(20,32,29,0.15)]'
-              }`}
-              style={{ backgroundColor: accent }}
-            />
-          ))}
-        </div>
-      </Field>
-
-      <Field label="Detail">
-        <Segmented
-          options={DETAIL_BIASES.map((bias) => ({ value: String(bias.value), label: bias.label }))}
-          value={String(scene.detailBias)}
-          onChange={(value) => update(
-            (current) => ({ ...current, detailBias: Number(value) as DetailBias }),
-            'detail-bias',
-          )}
-        />
-        <p className="mt-2 text-[12px] leading-5 text-[#44504b]">
-          {density.description}.{' '}
-          <span className="text-[#8a918d]">
-            {Math.round(density.milesPerInch * 10) / 10} miles per inch of paper.
-          </span>
-        </p>
-        {upgradeHint && <p className="mt-1.5 text-[12px] leading-5 text-[#8a5a3f]">{upgradeHint}</p>}
-      </Field>
-
       <button
         type="button"
-        onClick={() => setFineTune((open) => !open)}
-        aria-expanded={fineTune}
-        className="justify-self-start text-[12px] text-[#68726c] underline underline-offset-4 hover:text-[#173f35]"
+        onClick={() => {
+          onLockedChange?.(true);
+          onFinishFraming?.();
+        }}
+        className="sticky bottom-0 rounded-sm bg-[#173f35] px-5 py-3 text-[12px] font-medium text-white shadow-[0_-10px_22px_rgba(251,250,246,0.9)] transition-colors hover:bg-[#0f2f27]"
       >
-        {fineTune ? 'Hide fine tuning' : 'Fine tune'}
+        Next →
       </button>
-
-      {fineTune && (
-        <div className="grid gap-5 border-t border-[#e0ddd4] pt-5">
-          <Field label="Line weight">
-            <Segmented
-              options={WEIGHTS.map((weight) => ({ value: String(weight.value), label: weight.label }))}
-              value={String(nearestWeight(scene.strokeWeight))}
-              onChange={(value) => update((current) => ({ ...current, strokeWeight: Number(value) }), 'weight')}
-            />
-          </Field>
-
-          <Field label="Labels">
-            <div className="grid gap-1 sm:grid-cols-2">
-              {scene.place.kind !== 'city' && (
-                <>
-                  <Toggle label="City names" active={scene.detail.labels.cities} onChange={() => toggleLabel(update, 'cities')} />
-                  <Toggle label="Town names" active={scene.detail.labels.towns} onChange={() => toggleLabel(update, 'towns')} />
-                </>
-              )}
-              <Toggle label="Street names" active={scene.detail.labels.roads} onChange={() => toggleLabel(update, 'roads')} />
-              <Toggle label="Lake names" active={scene.detail.labels.water} onChange={() => toggleLabel(update, 'water')} />
-              <Toggle label="River names" active={scene.detail.labels.rivers} onChange={() => toggleLabel(update, 'rivers')} />
-              <Toggle
-                label="Show rivers"
-                active={scene.detail.rivers}
-                onChange={() => update((current) => ({
-                  ...current,
-                  detail: { ...current.detail, rivers: !current.detail.rivers },
-                }), 'rivers')}
-              />
-            </div>
-          </Field>
-
-          <Field label="Custom colours" help="Anything is allowed, but we check it the way it will print.">
-            <div className="grid gap-2 sm:grid-cols-3">
-              <ColorField label="Paper" value={scene.colors.land} onChange={(land) => update((current) => ({ ...current, colors: { ...current.colors, land } }), 'color-land')} />
-              <ColorField label="Water" value={scene.colors.water} onChange={(water) => update((current) => ({ ...current, colors: { ...current.colors, water } }), 'color-water')} />
-              <ColorField label="Streets" value={scene.colors.roads} onChange={(roads) => update((current) => ({ ...current, colors: { ...current.colors, roads } }), 'color-roads')} />
-            </div>
-
-            {contrast.verdict !== 'good' && (
-              <div
-                className={`mt-3 flex flex-wrap items-center gap-3 border-l-2 px-3 py-2 text-[12px] leading-5 ${
-                  contrast.verdict === 'unprintable'
-                    ? 'border-[#c1362b] bg-[#fbf0ee] text-[#8f2a21]'
-                    : 'border-[#c66b4e] bg-[#faf4f0] text-[#8a4a33]'
-                }`}
-                role="status"
-              >
-                <span className="flex-1">{contrast.issues.join(' ')}</span>
-                <button
-                  type="button"
-                  className="studio-ghost-button px-3 py-1.5"
-                  onClick={() => update((current) => ({
-                    ...current,
-                    colors: {
-                      ...current.colors,
-                      water: makePrintable(current.colors.water, current.colors.land),
-                      roads: makePrintable(current.colors.roads, current.colors.land),
-                    },
-                  }), 'fix-contrast')}
-                >
-                  Fix it
-                </button>
-              </div>
-            )}
-          </Field>
-        </div>
-      )}
     </div>
   );
 }
 
-function nearestWeight(weight: number): number {
-  return WEIGHTS.reduce((best, option) =>
-    Math.abs(option.value - weight) < Math.abs(best - weight) ? option.value : best,
-  WEIGHTS[1].value);
-}
-
-/**
- * A place label toggled by hand stops following the resolver, so a later
- * reframe cannot silently undo the choice.
- */
-function toggleLabel(
-  update: StudioDockProps['update'],
-  key: keyof PrintDetailSettings['labels'],
-) {
-  const isPlaceLabel = key === 'cities' || key === 'towns';
-  update((current) => ({
-    ...current,
-    labelsAuto: isPlaceLabel ? false : current.labelsAuto,
-    detail: {
-      ...current.detail,
-      labels: { ...current.detail.labels, [key]: !current.detail.labels[key] },
-    },
-  }), `label-${key}`);
-}
-
-// --- Words ------------------------------------------------------------------
-
-function WordsPanel({ scene, update }: { scene: PrintScene; update: StudioDockProps['update'] }) {
-  const title = scene.title;
-
-  function setTitle(patch: Partial<typeof title>, label: string) {
-    update((current) => ({ ...current, title: { ...current.title, ...patch } }), label);
+function StylePanel({
+  scene,
+  update,
+  suggestions,
+  waterAvailable,
+}: PanelProps & { suggestions?: Palette[]; waterAvailable?: boolean }) {
+  if (scene.place.kind === 'state') {
+    return <StateStylePanel scene={scene} update={update} />;
   }
+  return <GenericStylePanel scene={scene} update={update} suggestions={suggestions} waterAvailable={waterAvailable} />;
+}
+
+function GenericStylePanel({
+  scene,
+  update,
+  suggestions,
+  waterAvailable,
+}: PanelProps & { suggestions?: Palette[]; waterAvailable?: boolean }) {
+  const [mode, setMode] = useState<'looks' | 'colors'>('looks');
+  const palette = scene.paletteId === 'custom' ? null : getPalette(scene.paletteId);
+  const availableRecipes = styleRecipesFor(scene.place.kind, waterAvailable);
+  const selectedRecipe = availableRecipes.find((recipe) => {
+    if (recipe.layoutId !== scene.layoutId || recipe.paletteId !== scene.paletteId) return false;
+    const layout = getLayout(recipe.layoutId);
+    return scene.title.enabled === layout.titleEnabled
+      && scene.title.slot === layout.titleSlot
+      && scene.title.panel === layout.titlePanel
+      && scene.title.align === layout.align;
+  });
+  const activeLayout = getLayout(scene.layoutId);
+  const onWaterUnavailable = activeLayout.autoPlace === 'water'
+    && scene.title.autoPlaced
+    && !scene.title.onWater;
+  const suggestedPaletteIds = new Set(suggestions?.map((option) => option.id) ?? []);
+
+  function chooseRecipe(recipe: StyleRecipe) {
+    update((current) => applyStyleRecipe(current, recipe), `recipe-${recipe.id}`);
+  }
+
+  function surprise() {
+    const available = availableRecipes.filter((recipe) => recipe.id !== selectedRecipe?.id);
+    chooseRecipe(available[Math.floor(Math.random() * available.length)] ?? availableRecipes[0]);
+  }
+
+  if (mode === 'looks') {
+    return (
+      <div className="grid gap-4" data-testid="style-picker">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-[16px] font-medium text-[#14201d]">Pick a direction</h3>
+            <p className="mt-1 max-w-[34rem] text-[12px] leading-5 text-[#68726c]">
+              Start with a complete, print-tested look. You can change its colors next.
+            </p>
+          </div>
+          <div className="flex shrink-0 gap-1.5">
+            <button
+              type="button"
+              onClick={surprise}
+              className="rounded-full border border-[#cdd2cc] px-2.5 py-1.5 text-[10px] text-[#173f35] transition-colors hover:border-[#173f35]"
+            >
+              Surprise me
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('colors')}
+              className="rounded-full bg-[#173f35] px-3 py-1.5 text-[10px] font-medium text-white transition-colors hover:bg-[#0f2f27]"
+            >
+              Colors →
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {availableRecipes.map((recipe) => {
+            const selected = recipe.id === selectedRecipe?.id;
+            const recommended = suggestedPaletteIds.has(recipe.paletteId);
+            return (
+              <button
+                key={recipe.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => chooseRecipe(recipe)}
+                className={`group overflow-hidden rounded-sm border text-left transition-all ${
+                  selected
+                    ? 'border-[#173f35] bg-[#eef1ed] shadow-[0_0_0_1px_#173f35]'
+                    : 'border-[#d8d9d3] bg-white hover:-translate-y-0.5 hover:border-[#849587] hover:shadow-[0_8px_24px_rgba(20,32,29,0.1)]'
+                }`}
+              >
+                <RecipeSwatch recipe={recipe} />
+                <span className="block px-3 py-2.5">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="text-[13px] font-medium">{recipe.name}</span>
+                    {recommended && (
+                      <span className="rounded-full bg-[#dfe8e2] px-2 py-0.5 text-[8px] uppercase tracking-[0.12em] text-[#173f35]">
+                        Suits this map
+                      </span>
+                    )}
+                  </span>
+                  <span className="mt-0.5 block text-[10px] leading-4 text-[#68726c]">
+                    {recipe.blurb}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {onWaterUnavailable && (
+          <p className="text-[12px] leading-5 text-[#8a5a3f]">
+            No open water is large enough in this frame, so the title moved to a safe corner.
+          </p>
+        )}
+
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-2" data-testid="color-picker">
+      <div>
+        <button
+          type="button"
+          onClick={() => setMode('looks')}
+          className="text-[11px] text-[#68726c] underline underline-offset-4 hover:text-[#173f35]"
+        >
+          ← Style directions
+        </button>
+        <h3 className="mt-2 text-[16px] font-medium text-[#14201d]">Choose a colorway</h3>
+        <p className="mt-1 text-[12px] leading-5 text-[#68726c]">
+          The composition stays exactly where you put it. Only the ink and paper change.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {PALETTES.map((option) => (
+          <PaletteButton
+            key={option.id}
+            palette={option}
+            active={scene.paletteId === option.id}
+            onClick={() => update((current) => applyPalette(current, option), `palette-${option.id}`)}
+          />
+        ))}
+      </div>
+
+      <details className="group border-t border-[#e0ddd4] pt-2">
+        <summary className="cursor-pointer list-none text-[12px] text-[#68726c] underline underline-offset-4">
+          Custom colors and accents
+        </summary>
+        <div className="mt-4 grid gap-5">
+          {palette && (
+            <Field label="Street accent">
+              <div className="flex flex-wrap gap-2">
+                {palette.accents.map((accent) => (
+                  <button
+                    key={accent}
+                    type="button"
+                    aria-label={`Use ${accent} for streets`}
+                    aria-pressed={scene.colors.roads.toLowerCase() === accent.toLowerCase()}
+                    onClick={() => update((current) => ({
+                      ...current,
+                      colors: {
+                        ...current.colors,
+                        roads: makePrintable(accent, current.colors.land),
+                      },
+                    }), 'accent')}
+                    className={`h-9 w-9 rounded-full border-2 transition-transform hover:scale-105 ${
+                      scene.colors.roads.toLowerCase() === accent.toLowerCase()
+                        ? 'border-[#173f35]'
+                        : 'border-transparent shadow-[0_0_0_1px_rgba(20,32,29,0.18)]'
+                    }`}
+                    style={{ backgroundColor: accent }}
+                  />
+                ))}
+              </div>
+            </Field>
+          )}
+          <div className="grid grid-cols-3 gap-2">
+            <ColorField
+              label="Paper"
+              value={scene.colors.land}
+              onChange={(land) => update((current) => ({
+                ...current,
+                paletteId: 'custom',
+                colors: {
+                  land,
+                  water: makePrintable(current.colors.water, land),
+                  roads: makePrintable(current.colors.roads, land),
+                },
+              }), 'color-paper')}
+            />
+            <ColorField
+              label="Water"
+              value={scene.colors.water}
+              onChange={(water) => update((current) => ({
+                ...current,
+                paletteId: 'custom',
+                colors: {
+                  ...current.colors,
+                  water: makePrintable(water, current.colors.land),
+                },
+              }), 'color-water')}
+            />
+            <ColorField
+              label="Streets"
+              value={scene.colors.roads}
+              onChange={(roads) => update((current) => ({
+                ...current,
+                paletteId: 'custom',
+                colors: {
+                  ...current.colors,
+                  roads: makePrintable(roads, current.colors.land),
+                },
+              }), 'color-roads')}
+            />
+          </div>
+          <p className="mt-3 text-[11px] leading-4 text-[#68726c]">
+            Colors are automatically nudged to the nearest print-safe value when necessary.
+          </p>
+          {checkPalette(scene.colors).verdict !== 'good' && (
+            <p className="mt-2 text-[11px] leading-4 text-[#8f2a21]">
+              This restored design needs a color adjustment before it can be printed.
+            </p>
+          )}
+        </div>
+      </details>
+    </div>
+  );
+}
+
+const STATE_THEMES: Array<{
+  id: IllustrationTheme;
+  name: string;
+  blurb: string;
+  palette: string;
+  font: TitleFont;
+  glyph: 'forest' | 'mountains' | 'waves';
+}> = [
+  { id: 'doodle-atlas', name: 'Doodle Atlas', blurb: 'Hand-drawn forests, water, places, and landmarks.', palette: 'bone', font: 'hand', glyph: 'forest' },
+  { id: 'heritage', name: 'Heritage', blurb: 'Classic cartography with restrained illustrated markers.', palette: 'terracotta', font: 'editorial', glyph: 'mountains' },
+  { id: 'topographic', name: 'Topographic', blurb: 'Quiet terrain structure with modern place markers.', palette: 'forest', font: 'condensed', glyph: 'mountains' },
+  { id: 'none', name: 'Map Study', blurb: 'Pure map linework without automatic illustrations.', palette: 'slate', font: 'editorial', glyph: 'waves' },
+];
+
+function StateStylePanel({ scene, update }: PanelProps) {
+  function chooseTheme(theme: typeof STATE_THEMES[number]) {
+    update((current) => {
+      const colored = applyPalette(current, getPalette(theme.palette));
+      return {
+        ...colored,
+        illustration: illustrationForTheme(theme.id, current.illustration, current.place.slug),
+        title: { ...colored.title, enabled: true, font: theme.font },
+        updatedAt: Date.now(),
+      };
+    }, `illustration-${theme.id}`);
+    trackDemoEvent('illustration_theme_selected', { place: scene.place.slug, theme: theme.id });
+  }
+
+  function setLayer(layer: keyof PrintScene['illustration']['layers'], mode: IllustrationLayerMode) {
+    update((current) => ({
+      ...current,
+      illustration: {
+        ...current.illustration,
+        layers: { ...current.illustration.layers, [layer]: mode },
+      },
+      updatedAt: Date.now(),
+    }), `illustration-layer-${layer}`);
+    trackDemoEvent('illustration_layer_changed', { place: scene.place.slug, layer, mode });
+  }
+
+  const curatedPalettes = ['bone', 'terracotta', 'forest', 'blueprint', 'slate', 'midnight'].map(getPalette);
+  return (
+    <div className="grid gap-5">
+      <div>
+        <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#a35b3f]">State edition</div>
+        <h3 className="mt-1 font-display text-[28px] font-light leading-none">Choose the story</h3>
+        <p className="mt-2 text-[12px] leading-5 text-[#68726c]">
+          Each direction is already composed for the wall. Personal additions stay with you when the direction changes.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {STATE_THEMES.map((theme) => {
+          const selected = scene.illustration.theme === theme.id;
+          return (
+            <button
+              key={theme.id}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => chooseTheme(theme)}
+              className={`rounded-sm border p-3 text-left transition-all ${selected ? 'border-[#173f35] bg-[#eaf0ec] shadow-[inset_0_0_0_1px_#173f35]' : 'border-[#d8d9d3] bg-white hover:-translate-y-0.5 hover:border-[#849587]'}`}
+            >
+              <span className="grid h-20 place-items-center overflow-hidden rounded-sm bg-[#f7f3ea] text-[#3a352e]" style={{ containerType: 'size' }}>
+                <DoodleGlyph kind={theme.glyph} size={1.25} />
+              </span>
+              <span className="mt-3 block text-[13px] font-medium">{theme.name}</span>
+              <span className="mt-1 block text-[10px] leading-4 text-[#68726c]">{theme.blurb}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <Field label="Paper and ink" help="Curated pairings keep fine illustration strokes printable.">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {curatedPalettes.map((palette) => (
+            <PaletteButton
+              key={palette.id}
+              palette={palette}
+              active={scene.paletteId === palette.id}
+              onClick={() => update((current) => applyPalette(current, palette), `palette-${palette.id}`)}
+            />
+          ))}
+        </div>
+      </Field>
+
+      <details className="rounded-sm border border-[#d8d9d3] bg-white p-4">
+        <summary className="cursor-pointer list-none text-[12px] font-medium text-[#173f35]">
+          Advanced layer styles
+          <span className="float-right text-[#849587]">＋</span>
+        </summary>
+        <div className="mt-4 grid gap-4">
+          <LayerStyleControl label="Roads" value={scene.illustration.layers.roads} options={['map', 'minimal', 'hidden']} onChange={(value) => setLayer('roads', value)} />
+          <LayerStyleControl label="Terrain" value={scene.illustration.layers.terrain} options={['doodle', 'minimal', 'hidden']} onChange={(value) => setLayer('terrain', value)} />
+          <LayerStyleControl label="Water" value={scene.illustration.layers.water} options={['map', 'doodle', 'hidden']} onChange={(value) => setLayer('water', value)} />
+          <LayerStyleControl label="Landmarks" value={scene.illustration.layers.landmarks} options={['doodle', 'minimal', 'hidden']} onChange={(value) => setLayer('landmarks', value)} />
+        </div>
+      </details>
+
+      <div className="rounded-sm border border-[#cad4cd] bg-[#eef3ef] px-4 py-3 text-[11px] leading-5 text-[#44504b]">
+        Illustrations are anchored to real geography and scale with the finished paper size. Drag any element on the print to make its position personal.
+      </div>
+    </div>
+  );
+}
+
+function LayerStyleControl({ label, value, options, onChange }: {
+  label: string;
+  value: IllustrationLayerMode;
+  options: IllustrationLayerMode[];
+  onChange: (value: IllustrationLayerMode) => void;
+}) {
+  return (
+    <Field label={label}>
+      <Segmented
+        value={value}
+        options={options.map((option) => ({ value: option, label: capitalize(option) }))}
+        onChange={(next) => onChange(next as IllustrationLayerMode)}
+      />
+    </Field>
+  );
+}
+
+function TitlePanel({ scene, update }: PanelProps) {
+  const title = scene.title;
+  const [personalText, setPersonalText] = useState('Where We Met');
+  const personal = scene.illustration.decorations.filter((item) => item.source === 'personal');
+
+  function setTitle(patch: Partial<PrintScene['title']>, label: string) {
+    update((current) => ({
+      ...current,
+      title: { ...current.title, ...patch },
+    }), label);
+  }
+
+  function chooseSlot(slot: TitleSlot, align: TitleAlign) {
+    const rect = rectForSlot(slot);
+    setTitle({
+      slot,
+      align,
+      autoPlaced: false,
+      onWater: false,
+      ...(slot === 'free' ? {} : rect),
+    }, 'title-placement');
+  }
+
+  function addDecoration(kind: DecorationKind, text?: string) {
+    update((current) => ({
+      ...current,
+      illustration: {
+        ...current.illustration,
+        decorations: [
+          ...current.illustration.decorations,
+          createPersonalDecoration(kind, current.illustration.decorations.length, text),
+        ],
+      },
+      updatedAt: Date.now(),
+    }), `add-${kind}`);
+    trackDemoEvent('personal_element_added', { place: scene.place.slug, kind });
+  }
+
+  function updateDecoration(id: string, patch: Partial<PrintScene['illustration']['decorations'][number]>, label: string) {
+    update((current) => ({
+      ...current,
+      illustration: {
+        ...current.illustration,
+        decorations: current.illustration.decorations.map((item) => item.id === id ? { ...item, ...patch } : item),
+      },
+      updatedAt: Date.now(),
+    }), label);
+  }
+
+  function removeDecoration(id: string) {
+    update((current) => ({
+      ...current,
+      illustration: {
+        ...current.illustration,
+        decorations: current.illustration.decorations.filter((item) => item.id !== id),
+      },
+      updatedAt: Date.now(),
+    }), 'remove-decoration');
+  }
+
+  const titleBackdrop = title.panel === 'none'
+    ? title.onWater ? scene.colors.water : scene.colors.land
+    : title.panelColor || (title.onWater ? scene.colors.water : scene.colors.land);
 
   return (
     <div className="grid gap-5">
@@ -588,88 +800,312 @@ function WordsPanel({ scene, update }: { scene: PrintScene; update: StudioDockPr
           active={title.enabled}
           onChange={() => setTitle({ enabled: !title.enabled }, 'title-enabled')}
         />
-        <p className="text-right text-[12px] leading-5 text-[#68726c]">
-          Double-click the title on the print to edit it there.
+        <p className="max-w-[190px] text-right text-[11px] leading-4 text-[#68726c]">
+          Drag the title on the print. It snaps into print-safe positions.
         </p>
       </div>
 
       {title.enabled && (
         <>
-          <Field label="Text">
+          <Field label="Wording">
             <div className="grid gap-2">
               <TextField label="Title" value={title.text} onChange={(text) => setTitle({ text }, 'title-text')} />
-              <TextField label="Subtitle" value={title.subtitle} onChange={(subtitle) => setTitle({ subtitle }, 'title-sub')} />
+              <TextField label="Subtitle" value={title.subtitle} onChange={(subtitle) => setTitle({ subtitle }, 'title-subtitle')} />
               <TextField label="Small line" value={title.detail} onChange={(detail) => setTitle({ detail }, 'title-detail')} />
             </div>
           </Field>
 
-          <Field label="Placement" help="Or drag it anywhere on the print — it snaps to these.">
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-              {SLOT_OPTIONS.map((option) => (
-                <Choice
-                  key={option.slot}
-                  active={title.slot === option.slot}
-                  onClick={() => setTitle({ slot: option.slot as TitleSlot, align: option.align }, 'title-slot')}
+          <Field label="Title lettering">
+            <div className="grid grid-cols-2 gap-2">
+              {TITLE_FONT_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={title.font === option.value}
+                  onClick={() => setTitle({ font: option.value }, 'title-font')}
+                  className={`rounded-sm border px-3 py-3 text-left transition-colors ${title.font === option.value ? 'border-[#173f35] bg-[#eaf0ec]' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'}`}
                 >
-                  <span className="block text-[12px]">{option.label}</span>
-                </Choice>
+                  <span
+                    className="block truncate text-[20px] leading-none"
+                    style={{
+                      fontFamily: option.value === 'hand'
+                        ? 'var(--font-hand), cursive'
+                        : option.value === 'condensed'
+                          ? 'var(--font-condensed), sans-serif'
+                          : option.value === 'modern'
+                            ? 'var(--font-body), sans-serif'
+                            : 'var(--font-display), serif',
+                      textTransform: option.value === 'condensed' || option.value === 'modern' ? 'uppercase' : undefined,
+                    }}
+                  >
+                    {option.sample}
+                  </span>
+                  <span className="mt-2 block text-[9px] uppercase tracking-[0.12em] text-[#68726c]">{option.label}</span>
+                </button>
               ))}
             </div>
-            {title.slot === 'free' && (
-              <p className="mt-2 text-[12px] leading-5 text-[#68726c]">
-                Placed by hand. Pick a spot above to snap it back.
-              </p>
-            )}
           </Field>
 
-          <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="Backing">
-              <Segmented
-                options={PANELS.map((panel) => ({ value: panel.value, label: panel.label }))}
-                value={title.panel}
-                onChange={(value) => setTitle({ panel: value as TitlePanel }, 'title-panel')}
-              />
-            </Field>
-            <Field label="Alignment">
-              <Segmented
-                options={[{ value: 'center', label: 'Centred' }, { value: 'left', label: 'Left' }]}
-                value={title.align}
-                onChange={(value) => setTitle({ align: value as 'left' | 'center' }, 'title-align')}
-              />
-            </Field>
+          <details className="group border-t border-[#e0ddd4] pt-4">
+            <summary className="cursor-pointer list-none text-[12px] text-[#68726c] underline underline-offset-4">
+              Advanced title placement
+            </summary>
+            <div className="mt-4 grid gap-4">
+              <Field label="Snap position">
+                <div className="grid grid-cols-3 gap-2">
+                  {SLOT_OPTIONS.map((option) => (
+                    <Choice
+                      key={option.slot}
+                      active={title.slot === option.slot}
+                      onClick={() => chooseSlot(option.slot, option.align)}
+                    >
+                      <span className="block text-[11px]">{option.label}</span>
+                    </Choice>
+                  ))}
+                </div>
+                {title.slot === 'free' && (
+                  <p className="mt-2 text-[11px] text-[#68726c]">
+                    Custom position. Pick a snap position to return to a designed layout.
+                  </p>
+                )}
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Backing">
+                  <Segmented
+                    options={PANELS.map((panel) => ({ value: panel.value, label: panel.label }))}
+                    value={title.panel}
+                    onChange={(value) => setTitle({ panel: value as TitlePanel }, 'title-panel')}
+                  />
+                </Field>
+                <Field label="Title color">
+                  <ColorField
+                    label="Ink"
+                    value={title.textColor ?? makePrintable(scene.colors.roads, titleBackdrop)}
+                    onChange={(textColor) => setTitle({
+                      textColor: makePrintable(textColor, titleBackdrop),
+                    }, 'title-color')}
+                  />
+                </Field>
+              </div>
+            </div>
+          </details>
+        </>
+      )}
+
+      {scene.place.kind === 'state' && (
+        <section className="border-t border-[#e0ddd4] pt-5">
+          <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#a35b3f]">Your story</div>
+          <h3 className="mt-1 font-display text-[25px] font-light leading-none">Add something personal</h3>
+          <p className="mt-2 text-[11px] leading-5 text-[#68726c]">Add it once, then drag it directly into place on the print.</p>
+
+          <div className="mt-4 flex gap-2">
+            <input
+              type="text"
+              value={personalText}
+              onChange={(event) => setPersonalText(event.target.value)}
+              placeholder="Where We Met"
+              className="min-w-0 flex-1 rounded-sm border border-[#d8d9d3] bg-white px-3 py-2.5 text-[12px] outline-none focus:border-[#173f35]"
+            />
+            <button
+              type="button"
+              disabled={!personalText.trim()}
+              onClick={() => addDecoration('text', personalText.trim())}
+              className="rounded-sm bg-[#173f35] px-4 text-[11px] font-medium text-white disabled:opacity-40"
+            >
+              Add label
+            </button>
           </div>
 
-          <p className="text-[12px] leading-5 text-[#68726c]">
-            Colours follow your look automatically and are always checked for contrast.
-          </p>
-        </>
+          <div className="mt-3 grid grid-cols-5 gap-2">
+            {([
+              ['star', 'Star'], ['heart', 'Heart'], ['cabin', 'Cabin'], ['forest', 'Trees'], ['mountains', 'Hills'],
+            ] as Array<[DecorationKind, string]>).map(([kind, label]) => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => addDecoration(kind)}
+                className="grid min-h-[72px] place-items-center rounded-sm border border-[#d8d9d3] bg-white p-2 text-[#3a4a43] transition-colors hover:border-[#173f35] hover:bg-[#eef1ed]"
+                style={{ containerType: 'size' }}
+              >
+                <DoodleGlyph kind={kind as Exclude<DecorationKind, 'text'>} size={0.75} />
+                <span className="text-[9px]">{label}</span>
+              </button>
+            ))}
+          </div>
+
+          {personal.length > 0 && (
+            <div className="mt-4 grid gap-2">
+              {personal.map((item) => (
+                <div key={item.id} className="rounded-sm border border-[#d8d9d3] bg-white p-3">
+                  <div className="flex items-center gap-2">
+                    {item.kind === 'text' ? (
+                      <input
+                        type="text"
+                        value={item.text || ''}
+                        onChange={(event) => updateDecoration(item.id, { text: event.target.value }, 'personal-text')}
+                        className="min-w-0 flex-1 bg-transparent text-[12px] font-medium outline-none"
+                      />
+                    ) : (
+                      <span className="flex-1 text-[11px] font-medium capitalize">{item.kind}</span>
+                    )}
+                    <button type="button" onClick={() => removeDecoration(item.id)} className="text-[16px] text-[#9b5e48]" aria-label={`Remove ${item.text || item.kind}`}>×</button>
+                  </div>
+                  <div className="mt-3 grid grid-cols-[1fr_92px] items-center gap-3">
+                    <label className="text-[9px] uppercase tracking-[0.1em] text-[#7b837e]">
+                      Size
+                      <input
+                        type="range"
+                        min={0.45}
+                        max={1.6}
+                        step={0.05}
+                        value={item.size}
+                        onChange={(event) => updateDecoration(item.id, { size: Number(event.target.value) }, 'personal-size')}
+                        className="studio-range mt-2 w-full"
+                      />
+                    </label>
+                    {item.kind === 'text' ? (
+                      <select
+                        aria-label={`Font for ${item.text}`}
+                        value={item.font}
+                        onChange={(event) => updateDecoration(item.id, { font: event.target.value as DecorationFont }, 'personal-font')}
+                        className="rounded-sm border border-[#d8d9d3] bg-white px-2 py-2 text-[10px]"
+                      >
+                        <option value="hand">Hand</option>
+                        <option value="atlas">Serif</option>
+                        <option value="modern">Modern</option>
+                        <option value="condensed">Atlas</option>
+                      </select>
+                    ) : <span className="text-right text-[9px] text-[#7b837e]">Drag to move</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       )}
     </div>
   );
 }
 
-// --- Shared controls --------------------------------------------------------
+interface PanelProps {
+  scene: PrintScene;
+  update: StudioDockProps['update'];
+}
 
-function Field({ label, help, children }: { label: string; help?: string; children: ReactNode }) {
+function RecipeSwatch({ recipe }: { recipe: StyleRecipe }) {
+  const palette = getPalette(recipe.paletteId);
+  const layout = getLayout(recipe.layoutId);
+  const footer = layout.titleSlot === 'footer' || layout.titleSlot === 'footer-tall';
+  return (
+    <span
+      className="relative block aspect-[2/1] w-full overflow-hidden border-b border-black/10"
+      style={{ backgroundColor: palette.colors.land }}
+      aria-hidden
+    >
+      <span className="absolute -bottom-[25%] -right-[8%] h-[70%] w-[62%] rounded-[50%]" style={{ backgroundColor: palette.colors.water }} />
+      {[18, 36, 55, 74].map((top, index) => (
+        <span
+          key={`horizontal-${top}`}
+          className="absolute left-[-8%] h-px w-[116%]"
+          style={{ top: `${top}%`, backgroundColor: palette.colors.roads, transform: `rotate(${index % 2 ? 5 : -6}deg)`, opacity: 0.78 }}
+        />
+      ))}
+      {[19, 39, 61, 82].map((left, index) => (
+        <span
+          key={`vertical-${left}`}
+          className="absolute top-[-12%] h-[124%] w-px"
+          style={{ left: `${left}%`, backgroundColor: palette.colors.roads, transform: `rotate(${index % 2 ? -5 : 7}deg)`, opacity: 0.72 }}
+        />
+      ))}
+      {layout.titleEnabled && (
+        <span
+          className={`absolute ${
+            footer
+              ? `inset-x-0 bottom-0 ${layout.titleSlot === 'footer-tall' ? 'h-[29%]' : 'h-[20%]'}`
+              : layout.autoPlace === 'water'
+                ? 'bottom-[17%] right-[9%] h-[12%] w-[45%] border border-white/60 bg-white/15'
+                : 'left-[7%] top-[8%] h-[20%] w-[48%] border border-black/10'
+          }`}
+          style={{ backgroundColor: footer || !layout.autoPlace ? palette.colors.land : undefined }}
+        >
+          <span
+            className="absolute left-[12%] right-[12%] top-[42%] h-px"
+            style={{ backgroundColor: layout.autoPlace ? palette.colors.land : palette.colors.roads }}
+          />
+        </span>
+      )}
+    </span>
+  );
+}
+
+function PaletteButton({
+  palette,
+  active,
+  onClick,
+}: {
+  palette: Palette;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={`${palette.name} — ${palette.blurb}`}
+      aria-pressed={active}
+      onClick={onClick}
+      className={`flex min-w-0 items-center gap-2.5 rounded-sm border p-2 text-left transition-colors ${
+        active
+          ? 'border-[#173f35] bg-[#eef1ed]'
+          : 'border-[#d8d9d3] bg-white hover:border-[#849587]'
+      }`}
+    >
+      <PaletteSwatch palette={palette} width={38} />
+      <span className="min-w-0">
+        <span className="block truncate text-[11px] font-medium leading-4">{palette.name}</span>
+        <span className="block truncate text-[9px] leading-4 text-[#68726c]">{palette.blurb}</span>
+      </span>
+    </button>
+  );
+}
+
+function Field({
+  label,
+  help,
+  children,
+}: {
+  label: string;
+  help?: string;
+  children: ReactNode;
+}) {
   return (
     <section>
-      <h3 className="mb-2 text-[13px] font-medium text-[#14201d]">{label}</h3>
-      {help && <p className="mb-2 text-[12px] leading-5 text-[#68726c]">{help}</p>}
+      <div className="mb-2">
+        <h3 className="text-[12px] font-medium text-[#14201d]">{label}</h3>
+        {help && <p className="mt-0.5 text-[11px] leading-4 text-[#7b837e]">{help}</p>}
+      </div>
       {children}
     </section>
   );
 }
 
-function Choice({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+function Choice({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`min-h-[48px] rounded-sm border px-2 py-2 text-center transition-colors ${
+      className={`rounded-sm border px-2 py-2 text-center transition-colors ${
         active
           ? 'border-[#173f35] bg-[#173f35] text-white'
-          : 'border-[#d8d9d3] bg-white text-[#14201d] hover:border-[#849587]'
+          : 'border-[#d8d9d3] bg-white text-[#44504b] hover:border-[#849587]'
       }`}
     >
       {children}
@@ -687,18 +1123,19 @@ function Segmented({
   onChange: (value: string) => void;
 }) {
   return (
-    <div
-      className="grid overflow-hidden rounded-sm border border-[#d8d9d3]"
-      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
-    >
+    <div className="flex overflow-hidden rounded-sm border border-[#d8d9d3]">
       {options.map((option, index) => (
         <button
           key={option.value}
           type="button"
           aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
-          className={`px-2 py-2.5 text-[12px] transition-colors ${index ? 'border-l border-[#d8d9d3]' : ''} ${
-            value === option.value ? 'bg-[#173f35] text-white' : 'bg-white text-[#44504b] hover:bg-[#eef1ed]'
+          className={`flex-1 px-2 py-2 text-[10px] transition-colors ${
+            index > 0 ? 'border-l border-[#d8d9d3]' : ''
+          } ${
+            value === option.value
+              ? 'bg-[#173f35] text-white'
+              : 'bg-white text-[#66706a] hover:bg-[#eef1ed]'
           }`}
         >
           {option.label}
@@ -708,50 +1145,78 @@ function Segmented({
   );
 }
 
-function Toggle({ label, active, onChange }: { label: string; active: boolean; onChange: () => void }) {
+function Toggle({
+  label,
+  active,
+  onChange,
+}: {
+  label: string;
+  active: boolean;
+  onChange: () => void;
+}) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={active}
       onClick={onChange}
-      className="flex w-full items-center justify-between gap-3 py-1.5 text-left"
+      className="flex items-center justify-between gap-3 rounded-sm px-2 py-2 text-left text-[11px] text-[#44504b] hover:bg-[#eef1ed]"
     >
-      <span className="text-[13px] text-[#44504b]">{label}</span>
-      <span className={`relative h-5 w-9 flex-none rounded-full transition-colors ${active ? 'bg-[#173f35]' : 'bg-[#d4d7d2]'}`}>
-        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${active ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+      <span>{label}</span>
+      <span className={`relative h-5 w-9 rounded-full transition-colors ${active ? 'bg-[#173f35]' : 'bg-[#cfd3cf]'}`}>
+        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${active ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
       </span>
     </button>
   );
 }
 
-function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function TextField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
-    <label className="flex items-center justify-between gap-2 rounded-sm border border-[#d8d9d3] bg-white px-3 py-2">
-      <span>
-        <span className="block text-[12px] text-[#44504b]">{label}</span>
-        <span className="block font-mono text-[11px] uppercase text-[#8a918d]">{value}</span>
-      </span>
+    <label className="grid grid-cols-[72px_1fr] items-center gap-2">
+      <span className="text-[10px] uppercase tracking-[0.1em] text-[#7b837e]">{label}</span>
       <input
-        type="color"
+        type="text"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-8 w-10 cursor-pointer rounded-sm border border-[#d8d9d3] bg-white p-0.5"
+        className="min-w-0 rounded-sm border border-[#d8d9d3] bg-white px-3 py-2 text-[12px] outline-none transition-colors focus:border-[#173f35]"
       />
     </label>
   );
 }
 
-function TextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function ColorField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
-    <label className="grid grid-cols-[92px_1fr] items-center rounded-sm border border-[#d8d9d3] bg-white focus-within:border-[#173f35]">
-      <span className="px-3 text-[12px] text-[#68726c]">{label}</span>
+    <label className="flex items-center gap-2 rounded-sm border border-[#d8d9d3] bg-white p-2">
       <input
-        type="text"
+        type="color"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="min-w-0 rounded-r-sm border-l border-[#d8d9d3] bg-transparent px-3 py-2.5 text-[14px] outline-none"
+        className="h-7 w-7 cursor-pointer border-0 bg-transparent p-0"
       />
+      <span className="min-w-0">
+        <span className="block text-[9px] uppercase tracking-[0.1em] text-[#7b837e]">{label}</span>
+        <span className="block truncate text-[10px] uppercase text-[#44504b]">{value}</span>
+      </span>
     </label>
   );
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }

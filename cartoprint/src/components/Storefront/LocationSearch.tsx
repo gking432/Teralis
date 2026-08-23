@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { inferKind, placeTypeLabel } from '@/lib/catalog/placeFromQuery';
-import type { CatalogPrintKind } from '@/lib/catalog/prints';
+import { findCityCatalogPrint, type CatalogPrintKind } from '@/lib/catalog/prints';
+import { trackDemoEvent } from '@/lib/demoAnalytics';
 
 interface NominatimResult {
   place_id: number;
@@ -23,6 +24,7 @@ interface DisplayResult {
   primary: string;
   secondary: string;
   kind: CatalogPrintKind;
+  placeType: string;
   typeLabel: string;
   bbox: [number, number, number, number];
   center: [number, number];
@@ -47,6 +49,7 @@ function toDisplay(result: NominatimResult): DisplayResult {
     primary,
     secondary,
     kind,
+    placeType: result.addresstype || result.type || kind,
     // The badge says what we actually found, rather than forcing every result
     // into one of the three rendering modes.
     typeLabel: placeTypeLabel(result.addresstype, result.type, result.class || result.category),
@@ -62,10 +65,15 @@ function navigateUrl(result: DisplayResult): string {
   const params = new URLSearchParams({
     place: result.primary,
     kind: result.kind,
+    type: result.placeType,
     bbox: result.bbox.join(','),
     center: result.center.join(','),
     display: result.displayName,
   });
+  if (result.kind === 'city') {
+    const catalogCity = findCityCatalogPrint(result.primary, result.displayName);
+    return catalogCity ? `/maps/${catalogCity.slug}` : `/maps/custom?${params.toString()}`;
+  }
   return `/customize?${params.toString()}`;
 }
 
@@ -167,6 +175,12 @@ export function LocationSearch({
 
   function pick(result: DisplayResult) {
     rememberPlace(result);
+    trackDemoEvent('search_result_selected', {
+      place: result.primary,
+      kind: result.kind,
+      placeType: result.placeType,
+      catalog: Boolean(findCityCatalogPrint(result.primary, result.displayName)),
+    });
     router.push(navigateUrl(result));
   }
 
@@ -243,10 +257,10 @@ export function LocationSearch({
           onChange={(event) => { setQuery(event.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          className="w-full rounded-sm border border-white/25 bg-[#f8f6ef] py-[19px] pl-14 pr-[132px] text-[16px] text-[#14201d] shadow-[0_18px_50px_rgba(0,0,0,0.16)] outline-none transition-all placeholder:text-[#77817b] focus:border-[#c66b4e] focus:shadow-[0_22px_60px_rgba(0,0,0,0.26)]"
+          className="w-full rounded-sm border border-white/25 bg-[#f8f6ef] py-[19px] pl-14 pr-5 text-[16px] text-[#14201d] shadow-[0_18px_50px_rgba(0,0,0,0.16)] outline-none transition-all placeholder:text-[#77817b] focus:border-[#c66b4e] focus:shadow-[0_22px_60px_rgba(0,0,0,0.26)] sm:pr-[132px]"
         />
 
-        <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2">
+        <div className="absolute right-3 top-1/2 hidden -translate-y-1/2 items-center gap-2 sm:flex">
           {loading && (
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#d4d8d3] border-t-[#173f35]" />
           )}
@@ -260,6 +274,16 @@ export function LocationSearch({
           </button>
         </div>
       </div>
+
+      <button
+        type="button"
+        onClick={useMyLocation}
+        disabled={locating}
+        className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-sm border border-white/20 bg-white/[0.06] px-4 text-[11px] text-[#dce2dd]/75 transition-colors hover:bg-white/10 disabled:opacity-50 sm:hidden"
+      >
+        <span aria-hidden>◎</span>
+        {locating ? 'Finding your location…' : 'Use my location'}
+      </button>
 
       {(showResults || showRecents) && (
         <ul

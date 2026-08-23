@@ -12,6 +12,11 @@ export interface PrintSizeOption {
   prodigiSku: string; // placeholder — update from Prodigi catalog
 }
 
+export interface FulfillmentVariant {
+  sku: string;
+  attributes?: Record<string, string>;
+}
+
 export interface FrameOptionInfo {
   value: FrameOption;
   label: string;
@@ -23,7 +28,7 @@ export const SIZE_CATALOG: Record<Orientation, Record<SizeLabel, PrintSizeOption
     small:  { label: 'small',  displayLabel: 'Small',       w: 12, h: 16, dimensionStr: '12 × 16"', prodigiSku: 'GLOBAL-FAP-12X16' },
     medium: { label: 'medium', displayLabel: 'Medium',      w: 18, h: 24, dimensionStr: '18 × 24"', prodigiSku: 'GLOBAL-FAP-18X24' },
     large:  { label: 'large',  displayLabel: 'Large',       w: 24, h: 32, dimensionStr: '24 × 32"', prodigiSku: 'GLOBAL-FAP-24X32' },
-    xlarge: { label: 'xlarge', displayLabel: 'Extra Large', w: 30, h: 40, dimensionStr: '30 × 40"', prodigiSku: 'GLOBAL-FAP-30X40' },
+    xlarge: { label: 'xlarge', displayLabel: 'Extra Large', w: 28, h: 40, dimensionStr: '28 × 40"', prodigiSku: 'GLOBAL-FAP-28X40' },
   },
   square: {
     small:  { label: 'small',  displayLabel: 'Small',       w: 12, h: 12, dimensionStr: '12 × 12"', prodigiSku: 'GLOBAL-FAP-12X12' },
@@ -32,10 +37,10 @@ export const SIZE_CATALOG: Record<Orientation, Record<SizeLabel, PrintSizeOption
     xlarge: { label: 'xlarge', displayLabel: 'Extra Large', w: 24, h: 24, dimensionStr: '24 × 24"', prodigiSku: 'GLOBAL-FAP-24X24' },
   },
   landscape: {
-    small:  { label: 'small',  displayLabel: 'Small',       w: 16, h: 12, dimensionStr: '16 × 12"', prodigiSku: 'GLOBAL-FAP-16X12' },
-    medium: { label: 'medium', displayLabel: 'Medium',      w: 24, h: 18, dimensionStr: '24 × 18"', prodigiSku: 'GLOBAL-FAP-24X18' },
-    large:  { label: 'large',  displayLabel: 'Large',       w: 32, h: 24, dimensionStr: '32 × 24"', prodigiSku: 'GLOBAL-FAP-32X24' },
-    xlarge: { label: 'xlarge', displayLabel: 'Extra Large', w: 40, h: 30, dimensionStr: '40 × 30"', prodigiSku: 'GLOBAL-FAP-40X30' },
+    small:  { label: 'small',  displayLabel: 'Small',       w: 16, h: 12, dimensionStr: '16 × 12"', prodigiSku: 'GLOBAL-FAP-12X16' },
+    medium: { label: 'medium', displayLabel: 'Medium',      w: 24, h: 18, dimensionStr: '24 × 18"', prodigiSku: 'GLOBAL-FAP-18X24' },
+    large:  { label: 'large',  displayLabel: 'Large',       w: 32, h: 24, dimensionStr: '32 × 24"', prodigiSku: 'GLOBAL-FAP-24X32' },
+    xlarge: { label: 'xlarge', displayLabel: 'Extra Large', w: 40, h: 28, dimensionStr: '40 × 28"', prodigiSku: 'GLOBAL-FAP-28X40' },
   },
 };
 
@@ -85,6 +90,28 @@ export function getSizePrice(size: SizeLabel, frame: FrameOption, mat: boolean):
   return SIZE_BASE_PRICE[size] + FRAME_UPCHARGE[frame] + (mat && frame !== 'none' ? MAT_UPCHARGE : 0);
 }
 
+/**
+ * Prodigi uses the same dimension SKU for portrait and landscape artwork.
+ * Framed prints use the Classic Frame product plus color/mount attributes.
+ * Product availability is still checked against Prodigi before live launch.
+ */
+export function getFulfillmentVariant(
+  size: SizeLabel,
+  orientation: Orientation,
+  frame: FrameOption,
+  mat: boolean,
+): FulfillmentVariant {
+  const paperSku = SIZE_CATALOG[orientation][size].prodigiSku;
+  if (frame === 'none') return { sku: paperSku };
+  return {
+    sku: paperSku.replace('GLOBAL-FAP-', 'GLOBAL-CFP-'),
+    attributes: {
+      color: frame === 'wood' ? 'natural' : frame,
+      ...(mat ? { mountColor: 'snow-white' } : {}),
+    },
+  };
+}
+
 export function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(0)}`;
 }
@@ -116,6 +143,18 @@ export function getMockupUrl(
   const mountSuffix = mat ? '-snow-white-mount' : '';
   const sceneSuffix = scene === 1 ? '__1_' : '';
   return `/mockups/wall/prodigi-global-${product}-${size}-${color}-frame${mountSuffix}${sceneSuffix}.png`;
+}
+
+/** Every photographed view currently available for this exact finish. */
+export function getMockupUrls(
+  frame: FrameOption,
+  orientation: Orientation,
+  mat: boolean,
+): string[] {
+  if (frame === 'none') return [];
+  return ([0, 1] as const)
+    .map((scene) => getMockupUrl(frame, orientation, mat, scene))
+    .filter((url): url is string => Boolean(url));
 }
 
 // Session storage keys for Step 2 → Step 3 handoff

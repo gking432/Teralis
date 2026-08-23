@@ -9,7 +9,10 @@ import {
   applyPrintDetail,
   applyPrintMapStyle,
   applyPrintMaskColor,
+  addDetailedCityRoads,
+  setDetailedCityRoadsVisible,
 } from '@/lib/print/printRender';
+import { fetchDetailedCityRoads } from '@/lib/print/cityRoads';
 import { applyIsolationMask, initIsolationLayers } from '@/lib/map/isolation';
 import { strokeScaleFor } from '@/lib/print/strokes';
 import { printGeometry, percent } from '@/lib/print/geometry';
@@ -46,7 +49,10 @@ interface LivePrintCanvasProps {
   /** Fired after the user pans or zooms by hand. */
   onViewportChange: (viewport: PrintViewport, radiusMiles: number) => void;
   onReady?: (map: maplibregl.Map) => void;
+  onReadyStateChange?: (ready: boolean) => void;
   onWaterShare?: (share: number | null) => void;
+  /** Low-resolution copy of the current map area for the style showroom. */
+  onMapPreview?: (image: string) => void;
   /**
    * Reports where a title can sit on open water, in SHEET coordinates, or null
    * when there is no stretch big enough. Only computed when the scene asks.
@@ -63,7 +69,9 @@ export function LivePrintCanvas({
   geometry,
   onViewportChange,
   onReady,
+  onReadyStateChange,
   onWaterShare,
+  onMapPreview,
   onWaterPlacement,
   children,
   interactive = true,
@@ -82,10 +90,15 @@ export function LivePrintCanvas({
   onViewportChangeRef.current = onViewportChange;
   const onWaterShareRef = useRef(onWaterShare);
   onWaterShareRef.current = onWaterShare;
+  const onMapPreviewRef = useRef(onMapPreview);
+  onMapPreviewRef.current = onMapPreview;
   const onWaterPlacementRef = useRef(onWaterPlacement);
   onWaterPlacementRef.current = onWaterPlacement;
+  const onReadyStateChangeRef = useRef(onReadyStateChange);
+  onReadyStateChangeRef.current = onReadyStateChange;
 
   const kind = scene.place.kind === 'country' ? 'country' : scene.place.kind === 'state' ? 'state' : 'city';
+  const bboxKey = scene.viewport.bbox.join(',');
   const geo = printGeometry(scene.orientation, scene.detail.border, scene.title);
 
   useEffect(() => {
@@ -101,7 +114,7 @@ export function LivePrintCanvas({
   // Draw on an oversized canvas when the frame asks for the residential street
   // network, so `fitBounds` reaches the zoom at which those roads exist in the
   // vector tiles. Scaled back down for display, so the print is unchanged.
-  const supersample = displaySize.width > 0
+  const supersample = kind !== 'city' && displaySize.width > 0
     ? supersampleFactor(scene.viewport.bbox, displaySize.width, scene.detail.roads, displaySize.height)
     : 1;
   const canvasWidth = Math.round(displaySize.width * supersample);
@@ -111,6 +124,27 @@ export function LivePrintCanvas({
   const currentScale = useCallback(() => {
     const width = mapRef.current?.getCanvas().clientWidth || 900;
     return strokeScaleFor(width);
+  }, []);
+
+  const reportMapPreview = useCallback((map: maplibregl.Map) => {
+    const report = onMapPreviewRef.current;
+    if (!report) return;
+    try {
+      const source = map.getCanvas();
+      if (!source.width || !source.height) return;
+      const width = Math.min(source.width, 900);
+      const height = Math.max(1, Math.round(width * source.height / source.width));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) return;
+      context.drawImage(source, 0, 0, width, height);
+      report(canvas.toDataURL('image/png'));
+    } catch {
+      // A preview is an enhancement; a browser canvas restriction must never
+      // prevent someone from editing or exporting the real print.
+    }
   }, []);
 
   const fitViewport = useCallback((viewport: PrintViewport) => {
@@ -145,10 +179,14 @@ export function LivePrintCanvas({
     });
     map.touchZoomRotate?.disableRotation();
     mapRef.current = map;
+    onReadyStateChangeRef.current?.(false);
 
     map.on('error', (event) => {
       // Style/tile failures are the only fatal case; missing sprites are not.
-      if ((event as { error?: { status?: number } })?.error) setFailed(true);
+      if ((event as { error?: { status?: number } })?.error) {
+        setFailed(true);
+        onReadyStateChangeRef.current?.(false);
+      }
     });
 
     map.on('load', () => {
@@ -203,7 +241,9 @@ export function LivePrintCanvas({
     });
 
     map.on('idle', () => {
+      onReadyStateChangeRef.current?.(true);
       onWaterShareRef.current?.(measureWaterShare(map));
+      reportMapPreview(map);
 
       // Where could a title sit on open water? Computed from the pixels we
       // just drew, because the water colour is one we chose ourselves and a
@@ -211,7 +251,6 @@ export function LivePrintCanvas({
       const report = onWaterPlacementRef.current;
       if (!report) return;
       const active = sceneRef.current;
-      if (!active.title.autoPlaced) return;
       const activeGeo = printGeometry(active.orientation, active.detail.border, active.title);
       const found = findWaterPlacement(
         map.getCanvas(),
@@ -236,7 +275,9 @@ export function LivePrintCanvas({
     if (!map || !styleReady) return;
     applyPrintColors(map, scene.colors, currentScale());
     applyPrintMaskColor(map, scene.colors);
-  }, [scene.colors, styleReady, currentScale]);
+    map.once('render', () => reportMapPreview(map));
+    map.triggerRepaint();
+  }, [scene.colors, styleReady, currentScale, reportMapPreview]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -245,7 +286,9 @@ export function LivePrintCanvas({
     // Detail changes reset paint properties on the layers they touch, so the
     // palette has to be re-applied on top of them.
     applyPrintColors(map, scene.colors, currentScale());
-  }, [scene.detail, scene.strokeWeight, scene.colors, kind, styleReady, currentScale]);
+    map.once('render', () => reportMapPreview(map));
+    map.triggerRepaint();
+  }, [scene.detail, scene.strokeWeight, scene.colors, kind, styleReady, currentScale, reportMapPreview]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -343,8 +386,37 @@ export function LivePrintCanvas({
     return () => controller.abort();
   }, [scene.detail, scene.viewport.bbox, scene.colors, geometry, styleReady]);
 
+  // City streets come from z12 transportation tiles decoded by our API. This
+  // keeps the complete residential network independent of the visible camera
+  // zoom and gives the live canvas the same geometry as the final export.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady || kind !== 'city') return;
+
+    const controller = new AbortController();
+    const roadBbox = bboxKey.split(',') as [string, string, string, string];
+    onReadyStateChangeRef.current?.(false);
+    setDetailedCityRoadsVisible(map, false);
+    fetchDetailedCityRoads(roadBbox, controller.signal)
+      .then((collection) => {
+        if (controller.signal.aborted) return;
+        const active = sceneRef.current;
+        addDetailedCityRoads(map, collection, active.colors, currentScale(), active.strokeWeight);
+        map.once('idle', () => {
+          onReadyStateChangeRef.current?.(true);
+          reportMapPreview(map);
+        });
+        map.triggerRepaint();
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!controller.signal.aborted) onReadyStateChangeRef.current?.(true);
+      });
+
+    return () => controller.abort();
+  }, [bboxKey, currentScale, kind, reportMapPreview, styleReady]);
+
   // Camera follows the scene whenever the change did not come from the map.
-  const bboxKey = scene.viewport.bbox.join(',');
   useEffect(() => {
     if (!styleReady) return;
     if (sceneRef.current.freeViewport) return;
@@ -363,7 +435,32 @@ export function LivePrintCanvas({
     applyPrintDetail(map, kind, active.detail, scale, active.strokeWeight);
     applyPrintColors(map, active.colors, scale);
     if (!active.freeViewport) fitViewport(active.viewport);
-  }, [canvasWidth, canvasHeight, scene.orientation, kind, styleReady, fitViewport]);
+    map.once('render', () => reportMapPreview(map));
+    map.triggerRepaint();
+  }, [canvasWidth, canvasHeight, scene.orientation, kind, styleReady, fitViewport, reportMapPreview]);
+
+  // Framing is an explicit phase. Once styling begins, every MapLibre input
+  // handler is disabled so a stray drag, wheel, or pinch cannot change the
+  // composition underneath the user's design.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const toggle = interactive ? 'enable' : 'disable';
+    for (const handler of [
+      map.dragPan,
+      map.scrollZoom,
+      map.boxZoom,
+      map.keyboard,
+      map.doubleClickZoom,
+      map.touchZoomRotate,
+    ]) {
+      try { handler?.[toggle](); } catch {}
+    }
+    // Rotation remains forbidden even while framing is editable.
+    try { map.dragRotate.disable(); } catch {}
+    try { map.touchZoomRotate.disableRotation(); } catch {}
+    map.getCanvas().style.cursor = interactive ? 'grab' : 'default';
+  }, [interactive, styleReady]);
 
   const paper = scene.colors.land || '#ffffff';
   const ink = scene.colors.useMapDefault

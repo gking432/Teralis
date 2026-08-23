@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Cormorant_Garamond, DM_Sans } from 'next/font/google';
+import { Barlow_Condensed, Caveat, Cormorant_Garamond, DM_Sans } from 'next/font/google';
 import './globals.css';
 
 const cormorant = Cormorant_Garamond({
@@ -16,6 +16,20 @@ const dmSans = DM_Sans({
   display: 'swap',
 });
 
+const caveat = Caveat({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-hand',
+  display: 'swap',
+});
+
+const condensed = Barlow_Condensed({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-condensed',
+  display: 'swap',
+});
+
 export const metadata: Metadata = {
   title: 'Terralis — Custom Map Prints',
   description:
@@ -28,7 +42,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${cormorant.variable} ${dmSans.variable}`}>
+    <html lang="en" className={`${cormorant.variable} ${dmSans.variable} ${caveat.variable} ${condensed.variable}`}>
       <body className="font-body">{children}</body>
     </html>
   );

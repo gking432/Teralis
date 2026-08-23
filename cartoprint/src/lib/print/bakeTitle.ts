@@ -1,8 +1,10 @@
 import {
   BODY_FONT_STACK,
+  displayTitleText,
   TITLE_FONT_STACK,
   resolveTitleColors,
   resolvedRect,
+  titleFontCanvas,
   titleTypography,
   type TitleDesign,
 } from '@/lib/print/title';
@@ -85,21 +87,21 @@ export function bakeTitle(
     ctx.restore();
   }
 
-  // Hairline rule above a solid footer band, matching the overlay.
-  if (design.panel === 'solid' && (design.slot === 'footer' || design.slot === 'footer-tall')) {
-    ctx.fillStyle = resolved.text;
-    ctx.fillRect(blockX, blockY, blockW, Math.max(1, blockH * 0.009));
-  }
-
   const vertical = type.vertical;
   const across = vertical ? blockW : blockH;
 
   const lines: Array<{ text: string; size: number; tracking: number; font: string; weight: number }> = [];
-  const title = design.text.trim().toUpperCase();
+  const title = displayTitleText(design);
   const subtitle = design.subtitle.trim().toUpperCase();
   const detail = design.detail.trim().toUpperCase();
 
-  if (title) lines.push({ text: title, size: type.titleSize * across, tracking: type.titleTracking, font: TITLE_FONT_STACK, weight: 300 });
+  if (title) lines.push({
+    text: title,
+    size: type.titleSize * across,
+    tracking: type.titleTracking,
+    font: design.font ? titleFontCanvas(design.font) : TITLE_FONT_STACK,
+    weight: design.font === 'hand' ? 600 : design.font === 'condensed' ? 500 : 300,
+  });
   if (subtitle) lines.push({ text: subtitle, size: type.subtitleSize * across, tracking: type.subtitleTracking, font: BODY_FONT_STACK, weight: 400 });
   if (detail) lines.push({ text: detail, size: type.detailSize * across, tracking: type.detailTracking, font: BODY_FONT_STACK, weight: 400 });
 

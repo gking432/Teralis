@@ -21,7 +21,7 @@ export const PRODUCT_SKUS = {
   '18x24_black': 'GLOBAL-FRP-18x24-BK',
 } as const;
 
-interface ProdigiRecipient {
+export interface ProdigiRecipient {
   name: string;
   address: {
     line1: string;
@@ -33,18 +33,21 @@ interface ProdigiRecipient {
   };
 }
 
-interface ProdigiOrderItem {
+export interface ProdigiOrderItem {
   sku: string;
   copies: number;
   sizing: 'fillPrintArea' | 'fitPrintArea';
+  attributes?: Record<string, string>;
   assets: Array<{ printArea: 'default'; url: string }>;
 }
 
-interface ProdigiOrder {
+export interface ProdigiOrder {
   shippingMethod: 'Budget' | 'Standard' | 'Express';
   recipient: ProdigiRecipient;
   items: ProdigiOrderItem[];
   idempotencyKey?: string;
+  merchantReference?: string;
+  callbackUrl?: string;
 }
 
 export async function createOrder(order: ProdigiOrder): Promise<any> {

@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { VectorTile } from '@mapbox/vector-tile';
+import Pbf from 'pbf';
 import usPlaces from '@/data/us_places_2025.json';
 import usTownships from '@/data/us_townships_2025.json';
 
@@ -8,6 +10,7 @@ interface FeatureRequest {
   bbox?: BBox | null;
   geometry?: GeoJSON.Geometry | null;
   towns?: boolean;
+  roads?: boolean;
 }
 
 interface OverpassElement {
@@ -25,6 +28,14 @@ const OVERPASS_URL = process.env.OVERPASS_URL || 'https://overpass-api.de/api/in
 const MAX_PLACE_LABELS = 4000;
 const MAX_BBOX_AREA = 90;
 const MAX_OVERPASS_BBOX_AREA = 6;
+const ROAD_TILE_ZOOM = 12;
+const MAX_ROAD_TILES = 180;
+const ROAD_TILEJSON_URL = process.env.PRINT_ROAD_TILEJSON_URL || 'https://tiles.openfreemap.org/planet';
+const ROAD_CLASSES = new Set([
+  'tertiary', 'minor', 'service', 'track', 'street', 'street_limited',
+]);
+
+let roadTileTemplatePromise: Promise<string | null> | null = null;
 
 interface UsPlace {
   s: string;
@@ -73,6 +84,112 @@ function getBBoxArea(bbox: BBox): number {
   const west = Number(bbox[2]);
   const east = Number(bbox[3]);
   return Math.abs((north - south) * (east - west));
+}
+
+function longitudeToTileX(longitude: number, zoom: number): number {
+  const tiles = Math.pow(2, zoom);
+  return Math.min(Math.max(Math.floor(((longitude + 180) / 360) * tiles), 0), tiles - 1);
+}
+
+function latitudeToTileY(latitude: number, zoom: number): number {
+  const tiles = Math.pow(2, zoom);
+  const clamped = Math.min(Math.max(latitude, -85.05112878), 85.05112878);
+  const radians = (clamped * Math.PI) / 180;
+  const y = (1 - Math.asinh(Math.tan(radians)) / Math.PI) / 2;
+  return Math.min(Math.max(Math.floor(y * tiles), 0), tiles - 1);
+}
+
+async function getRoadTileTemplate(): Promise<string | null> {
+  if (!roadTileTemplatePromise) {
+    roadTileTemplatePromise = fetch(ROAD_TILEJSON_URL, { next: { revalidate: 3600 } })
+      .then((response) => response.ok ? response.json() : null)
+      .then((tileJson: { tiles?: string[] } | null) => tileJson?.tiles?.[0] ?? null)
+      .catch(() => null);
+  }
+  return roadTileTemplatePromise;
+}
+
+async function getRoadFeatures(bbox: BBox): Promise<GeoJSON.FeatureCollection> {
+  const [south, north, west, east] = bbox.map(Number);
+  const minX = longitudeToTileX(west, ROAD_TILE_ZOOM);
+  const maxX = longitudeToTileX(east, ROAD_TILE_ZOOM);
+  const minY = latitudeToTileY(north, ROAD_TILE_ZOOM);
+  const maxY = latitudeToTileY(south, ROAD_TILE_ZOOM);
+  const coordinates: Array<[number, number]> = [];
+
+  for (let x = minX; x <= maxX; x += 1) {
+    for (let y = minY; y <= maxY; y += 1) coordinates.push([x, y]);
+  }
+
+  if (coordinates.length > MAX_ROAD_TILES) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+
+  const template = await getRoadTileTemplate();
+  if (!template) return { type: 'FeatureCollection', features: [] };
+
+  const features: GeoJSON.Feature[] = [];
+  for (let index = 0; index < coordinates.length; index += 16) {
+    const batch = coordinates.slice(index, index + 16);
+    const tiles = await Promise.all(batch.map(async ([x, y]) => {
+      const url = template
+        .replace('{z}', String(ROAD_TILE_ZOOM))
+        .replace('{x}', String(x))
+        .replace('{y}', String(y));
+      const response = await fetch(url, { next: { revalidate: 86400 } });
+      if (!response.ok) return [] as GeoJSON.Feature[];
+
+      const tile = new VectorTile(new Pbf(new Uint8Array(await response.arrayBuffer())));
+      const layer = tile.layers.transportation;
+      if (!layer) return [] as GeoJSON.Feature[];
+
+      const tileFeatures: GeoJSON.Feature[] = [];
+      for (let featureIndex = 0; featureIndex < layer.length; featureIndex += 1) {
+        const feature = layer.feature(featureIndex);
+        const roadClass = String(feature.properties.class || '');
+        if (!ROAD_CLASSES.has(roadClass)) continue;
+        const geojson = feature.toGeoJSON(x, y, ROAD_TILE_ZOOM) as GeoJSON.Feature;
+        if (geojson.geometry.type !== 'LineString' && geojson.geometry.type !== 'MultiLineString') continue;
+        const rounded = JSON.parse(JSON.stringify(geojson.geometry.coordinates), (_key, value) =>
+          typeof value === 'number' ? Number(value.toFixed(5)) : value,
+        ) as GeoJSON.LineString['coordinates'] | GeoJSON.MultiLineString['coordinates'];
+        const flat = rounded.flat(2) as number[];
+        let intersectsFrame = false;
+        for (let coordinateIndex = 0; coordinateIndex < flat.length; coordinateIndex += 2) {
+          const longitude = flat[coordinateIndex];
+          const latitude = flat[coordinateIndex + 1];
+          if (longitude >= west && longitude <= east && latitude >= south && latitude <= north) {
+            intersectsFrame = true;
+            break;
+          }
+        }
+        if (!intersectsFrame) continue;
+        geojson.geometry.coordinates = rounded as never;
+        geojson.properties = { class: roadClass };
+        tileFeatures.push(geojson);
+      }
+      return tileFeatures;
+    }));
+    tiles.forEach((tileFeatures) => features.push(...tileFeatures));
+  }
+
+  const linesByClass = new Map<string, GeoJSON.Position[][]>();
+  features.forEach((feature) => {
+    const roadClass = String(feature.properties?.class || 'minor');
+    const lines = linesByClass.get(roadClass) ?? [];
+    if (feature.geometry.type === 'LineString') lines.push(feature.geometry.coordinates);
+    if (feature.geometry.type === 'MultiLineString') lines.push(...feature.geometry.coordinates);
+    linesByClass.set(roadClass, lines);
+  });
+
+  return {
+    type: 'FeatureCollection',
+    features: Array.from(linesByClass, ([roadClass, coordinates]) => ({
+      type: 'Feature' as const,
+      properties: { class: roadClass },
+      geometry: { type: 'MultiLineString' as const, coordinates },
+    })),
+  };
 }
 
 function getPlaceRank(place: string | undefined): number {
@@ -146,8 +263,15 @@ function placesToFeatureCollection(places: UsPlace[], geometry: GeoJSON.Geometry
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as FeatureRequest;
-    if (!body.towns || !body.bbox) {
+    if (!body.bbox || (!body.towns && !body.roads)) {
       return NextResponse.json({ type: 'FeatureCollection', features: [] });
+    }
+
+    if (body.roads) {
+      const roads = await getRoadFeatures(body.bbox);
+      return NextResponse.json(roads, {
+        headers: { 'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=604800' },
+      });
     }
 
     if (getBBoxArea(body.bbox) > MAX_BBOX_AREA) {

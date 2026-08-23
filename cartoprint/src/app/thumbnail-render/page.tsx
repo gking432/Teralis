@@ -11,6 +11,7 @@ import { getCachedBoundary, fetchBoundary } from '@/lib/print/boundaryCache';
 import { renderScene } from '@/lib/print/renderScene';
 import { createPrintScene } from '@/lib/print/scene';
 import { DEFAULT_PALETTE } from '@/lib/print/palettes';
+import { createCityProductScene } from '@/lib/catalog/cityProduct';
 
 const THUMB_WIDTH = 720;
 
@@ -27,13 +28,15 @@ function ThumbnailRenderer() {
     const kind = print.kind === 'country' ? 'country' : print.kind === 'state' ? 'state' : 'city';
 
     (async () => {
-      let geometry = getCachedBoundary(slug)?.geometry ?? null;
-      if (!geometry) {
+      let geometry = kind === 'city' ? null : getCachedBoundary(slug)?.geometry ?? null;
+      if (kind !== 'city' && !geometry) {
         const record = await fetchBoundary(slug, print.center, kind);
         geometry = record?.geometry ?? null;
       }
 
-      const scene = createPrintScene(print, 'portrait', DEFAULT_PALETTE);
+      const scene = kind === 'city'
+        ? createCityProductScene(print)
+        : createPrintScene(print, 'portrait', DEFAULT_PALETTE);
       const url = await renderScene(scene, geometry, {
         width: THUMB_WIDTH,
         signal: controller.signal,

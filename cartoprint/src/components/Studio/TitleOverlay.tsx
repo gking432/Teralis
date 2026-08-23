@@ -11,10 +11,12 @@ import {
 import type { PreviewColorSettings } from '@/lib/print/colorSchemes';
 import {
   BODY_FONT_STACK,
+  displayTitleText,
   TITLE_FONT_STACK,
   resolveTitleColors,
   resolvedRect,
   snapToSlot,
+  titleFontCss,
   titleTypography,
   type TitleDesign,
 } from '@/lib/print/title';
@@ -32,7 +34,7 @@ import { percent } from '@/lib/print/geometry';
  * for `mousedown`/`mousemove` only and was completely inert on a phone.
  */
 
-type Handle = 'body' | 'tl' | 'tr' | 'bl' | 'br' | 'rotate';
+type Handle = 'body' | 'tl' | 'tr' | 'bl' | 'br';
 
 interface TitleOverlayProps {
   design: TitleDesign;
@@ -44,7 +46,8 @@ interface TitleOverlayProps {
 }
 
 const MIN_WIDTH = 0.16;
-const MAX_WIDTH = 1;
+const MAX_WIDTH = 0.94;
+const SAFE_MARGIN = 0.015;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -146,30 +149,18 @@ export function TitleOverlay({
     const original = drag.original;
 
     if (drag.handle === 'body') {
+      const safeWidth = Math.min(original.w, MAX_WIDTH);
+      const safeHeight = Math.min(original.h, 1 - SAFE_MARGIN * 2);
       onChange({
         ...design,
         // A hand-placed title stops following the automatic water placement.
         autoPlaced: false,
         slot: 'free',
-        x: clamp(original.x + dx, 0, 1 - original.w),
-        y: clamp(original.y + dy, 0, 1 - original.h),
-        w: original.w,
-        h: original.h,
+        x: clamp(original.x + dx, SAFE_MARGIN, 1 - SAFE_MARGIN - safeWidth),
+        y: clamp(original.y + dy, SAFE_MARGIN, 1 - SAFE_MARGIN - safeHeight),
+        w: safeWidth,
+        h: safeHeight,
       });
-      return;
-    }
-
-    if (drag.handle === 'rotate') {
-      const cx = original.x + original.w / 2;
-      const cy = original.y + original.h / 2;
-      const from = Math.atan2(drag.startY - cy, drag.startX - cx);
-      const to = Math.atan2(point.y - cy, point.x - cx);
-      let rotation = original.rotation + (to - from) * (180 / Math.PI);
-      // Snap to straight and to the common 90° turns.
-      for (const target of [-90, -45, 0, 45, 90, 180, -180]) {
-        if (Math.abs(rotation - target) < 4) rotation = target;
-      }
-      onChange({ ...design, ...original, autoPlaced: false, slot: 'free', rotation });
       return;
     }
 
@@ -193,8 +184,8 @@ export function TitleOverlay({
       ...design,
       autoPlaced: false,
       slot: 'free',
-      x: clamp(x, 0, 1 - w),
-      y: clamp(y, 0, 1 - h),
+      x: clamp(x, SAFE_MARGIN, 1 - SAFE_MARGIN - w),
+      y: clamp(y, SAFE_MARGIN, 1 - SAFE_MARGIN - h),
       w,
       h,
       rotation: original.rotation,
@@ -300,14 +291,6 @@ export function TitleOverlay({
         />
       )}
 
-      {/* Footer bands carry a hairline rule, matching the exporter. */}
-      {design.panel === 'solid' && (design.slot === 'footer' || design.slot === 'footer-tall') && (
-        <div
-          className="absolute inset-x-0 top-0"
-          style={{ height: 'max(1px, 0.9cqh)', backgroundColor: colorsResolved.text }}
-        />
-      )}
-
       <div
         className="absolute inset-0 flex flex-col justify-center overflow-hidden"
         style={{
@@ -321,9 +304,14 @@ export function TitleOverlay({
         {showTitle && (
           <div
             {...editableProps('text')}
-            style={lineStyle(type.titleSize, type.titleTracking, TITLE_FONT_STACK, 300)}
+            style={lineStyle(
+              type.titleSize,
+              type.titleTracking,
+              design.font ? titleFontCss(design.font) : TITLE_FONT_STACK,
+              design.font === 'hand' ? 600 : design.font === 'condensed' ? 500 : 300,
+            )}
           >
-            {design.text.trim().toUpperCase()}
+            {displayTitleText(design)}
           </div>
         )}
         {showSubtitle && (
@@ -366,16 +354,6 @@ export function TitleOverlay({
               style={{ ...position, touchAction: 'none' }}
             />
           ))}
-          <button
-            type="button"
-            aria-label="Rotate title"
-            onPointerDown={(event) => beginDrag('rotate', event)}
-            onPointerMove={onPointerMove}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}
-            className="absolute -top-9 left-1/2 h-[14px] w-[14px] -translate-x-1/2 rounded-full border border-[#14201d] bg-white shadow-sm"
-            style={{ touchAction: 'none' }}
-          />
         </>
       )}
     </div>
