@@ -58,7 +58,7 @@ export function sceneForCollectionDesign(print: CatalogPrint, design: Collection
   const recolored = applyPalette(base, getPalette(design.palette));
   return normalizeScene({
     ...recolored,
-    illustration: illustrationForTheme(design.id, base.illustration, print.slug),
+    illustration: illustrationForTheme(design.id, base.illustration, print.slug, print.center),
     title: { ...recolored.title, enabled: true, font: design.font },
   });
 }
@@ -69,7 +69,7 @@ export function sceneForCollectionDesign(print: CatalogPrint, design: Collection
  * Heritage and Topographic editions, and doodle editions launch state by
  * state as their geography is drawn.
  */
-export function designsForState(slug: string): CollectionDesign[] {
+export function designsForState(slug: string, center?: [number, number] | null): CollectionDesign[] {
   return STATE_COLLECTION_DESIGNS.filter((design) =>
-    design.id !== 'doodle-atlas' || hasDoodleContent(slug));
+    design.id !== 'doodle-atlas' || hasDoodleContent(slug, center));
 }

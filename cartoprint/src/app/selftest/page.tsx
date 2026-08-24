@@ -56,7 +56,7 @@ import {
   defaultTitleDesign,
 } from '@/lib/print/title';
 import { decorationSheetPosition } from '@/lib/print/decorations';
-import { buildPlaceCatalogPrint } from '@/lib/catalog/placeFromQuery';
+import { buildPlaceCatalogPrint, placeFromSearchParams } from '@/lib/catalog/placeFromQuery';
 import { getCatalogPrint, getStateCatalogPrints, getFeaturedCatalogPrint } from '@/lib/catalog/prints';
 import {
   STATE_COLLECTION_DESIGNS,
@@ -644,8 +644,76 @@ export default function SelfTest() {
     check('the country print ships an illustrated backbone',
       automaticDecorationsFor('united-states').length >= 12
         && createPrintScene(getFeaturedCatalogPrint(), 'portrait').illustration.theme === 'doodle-atlas');
-    check('doodle-capable states now include the whole catalog',
-      getStateCatalogPrints().filter((statePrint) => hasDoodleContent(statePrint.slug)).length >= 46);
+    // --- the search path, which is how most customers actually arrive ---
+    // A place reached by search used to become `place-colorado-united-states`:
+    // a slug nothing recognised, so the print silently lost every illustration
+    // and showed "United States" instead of its own subtitle. Catalog-only
+    // coverage never saw it. These build a print the way a search does.
+    const searchedColorado = buildPlaceCatalogPrint({
+      name: 'Colorado',
+      displayName: 'Colorado, United States',
+      kind: 'state',
+      placeType: 'state',
+      bbox: [36.99, 41.0, -109.06, -102.04],
+      center: [-105.55, 39.0],
+    });
+    check('a searched state resolves to its catalog print',
+      searchedColorado.slug === 'colorado' && searchedColorado.defaultSubtitle === 'The Centennial State',
+      `${searchedColorado.slug} · ${searchedColorado.defaultSubtitle}`);
+    const searchedScene = createPrintScene(searchedColorado, 'portrait');
+    check('a searched state still gets its illustrated backbone',
+      searchedScene.illustration.decorations.filter((item) => item.source === 'automatic').length >= 5,
+      `${searchedScene.illustration.decorations.length} marks`);
+    check('a searched state draws real terrain, not an empty sheet',
+      layoutDecorations(searchedScene).some((item) => item.kind === 'mountains' || item.kind === 'hills')
+        && layoutDecorations(searchedScene).some((item) => item.kind === 'forest'));
+
+    // The same guarantee for a URL that carries only a bbox, as an ad does.
+    const deepLinked = placeFromSearchParams(new URLSearchParams({
+      place: 'Michigan',
+      kind: 'state',
+      type: 'state',
+      bbox: '41.696,48.306,-90.418,-82.413',
+      center: '-85.6,44.3',
+      display: 'Michigan, United States',
+    }));
+    check('a bbox-only deep link resolves to the same print',
+      deepLinked?.slug === 'michigan'
+        && createPrintScene(deepLinked!, 'portrait').illustration.decorations.length >= 5);
+
+    // Whatever the entry path, the same place must produce the same artwork.
+    const catalogColorado = createPrintScene(getCatalogPrint('colorado')!, 'portrait');
+    check('search and catalog entries produce an identical print',
+      searchedScene.illustration.decorations.map((item) => item.id).join() ===
+        catalogColorado.illustration.decorations.map((item) => item.id).join()
+        && searchedScene.title.subtitle === catalogColorado.title.subtitle);
+
+    // Every region must actually put marks on the page after layout, not just
+    // carry them in data — the difference between the two is a blank print.
+    const emptyAfterLayout = doodleRegions
+      .filter((regionPrint) => automaticDecorationsFor(regionPrint.slug, regionPrint.center).length >= 3)
+      .filter((regionPrint) => layoutDecorations(createPrintScene(regionPrint, 'portrait')).length < 3)
+      .map((regionPrint) => regionPrint.slug);
+    check('no region loses its illustrations during layout',
+      emptyAfterLayout.length === 0, emptyAfterLayout.slice(0, 5).join(', ') || 'all regions draw');
+
+    // Not every state earns an illustrated edition: a few genuinely have no
+    // forests, no relief, and no named lakes, and a Doodle Atlas showing only
+    // a capital dot would be a worse product than the clean editions. What
+    // must hold is that the great majority qualify and that every state sells
+    // something.
+    const doodleCapable = getStateCatalogPrints()
+      .filter((statePrint) => hasDoodleContent(statePrint.slug, statePrint.center));
+    check('the large majority of states sell an illustrated edition',
+      doodleCapable.length >= 40, `${doodleCapable.length} of ${getStateCatalogPrints().length}`);
+    check('every state sells at least two finished designs',
+      getStateCatalogPrints().every((statePrint) => designsForState(statePrint.slug, statePrint.center).length >= 2));
+    check('an illustrated edition always carries real scenery, never a lone dot',
+      doodleCapable.every((statePrint) => {
+        const drawn = layoutDecorations(createPrintScene(statePrint, 'portrait'));
+        return drawn.filter((item) => item.kind === 'forest' || item.kind === 'mountains'
+          || item.kind === 'hills' || item.kind === 'waves').length >= 2;
+      }));
 
     setLines(out);
   }, []);

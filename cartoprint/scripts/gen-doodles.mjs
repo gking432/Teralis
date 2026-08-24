@@ -15,6 +15,12 @@ import sharp from 'sharp';
 
 const offsetDeg = (span, factor, cap) => Math.min(span * factor, cap);
 
+/** Vertical label offset expressed in sheet fraction, converted back to degrees. */
+function labelDrop(bbox, fraction) {
+  const [south, north] = bbox;
+  return (north - south) * fraction;
+}
+
 const TERRAIN_URL = (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
 
 // --- inputs -----------------------------------------------------------------
@@ -83,6 +89,22 @@ function lakeArea(geometry) {
   const polys = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
   return polys.reduce((sum, poly) => sum + shoelace(poly[0]), 0);
 }
+function mercatorY(lat) {
+  const safe = Math.max(-85.05, Math.min(85.05, lat));
+  return Math.log(Math.tan(Math.PI / 4 + (safe * Math.PI) / 360));
+}
+
+/** Position on the printed sheet, 0..1 in each axis — what the eye actually sees. */
+function makeNormalizer(bbox) {
+  const [south, north, west, east] = bbox;
+  const northY = mercatorY(north);
+  const southY = mercatorY(south);
+  return (lng, lat) => ({
+    x: (lng - west) / Math.max(east - west, 1e-9),
+    y: (northY - mercatorY(lat)) / Math.max(northY - southY, 1e-9),
+  });
+}
+
 function hashRotation(seed, spread = 8) {
   let h = 0;
   for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) | 0;
@@ -179,10 +201,14 @@ function findCapital(slug) {
   return null;
 }
 
-function spaced(items, minDist) {
+function spaced(items, minDist, norm) {
   const chosen = [];
   for (const item of items) {
-    if (chosen.every((c) => Math.hypot(c.lng - item.lng, c.lat - item.lat) >= minDist)) chosen.push(item);
+    const a = norm(item.lng, item.lat);
+    if (chosen.every((c) => {
+      const b = norm(c.lng, c.lat);
+      return Math.hypot(a.x - b.x, a.y - b.y) >= minDist;
+    })) chosen.push(item);
   }
   return chosen;
 }
@@ -196,42 +222,48 @@ async function generateFor(slug, bbox, { isCountry = false } = {}) {
     ? (lng, lat) => conus.some(([, s]) => polygonContains(s.geometry, lng, lat))
     : (lng, lat) => (geometry ? polygonContains(geometry, lng, lat) : false);
   const out = [];
+  const norm = makeNormalizer(bbox);
   const pad = span * 0.02;
   const inBbox = (lng, lat) => lng > west + pad && lng < east - pad && lat > south + pad && lat < north - pad;
+  const sheetGap = (a, b) => {
+    const p1 = norm(a.lng, a.lat);
+    const p2 = norm(b.lng, b.lat);
+    return Math.hypot(p1.x - p2.x, p1.y - p2.y);
+  };
 
   // trees — national forests
   const stateForests = (isCountry
     ? forests.filter((f) => f.size >= 2 && inBbox(f.lng, f.lat)).sort((a, b) => b.size - a.size).slice(0, 6)
     : forests.filter((f) => f.state === slug))
     .filter((f) => inBbox(f.lng, f.lat) && (isCountry || contains(f.lng, f.lat) || true));
-  const chosenForests = spaced(stateForests.sort((a, b) => b.size - a.size), span * 0.11).slice(0, isCountry ? 5 : 4);
+  const chosenForests = spaced(stateForests.sort((a, b) => b.size - a.size), 0.14, norm).slice(0, isCountry ? 5 : 4);
   chosenForests.forEach((f, i) => {
     out.push({ id: `${slug}-forest-${i + 1}`, kind: 'forest', lng: f.lng, lat: f.lat, size: 0.95 + f.size * 0.16, rotation: hashRotation(f.name, 6), layer: 'terrain' });
   });
   if (!isCountry && chosenForests[0]) {
     const f = chosenForests[0];
-    out.push({ id: `${slug}-forest-label`, kind: 'text', lng: f.lng, lat: f.lat - offsetDeg(span, 0.055, 0.4), size: 0.6, rotation: hashRotation(f.name, 4), text: f.name.replace(/ National Forests?$/, ''), font: 'condensed', layer: 'terrain' });
+    out.push({ id: `${slug}-forest-label`, kind: 'text', lng: f.lng, lat: f.lat - labelDrop(bbox, 0.055), size: 0.6, rotation: hashRotation(f.name, 4), text: f.name.replace(/ National Forests?$/, ''), font: 'condensed', layer: 'terrain' });
   }
 
   // mountains / hills — relief
   const relief = await reliefGrid(bbox, contains);
   const sorted = relief.filter((c) => c.relief >= 240).sort((a, b) => b.relief - a.relief);
   const forestAnchors = chosenForests.map((f) => ({ lng: f.lng, lat: f.lat }));
-  const terrainSpacing = span * (isCountry ? 0.09 : 0.17);
+  const terrainSpacing = isCountry ? 0.11 : 0.16;
   const picked = [];
   for (const cell of sorted) {
-    if (picked.length >= (isCountry ? 8 : 5)) break;
+    if (picked.length >= (isCountry ? 8 : 6)) break;
     if (!inBbox(cell.lng, cell.lat)) continue;
-    if (picked.some((p) => Math.hypot(p.lng - cell.lng, p.lat - cell.lat) < terrainSpacing)) continue;
-    if (forestAnchors.some((p) => Math.hypot(p.lng - cell.lng, p.lat - cell.lat) < span * 0.08)) continue;
+    if (picked.some((p) => sheetGap(p, cell) < terrainSpacing)) continue;
+    if (forestAnchors.some((p) => sheetGap(p, cell) < 0.12)) continue;
     picked.push(cell);
   }
   if (picked.length === 0) {
     for (const cell of relief.filter((c) => c.relief >= 110).sort((a, b) => b.relief - a.relief)) {
-      if (picked.length >= 2) break;
+      if (picked.length >= 3) break;
       if (!inBbox(cell.lng, cell.lat)) continue;
-      if (picked.some((p) => Math.hypot(p.lng - cell.lng, p.lat - cell.lat) < terrainSpacing)) continue;
-      if (forestAnchors.some((p) => Math.hypot(p.lng - cell.lng, p.lat - cell.lat) < span * 0.08)) continue;
+      if (picked.some((p) => sheetGap(p, cell) < terrainSpacing)) continue;
+      if (forestAnchors.some((p) => sheetGap(p, cell) < 0.12)) continue;
       picked.push(cell);
     }
   }
@@ -264,10 +296,10 @@ async function generateFor(slug, bbox, { isCountry = false } = {}) {
   }
   candidates.sort((a, b) => a.rank - b.rank || b.area - a.area);
   const minLakeArea = (span * span) * (isCountry ? 0.0012 : 0.0035);
-  const bigLakes = spaced(candidates.filter((l) => l.area >= minLakeArea || l.rank <= 1), span * 0.14).slice(0, isCountry ? 3 : 3);
+  const bigLakes = spaced(candidates.filter((l) => l.area >= minLakeArea || l.rank <= 1), 0.17, norm).slice(0, 3);
   bigLakes.forEach((lake, i) => {
     out.push({ id: `${slug}-waves-${i + 1}`, kind: 'waves', lng: Math.round(lake.lng * 100) / 100, lat: Math.round(lake.lat * 100) / 100, size: lake.rank <= 1 ? 1.12 : 0.95, rotation: hashRotation(lake.name, 4), layer: 'water' });
-    out.push({ id: `${slug}-lake-label-${i + 1}`, kind: 'text', lng: Math.round(lake.lng * 100) / 100, lat: Math.round((lake.lat - offsetDeg(span, 0.045, 0.5)) * 100) / 100, size: lake.rank <= 1 ? 0.82 : 0.62, rotation: hashRotation(lake.name, 3), text: lake.name, font: 'hand', layer: 'water' });
+    out.push({ id: `${slug}-lake-label-${i + 1}`, kind: 'text', lng: Math.round(lake.lng * 100) / 100, lat: Math.round((lake.lat - labelDrop(bbox, 0.05)) * 100) / 100, size: lake.rank <= 1 ? 0.82 : 0.62, rotation: hashRotation(lake.name, 3), text: lake.name, font: 'hand', layer: 'water' });
   });
 
   // capital star + name
@@ -275,7 +307,7 @@ async function generateFor(slug, bbox, { isCountry = false } = {}) {
   const inRawBbox = (lng, lat) => lng > west && lng < east && lat > south && lat < north;
   if (capital && inRawBbox(capital.lng, capital.lat)) {
     out.push({ id: `${slug}-capital-star`, kind: 'star', lng: capital.lng, lat: capital.lat, size: 0.85, rotation: hashRotation(capital.name, 8), layer: 'landmarks' });
-    out.push({ id: `${slug}-capital-label`, kind: 'text', lng: capital.lng, lat: capital.lat - offsetDeg(span, 0.05, 0.35), size: 0.68, rotation: 0, text: capital.name, font: 'condensed', layer: 'landmarks' });
+    out.push({ id: `${slug}-capital-label`, kind: 'text', lng: capital.lng, lat: capital.lat - labelDrop(bbox, 0.05), size: 0.68, rotation: 0, text: capital.name, font: 'condensed', layer: 'landmarks' });
   }
   if (isCountry) {
     const dc = findCapital('district-of-columbia');

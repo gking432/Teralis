@@ -124,7 +124,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
         labelsAuto: decoded.labelsAuto,
         detail: decoded.detail,
         title: decoded.title,
-        illustration: restoreIllustrationDesign(decoded.illustration, base.illustration, print.slug),
+        illustration: restoreIllustrationDesign(decoded.illustration, base.illustration, print.slug, print.center),
       });
       arrivalScene.current = restoredScene;
       reset(restoredScene);

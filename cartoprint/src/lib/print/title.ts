@@ -272,6 +272,21 @@ export const TITLE_FONT_OPTIONS: Array<{ value: TitleFont; label: string; sample
   { value: 'condensed', label: 'Atlas', sample: 'WISCONSIN' },
 ];
 
+/**
+ * Type specimens shown in the lettering picker. They must read as the
+ * customer's own print — a Colorado buyer being shown four samples that all
+ * say "Wisconsin" is being shown someone else's map.
+ */
+export function titleFontSamples(title: string): Array<{ value: TitleFont; label: string; sample: string }> {
+  const words = title.trim() || 'Your place';
+  return [
+    { value: 'editorial', label: 'Editorial', sample: words },
+    { value: 'hand', label: 'Hand drawn', sample: words },
+    { value: 'modern', label: 'Modern', sample: words.toUpperCase() },
+    { value: 'condensed', label: 'Atlas', sample: words.toUpperCase() },
+  ];
+}
+
 export function titleFontCss(font: TitleFont): string {
   if (font === 'hand') return 'var(--font-hand), cursive';
   if (font === 'modern') return 'var(--font-body), system-ui, sans-serif';

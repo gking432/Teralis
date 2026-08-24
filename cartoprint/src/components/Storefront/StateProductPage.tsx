@@ -32,7 +32,7 @@ import { displayTitleText, titleFontCss } from '@/lib/print/title';
 
 export function StateProductPage({ print }: { print: CatalogPrint }) {
   const router = useRouter();
-  const DESIGNS = useMemo(() => designsForState(print.slug), [print.slug]);
+  const DESIGNS = useMemo(() => designsForState(print.slug, print.center), [print.center, print.slug]);
   const [designId, setDesignId] = useState<IllustrationTheme>(DESIGNS[0].id);
   const design = DESIGNS.find((entry) => entry.id === designId) ?? DESIGNS[0];
   const scene = useMemo(() => sceneForDesign(print, design), [design, print]);

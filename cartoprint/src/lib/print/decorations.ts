@@ -1,6 +1,7 @@
 import type { PrintScene } from '@/lib/print/scene';
 import { printGeometry } from '@/lib/print/geometry';
 import generatedDoodles from '@/data/state_doodles.json';
+import { stateSlugForPlace } from '@/lib/geo/usRegions';
 
 export type IllustrationTheme = 'none' | 'doodle-atlas' | 'heritage' | 'topographic';
 export type IllustrationLayerMode = 'map' | 'doodle' | 'minimal' | 'hidden';
@@ -125,8 +126,20 @@ interface GeneratedDoodle {
 const GENERATED: Record<string, GeneratedDoodle[]> = generatedDoodles as Record<string, GeneratedDoodle[]>;
 const CURATED_DOODLE_STATES = new Set(['wisconsin']);
 
-export function generatedDecorations(slug: string): PrintDecoration[] {
-  return (GENERATED[slug] ?? []).map((item) => ({
+/**
+ * The region key for a print. A slug from the catalog matches directly; a
+ * searched place ("place-colorado-united-states") or a bbox-only deep link
+ * resolves by where it actually is on the map.
+ */
+export function regionKeyFor(slug: string, center?: [number, number] | null): string | null {
+  if (GENERATED[slug]) return slug;
+  const resolved = stateSlugForPlace({ name: slug.replace(/^place-/, '').replace(/-united-states$/, ''), center });
+  return resolved && GENERATED[resolved] ? resolved : null;
+}
+
+export function generatedDecorations(slug: string, center?: [number, number] | null): PrintDecoration[] {
+  const key = regionKeyFor(slug, center);
+  return (key ? GENERATED[key] : []).map((item) => ({
     id: item.id,
     kind: item.kind as DecorationKind,
     anchor: 'geo' as const,
@@ -142,16 +155,34 @@ export function generatedDecorations(slug: string): PrintDecoration[] {
 }
 
 /** The automatic illustrations for a region: curated where drawn, generated elsewhere. */
-export function automaticDecorationsFor(slug: string): PrintDecoration[] {
-  if (CURATED_DOODLE_STATES.has(slug)) return wisconsinDoodleDecorations();
-  return generatedDecorations(slug);
+export function automaticDecorationsFor(slug: string, center?: [number, number] | null): PrintDecoration[] {
+  const key = regionKeyFor(slug, center) ?? slug;
+  if (CURATED_DOODLE_STATES.has(key)) return wisconsinDoodleDecorations();
+  return generatedDecorations(key);
 }
 
-export function hasDoodleContent(slug: string): boolean {
-  return CURATED_DOODLE_STATES.has(slug) || generatedDecorations(slug).length >= 3;
+/**
+ * Whether a region has enough illustration to be sold as a Doodle Atlas.
+ *
+ * A capital star and its label is not an atlas — it is an empty print with a
+ * dot on it. A region qualifies only when it carries real scenery (trees,
+ * terrain, or water) with enough marks to read as a composed illustration.
+ * States that do not qualify sell the clean editions, which are honest.
+ */
+export function hasDoodleContent(slug: string, center?: [number, number] | null): boolean {
+  const key = regionKeyFor(slug, center) ?? slug;
+  if (CURATED_DOODLE_STATES.has(key)) return true;
+  const decorations = generatedDecorations(key);
+  const scenery = decorations.filter((item) =>
+    item.kind === 'forest' || item.kind === 'mountains' || item.kind === 'hills' || item.kind === 'waves');
+  return scenery.length >= 3 && decorations.length >= 6;
 }
 
-export function defaultIllustrationDesign(slug: string, kind: PrintScene['place']['kind']): IllustrationDesign {
+export function defaultIllustrationDesign(
+  slug: string,
+  kind: PrintScene['place']['kind'],
+  center?: [number, number] | null,
+): IllustrationDesign {
   if (kind === 'city') {
     return {
       theme: 'none',
@@ -162,7 +193,7 @@ export function defaultIllustrationDesign(slug: string, kind: PrintScene['place'
   return {
     theme: 'doodle-atlas',
     layers: { ...DEFAULT_LAYERS },
-    decorations: automaticDecorationsFor(slug),
+    decorations: automaticDecorationsFor(slug, center),
   };
 }
 
@@ -170,6 +201,7 @@ export function illustrationForTheme(
   theme: IllustrationTheme,
   current: IllustrationDesign,
   slug: string,
+  center?: [number, number] | null,
 ): IllustrationDesign {
   const personal = current.decorations.filter((item) => item.source === 'personal');
   if (theme !== 'doodle-atlas') {
@@ -187,7 +219,7 @@ export function illustrationForTheme(
   return {
     theme,
     layers: { ...DEFAULT_LAYERS },
-    decorations: [...automaticDecorationsFor(slug), ...personal],
+    decorations: [...automaticDecorationsFor(slug, center), ...personal],
   };
 }
 
@@ -196,8 +228,9 @@ export function restoreIllustrationDesign(
   packed: IllustrationDesign,
   current: IllustrationDesign,
   slug: string,
+  center?: [number, number] | null,
 ): IllustrationDesign {
-  const recipe = illustrationForTheme(packed.theme, current, slug);
+  const recipe = illustrationForTheme(packed.theme, current, slug, center);
   const overrides = packed.decorations ?? [];
   const overrideIds = new Set(overrides.map((item) => item.id));
   return {

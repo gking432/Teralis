@@ -22,7 +22,7 @@ import {
 import { ORIENTATIONS, type Orientation } from '@/lib/print/orientation';
 import {
   SLOT_OPTIONS,
-  TITLE_FONT_OPTIONS,
+  titleFontSamples,
   rectForSlot,
   type TitleAlign,
   type TitlePanel,
@@ -598,7 +598,7 @@ function StateStylePanel({ scene, update }: PanelProps) {
       const colored = applyPalette(current, getPalette(theme.palette));
       return {
         ...colored,
-        illustration: illustrationForTheme(theme.id, current.illustration, current.place.slug),
+        illustration: illustrationForTheme(theme.id, current.illustration, current.place.slug, current.place.center),
         title: { ...colored.title, enabled: true, font: theme.font },
         updatedAt: Date.now(),
       };
@@ -803,7 +803,7 @@ function TitlePanel({ scene, update }: PanelProps) {
 
           <Field label="Title lettering">
             <div className="grid grid-cols-2 gap-2">
-              {TITLE_FONT_OPTIONS.map((option) => (
+              {titleFontSamples(title.text || scene.place.name).map((option) => (
                 <button
                   key={option.value}
                   type="button"

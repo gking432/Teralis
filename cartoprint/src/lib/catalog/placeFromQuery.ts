@@ -1,4 +1,6 @@
 import type { CatalogPrint, CatalogPrintKind } from '@/lib/catalog/prints';
+import { getCatalogPrint } from '@/lib/catalog/prints';
+import { stateSlugForPlace } from '@/lib/geo/usRegions';
 
 // Nominatim returns class/type pairs like ("boundary", "administrative") plus
 // "addresstype" which is more semantically useful for our purposes.
@@ -105,6 +107,24 @@ export function buildPlaceCatalogPrint(input: {
 }): CatalogPrint {
   const [south, north, west, east] = input.bbox;
   const center: [number, number] = input.center ?? [(west + east) / 2, (south + north) / 2];
+
+  // A searched state is the same product as its catalog page. Without this,
+  // "Colorado" arrives as `place-colorado-united-states` — a slug nothing
+  // recognises — so it loses its illustrations and its real subtitle, and is
+  // subtly a different print from the one the storefront sells.
+  if (input.kind === 'state') {
+    const canonical = getCatalogPrint(stateSlugForPlace({
+      name: input.name,
+      center,
+      bbox: input.bbox,
+    }) ?? '');
+    if (canonical && canonical.kind === 'state') return canonical;
+  }
+  if (input.kind === 'country' && /united states|usa|u\.s\./i.test(input.name)) {
+    const canonical = getCatalogPrint('united-states');
+    if (canonical) return canonical;
+  }
+
   const slug = input.slug || placeSlugFromName(input.displayName || input.name);
 
   // Pick a reasonable default zoom by area

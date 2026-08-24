@@ -264,7 +264,7 @@ export function createPrintScene(
       enabled: print.kind === 'state',
       font: print.kind === 'state' ? 'hand' : 'editorial',
     },
-    illustration: defaultIllustrationDesign(print.slug, print.kind),
+    illustration: defaultIllustrationDesign(print.slug, print.kind, center),
     updatedAt: Date.now(),
   };
 
@@ -283,7 +283,7 @@ export function normalizeScene(scene: PrintScene): PrintScene {
       ...scene.place,
       placeType: scene.place.placeType || scene.place.kind,
     },
-    illustration: scene.illustration ?? defaultIllustrationDesign(scene.place.slug, scene.place.kind),
+    illustration: scene.illustration ?? defaultIllustrationDesign(scene.place.slug, scene.place.kind, scene.place.center),
     title: { ...scene.title, font: scene.title.font ?? 'editorial' },
     colors: makePalettePrintable(scene.colors),
   })));
