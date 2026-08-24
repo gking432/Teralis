@@ -37,13 +37,15 @@ interface PackedDesign {
   sz: SizeLabel;          // paper size — changes what the art can carry
   db: DetailBias;         // detail bias
   la: 0 | 1;              // place labels still following the resolver
-  /** Recipe choice plus personal/moved elements; untouched geography is rebuilt. */
-  i: PrintScene['illustration'];
+  /** Cartographic edition and feature levels. */
+  rg: PrintScene['region'];
+  /** Markers the customer placed. */
+  mk: PrintScene['markers'];
 }
 
 // Bumped when the packed shape changes; older links decode to null and fall
 // back to a fresh scene rather than restoring a half-populated design.
-const DESIGN_VERSION = 5;
+const DESIGN_VERSION = 6;
 
 function encodeBase64Url(input: string): string {
   const bytes = new TextEncoder().encode(input);
@@ -110,11 +112,8 @@ export function encodeDesign(scene: PrintScene): string | null {
       sz: scene.size,
       db: scene.detailBias,
       la: scene.labelsAuto ? 1 : 0,
-      i: {
-        ...scene.illustration,
-        decorations: scene.illustration.decorations.filter((item) =>
-          item.source === 'personal' || item.anchor === 'sheet'),
-      },
+      rg: scene.region,
+      mk: scene.markers,
     };
     return encodeBase64Url(JSON.stringify(packed));
   } catch {
@@ -136,7 +135,8 @@ export interface DecodedDesign {
   labelsAuto: boolean;
   detail: PrintScene['detail'];
   title: TitleDesign;
-  illustration: PrintScene['illustration'];
+  region: PrintScene['region'];
+  markers: PrintScene['markers'];
 }
 
 export function decodeDesign(encoded: string | null): DecodedDesign | null {
@@ -192,7 +192,8 @@ export function decodeDesign(encoded: string | null): DecodedDesign | null {
         h: packed.tr[3],
         rotation: packed.tr[4],
       },
-      illustration: packed.i,
+      region: packed.rg,
+      markers: packed.mk ?? [],
     };
   } catch {
     return null;

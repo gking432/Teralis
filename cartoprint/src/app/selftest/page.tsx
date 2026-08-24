@@ -24,6 +24,7 @@ import {
 import { printGeometry } from '@/lib/print/geometry';
 import { strokeScaleFor, scaledWidth, STROKE_CURVES, STROKE_REFERENCE_WIDTH } from '@/lib/print/strokes';
 import { checkPalette, contrastRatio, makePrintable } from '@/lib/print/contrast';
+import { checkPrintReadiness } from '@/lib/print/readiness';
 import { encodeDesign, decodeDesign } from '@/lib/print/designUrl';
 import {
   createPrintScene,
@@ -44,9 +45,14 @@ import {
   supersampleFactor,
   DENSE_ROAD_TILE_ZOOM,
 } from '@/lib/print/tileZoom';
-import { buildPrintLayerState } from '@/lib/print/printRender';
+import { buildPrintLayerState, wantsEveryTown } from '@/lib/print/printRender';
 import { exportWidthForSize, type SizeLabel } from '@/lib/print/sizeCatalog';
-import { automaticDecorationsFor, hasDoodleContent, illustrationForTheme, layoutDecorations, visibleDecorations } from '@/lib/print/decorations';
+import { createPersonalDecoration, layoutDecorations } from '@/lib/print/decorations';
+import {
+  applyRegionTheme,
+  FEATURE_LEVELS,
+  hillshadeExaggeration,
+} from '@/lib/print/regionDesign';
 import {
   printableTitleTextColor,
   resolveTitleColors,
@@ -57,13 +63,13 @@ import {
 } from '@/lib/print/title';
 import { decorationSheetPosition } from '@/lib/print/decorations';
 import { buildPlaceCatalogPrint, placeFromSearchParams } from '@/lib/catalog/placeFromQuery';
-import { getCatalogPrint, getStateCatalogPrints, getFeaturedCatalogPrint } from '@/lib/catalog/prints';
+import { getCatalogPrint, getCityCatalogPrint, getStateCatalogPrints, getFeaturedCatalogPrint } from '@/lib/catalog/prints';
 import {
   STATE_COLLECTION_DESIGNS,
   designsForState,
   sceneForCollectionDesign,
 } from '@/lib/catalog/stateCollection';
-import { applyLayout, applyPalette } from '@/lib/print/scene';
+import { applyLayout, applyPalette, applyRegionDesign } from '@/lib/print/scene';
 import { getLayout } from '@/lib/print/layouts';
 import { getPalette } from '@/lib/print/palettes';
 import { findWaterPlacement } from '@/lib/print/waterPlacement';
@@ -304,10 +310,11 @@ export default function SelfTest() {
       bbox: wisconsinBbox.map(Number) as [number, number, number, number],
       center: [-89.847, 44.786],
     }), 'portrait');
-    const cleanWisconsin = normalizeScene({ ...wisconsin, detailBias: -1 });
-    check('state clean removes rivers too', cleanWisconsin.detail.rivers === false);
+    // Rivers are a region-design choice now, not a side effect of detail bias.
+    const riverlessWisconsin = normalizeScene({ ...wisconsin, region: { ...wisconsin.region, rivers: 'less' } });
+    check('turning rivers off removes them', riverlessWisconsin.detail.rivers === false);
     const denseWisconsin = normalizeScene({ ...wisconsin, detailBias: 1 });
-    check('state more detailed overrides doodle minimal roads', denseWisconsin.detail.roads === 'neutral');
+    check('state more detailed raises road density', denseWisconsin.detail.roads === 'neutral');
     check('state more detailed adds county structure', denseWisconsin.detail.counties === true);
     check('state more detailed reveals the shared boundary layer', buildPrintLayerState('state', denseWisconsin.detail).states === true);
     const titledWisconsin = applyLayout(wisconsin, getLayout('poster'));
@@ -449,57 +456,53 @@ export default function SelfTest() {
     check('design round-trips viewport', decoded?.viewport.bbox.join() === recentered.viewport.bbox.join());
     check('design round-trips detail', decoded?.detail.border === recentered.detail.border);
 
-    // Automatic doodle annotations belong exclusively to the Doodle Atlas.
-    // The other directions are clean maps; personal additions still survive
-    // direction changes so a customer's work is never discarded.
-    const heritageIllustration = illustrationForTheme('heritage', wisconsin.illustration, 'wisconsin');
-    const topographicIllustration = illustrationForTheme('topographic', wisconsin.illustration, 'wisconsin');
-    check('heritage removes all automatic doodle annotations',
-      heritageIllustration.decorations.every((item) => item.source === 'personal'));
-    check('heritage uses only clean roads and water layers',
-      heritageIllustration.layers.roads === 'map'
-        && heritageIllustration.layers.water === 'map'
-        && heritageIllustration.layers.terrain === 'hidden'
-        && heritageIllustration.layers.landmarks === 'hidden');
-    check('topographic removes all automatic doodle annotations',
-      topographicIllustration.decorations.every((item) => item.source === 'personal'));
-    check('topographic uses clean geography with real terrain shading',
-      topographicIllustration.layers.roads === 'map'
-        && topographicIllustration.layers.water === 'map'
-        && topographicIllustration.layers.terrain === 'minimal'
-        && topographicIllustration.layers.landmarks === 'hidden');
+    // --- the two cartographic editions ---
+    // Every region sells the same pair, and each edition must actually differ
+    // in what it draws — an edition that renders like the other is not a
+    // second product.
+    const editionPrint = getCatalogPrint('wisconsin')!;
+    const topoScene = sceneForCollectionDesign(editionPrint, STATE_COLLECTION_DESIGNS.find((d) => d.id === 'topographic')!);
+    const atlasScene = sceneForCollectionDesign(editionPrint, STATE_COLLECTION_DESIGNS.find((d) => d.id === 'atlas')!);
+    check('a region sells exactly two editions',
+      STATE_COLLECTION_DESIGNS.map((d) => d.id).join() === 'topographic,atlas');
+    check('the atlas edition names towns and cities; topographic does not',
+      atlasScene.detail.labels.cities && atlasScene.detail.labels.towns
+        && !topoScene.detail.labels.cities && !topoScene.detail.labels.towns);
+    check('the atlas edition draws roads and county lines',
+      atlasScene.detail.roads !== 'none' && atlasScene.detail.counties);
+    check('the topographic edition keeps rivers and drops county lines',
+      topoScene.detail.rivers && !topoScene.detail.counties);
+    check('the two editions are visibly different maps',
+      atlasScene.detail.places !== topoScene.detail.places
+        && atlasScene.detail.roads !== topoScene.detail.roads);
+    check('each edition carries its own typography and palette',
+      atlasScene.title.font !== topoScene.title.font && atlasScene.paletteId !== topoScene.paletteId);
 
-    const doodleIllustration = illustrationForTheme('doodle-atlas', wisconsin.illustration, 'wisconsin');
-    check('doodle preset has no arbitrary Milwaukee heart',
-      !doodleIllustration.decorations.some((item) => item.id === 'wi-milwaukee-heart'));
-    const doodleVisible = visibleDecorations({ illustration: doodleIllustration });
-    const waterHidden = visibleDecorations({
-      illustration: {
-        ...doodleIllustration,
-        layers: { ...doodleIllustration.layers, water: 'hidden' },
-      },
-    });
-    const terrainTopo = visibleDecorations({
-      illustration: {
-        ...doodleIllustration,
-        layers: { ...doodleIllustration.layers, terrain: 'minimal' },
-      },
-    });
-    const landmarksHidden = visibleDecorations({
-      illustration: {
-        ...doodleIllustration,
-        layers: { ...doodleIllustration.layers, landmarks: 'hidden' },
-      },
-    });
-    check('water hidden removes every automatic water decoration',
-      !waterHidden.some((item) => item.layer === 'water')
-        && doodleVisible.some((item) => item.layer === 'water'));
-    check('terrain topo replaces rather than retains terrain doodles',
-      !terrainTopo.some((item) => item.layer === 'terrain')
-        && doodleVisible.some((item) => item.layer === 'terrain'));
-    check('landmarks hidden removes every automatic landmark',
-      !landmarksHidden.some((item) => item.layer === 'landmarks')
-        && doodleVisible.some((item) => item.layer === 'landmarks'));
+    // A graded control that does not change the map is a control that lies.
+    const atlasDesign = atlasScene.region;
+    const placeDensities = FEATURE_LEVELS.map((level) =>
+      normalizeScene({ ...atlasScene, region: { ...atlasDesign, places: level } }).detail.places);
+    check('every "towns and cities" level changes the map',
+      new Set(placeDensities).size === 3, placeDensities.join(' → '));
+    const roadDensities = FEATURE_LEVELS.map((level) =>
+      normalizeScene({ ...atlasScene, region: { ...atlasDesign, roads: level } }).detail.roads);
+    check('every "roads" level changes the map',
+      new Set(roadDensities).size === 3, roadDensities.join(' → '));
+    check('county lines can be turned off and on',
+      !normalizeScene({ ...atlasScene, region: { ...atlasDesign, counties: false } }).detail.counties
+        && normalizeScene({ ...atlasScene, region: { ...atlasDesign, counties: true } }).detail.counties);
+    check('rivers can be turned off',
+      !normalizeScene({ ...atlasScene, region: { ...atlasDesign, rivers: 'less' } }).detail.rivers);
+    check('every elevation level changes the relief strength',
+      new Set(FEATURE_LEVELS.map(hillshadeExaggeration)).size === 3);
+    check('"everything" names every town from the bundled dataset',
+      wantsEveryTown(normalizeScene({ ...atlasScene, region: { ...atlasDesign, places: 'more' } }).detail));
+
+    // Cities are a different product and stay clean: streets and water, never
+    // county lines or a town-name gazetteer.
+    const cityAuditScene = createPrintScene(getCityCatalogPrint('madison-wi')!, 'portrait');
+    check('city prints stay street-first, with no region furniture',
+      !cityAuditScene.detail.counties && !cityAuditScene.detail.labels.towns && cityAuditScene.markers.length === 0);
 
     // State detail is selected by physical extent, not by a state-specific
     // recipe. Every state stays within the bounded vector-tile budget.
@@ -527,42 +530,40 @@ export default function SelfTest() {
     const wisconsinPrint = getCatalogPrint('wisconsin')!;
     const collectionScenes = STATE_COLLECTION_DESIGNS.map((design) =>
       [design, sceneForCollectionDesign(wisconsinPrint, design)] as const);
-    const [doodleDesign, doodleScene] = collectionScenes[0];
-    check('collection sells three finished designs',
-      STATE_COLLECTION_DESIGNS.map((design) => design.id).join() === 'doodle-atlas,heritage,topographic');
+    const [leadDesign, leadScene] = collectionScenes[0];
+    check('collection sells the two cartographic editions',
+      STATE_COLLECTION_DESIGNS.map((design) => design.id).join() === 'topographic,atlas');
     check('storefront scene uses the real state wording',
-      doodleScene.title.text === 'Wisconsin'
-        && doodleScene.title.subtitle === "America's Dairyland"
-        && doodleScene.title.detail === 'EST. 1848');
+      leadScene.title.text === 'Wisconsin'
+        && leadScene.title.subtitle === "America's Dairyland"
+        && leadScene.title.detail === 'EST. 1848');
     check('each collection design carries its own typography',
       new Set(collectionScenes.map(([, scene]) => scene.title.font)).size === collectionScenes.length);
     check('each collection design carries its own palette',
       new Set(collectionScenes.map(([, scene]) => scene.paletteId)).size === collectionScenes.length);
-    check('only the doodle atlas ships automatic illustrations',
-      collectionScenes.every(([design, scene]) => design.id === 'doodle-atlas'
-        ? scene.illustration.decorations.some((item) => item.source === 'automatic')
-        : scene.illustration.decorations.every((item) => item.source === 'personal')));
-    const seamEncoded = encodeDesign(doodleScene);
+    check('no edition ships markers the customer did not place',
+      collectionScenes.every(([, scene]) => scene.markers.length === 0));
+    const seamEncoded = encodeDesign(leadScene);
     const seamDecoded = decodeDesign(seamEncoded);
     check('personalize link restores the exact storefront design',
-      seamDecoded?.illustration.theme === doodleDesign.id
-        && seamDecoded?.title.font === doodleDesign.font
-        && seamDecoded?.paletteId === doodleDesign.palette
-        && seamDecoded?.title.subtitle === doodleScene.title.subtitle
-        && seamDecoded?.viewport.bbox.join() === doodleScene.viewport.bbox.join());
+      seamDecoded?.region.theme === leadDesign.id
+        && seamDecoded?.title.font === leadDesign.font
+        && seamDecoded?.paletteId === leadDesign.palette
+        && seamDecoded?.title.subtitle === leadScene.title.subtitle
+        && seamDecoded?.viewport.bbox.join() === leadScene.viewport.bbox.join());
+    check('the personalize link round-trips every feature level',
+      seamDecoded?.region.places === leadScene.region.places
+        && seamDecoded?.region.roads === leadScene.region.roads
+        && seamDecoded?.region.counties === leadScene.region.counties
+        && seamDecoded?.region.elevation === leadScene.region.elevation);
 
-    // Every state is a sellable storefront, not just the launch state. The
-    // Doodle Atlas is merchandised only where curated illustrations exist —
-    // a doodle edition with nothing drawn on it is not a product.
-    check('wisconsin leads with its curated doodle atlas',
-      designsForState('wisconsin')[0]?.id === 'doodle-atlas');
-    check('generated states sell a doodle atlas built from real geography',
-      designsForState('california')[0]?.id === 'doodle-atlas'
-        && sceneForCollectionDesign(getCatalogPrint('california')!, designsForState('california')[0])
-          .illustration.decorations.some((item) => item.source === 'automatic'));
-    check('states without enough generated content sell clean designs only',
-      designsForState('delaware').every((design) => design.id !== 'doodle-atlas')
-        && designsForState('delaware').length >= 2);
+    // Every state is a sellable storefront, and both editions work everywhere
+    // without curation — that is the point of dropping illustration.
+    check('every state leads with the topographic edition',
+      designsForState('wisconsin')[0]?.id === 'topographic'
+        && designsForState('california')[0]?.id === 'topographic'
+        && designsForState('delaware')[0]?.id === 'topographic');
+
     const statePrints = getStateCatalogPrints();
     const stateScenes = statePrints.map((statePrint) =>
       sceneForCollectionDesign(statePrint, designsForState(statePrint.slug)[0]));
@@ -576,74 +577,28 @@ export default function SelfTest() {
       stateScenes.every((scene) => !scene.freeViewport
         && scene.radiusMiles >= minimumStateRadius(scene) * 0.999));
 
-    // --- the automatic doodle backbone, audited for every region at once ---
-    // Terrain, forests, lakes, and capitals are generated from real geography
-    // by one pipeline. These invariants run across all 51 states plus the
-    // country print on every visit, so a change that helps one map and breaks
-    // another is caught here instead of by eyeballing each map by hand.
-    const doodleRegions = [...statePrints, getFeaturedCatalogPrint()];
-    const doodleProblems: string[] = [];
-    let doodleStates = 0;
-    for (const regionPrint of doodleRegions) {
-      const decorations = automaticDecorationsFor(regionPrint.slug);
-      if (decorations.length >= 3) doodleStates++;
-      const ids = new Set(decorations.map((item) => item.id));
-      if (ids.size !== decorations.length) doodleProblems.push(`${regionPrint.slug}: duplicate ids`);
-      if (decorations.length > 26) doodleProblems.push(`${regionPrint.slug}: too dense (${decorations.length})`);
-      if (decorations.some((item) => item.kind === 'text' && !item.text?.trim())) {
-        doodleProblems.push(`${regionPrint.slug}: empty text label`);
-      }
-      if (decorations.some((item) => item.source !== 'automatic')) {
-        doodleProblems.push(`${regionPrint.slug}: non-automatic decoration in backbone`);
-      }
-      const regionScene = createPrintScene(regionPrint, 'portrait');
-      for (const item of regionScene.illustration.decorations) {
-        const position = decorationSheetPosition(regionScene, item);
-        if (position.x < 0.005 || position.x > 0.995 || position.y < 0.005 || position.y > 0.995) {
-          doodleProblems.push(`${regionPrint.slug}: ${item.id} off-sheet at ${position.x.toFixed(2)},${position.y.toFixed(2)}`);
-        }
+    // --- every region audited at once ---
+    // Both editions of all 51 states plus the country print, checked on every
+    // visit, so a change that helps one map and breaks another is caught here
+    // rather than one map at a time.
+    const auditRegions = [...statePrints, getFeaturedCatalogPrint()];
+    const regionProblems: string[] = [];
+    for (const regionPrint of auditRegions) {
+      for (const design of designsForState(regionPrint.slug, regionPrint.center)) {
+        const regionScene = sceneForCollectionDesign(regionPrint, design);
+        const label = `${regionPrint.slug}/${design.id}`;
+        if (!checkPrintReadiness(regionScene).ready) regionProblems.push(`${label}: not print-ready`);
+        if (regionScene.title.text !== regionPrint.name) regionProblems.push(`${label}: wrong title`);
+        if (design.id === 'atlas' && regionScene.detail.roads === 'none') regionProblems.push(`${label}: no roads`);
+        if (design.id === 'topographic' && !regionScene.detail.rivers) regionProblems.push(`${label}: no rivers`);
+        // Markers belong to the customer; nothing may be placed for them.
+        if (regionScene.markers.length > 0) regionProblems.push(`${label}: ships unrequested markers`);
       }
     }
-    // Overlapping illustrations are the failure mode that reads as "this map
-    // looks bad" — a lake label printed through a mountain, a capital star
-    // buried in trees. Footprints are measured in sheet space, exactly where
-    // the renderer puts them, so no region can ship a collision unseen.
-    const collisions: string[] = [];
-    for (const regionPrint of doodleRegions) {
-      const regionScene = createPrintScene(regionPrint, 'portrait');
-      // Exactly what the renderer will paint, collisions already resolved.
-      const placed = layoutDecorations(regionScene).map((item) => {
-        const position = decorationSheetPosition(regionScene, item);
-        const unit = 0.044 * item.size;
-        const halfW = item.kind === 'text'
-          ? Math.max(0.05, (item.text?.length ?? 4) * unit * 0.24)
-          : unit * 0.5;
-        const halfH = item.kind === 'text' ? unit * 0.42 : unit * 0.5;
-        return { item, x: position.x, y: position.y, halfW, halfH };
-      });
-      const family = (id: string) => id.replace(/-label(-\d+)?$/, '').replace(/-\d+$/, '');
-      for (let i = 0; i < placed.length; i++) {
-        for (let j = i + 1; j < placed.length; j++) {
-          const a = placed[i];
-          const b = placed[j];
-          // A label and the glyph it names are one unit; they may sit close.
-          if (family(a.item.id) === family(b.item.id)) continue;
-          const overlapX = Math.abs(a.x - b.x) < (a.halfW + b.halfW) * 0.82;
-          const overlapY = Math.abs(a.y - b.y) < (a.halfH + b.halfH) * 0.82;
-          if (overlapX && overlapY) collisions.push(`${regionPrint.slug}: ${a.item.id} × ${b.item.id}`);
-        }
-      }
-    }
-    check('no region prints one illustration through another',
-      collisions.length === 0, collisions.slice(0, 5).join(' · ') || `${doodleRegions.length} regions clear`);
+    check('every region renders both editions correctly',
+      regionProblems.length === 0,
+      regionProblems.slice(0, 4).join(' · ') || `${auditRegions.length} regions × 2 editions`);
 
-    check('every region’s automatic doodles pass structural audit',
-      doodleProblems.length === 0, doodleProblems.slice(0, 4).join(' · ') || `${doodleRegions.length} regions`);
-    check('nearly every state has an automatic doodle backbone',
-      doodleStates >= 46, `${doodleStates} of ${doodleRegions.length}`);
-    check('the country print ships an illustrated backbone',
-      automaticDecorationsFor('united-states').length >= 12
-        && createPrintScene(getFeaturedCatalogPrint(), 'portrait').illustration.theme === 'doodle-atlas');
     // --- the search path, which is how most customers actually arrive ---
     // A place reached by search used to become `place-colorado-united-states`:
     // a slug nothing recognised, so the print silently lost every illustration
@@ -661,12 +616,11 @@ export default function SelfTest() {
       searchedColorado.slug === 'colorado' && searchedColorado.defaultSubtitle === 'The Centennial State',
       `${searchedColorado.slug} · ${searchedColorado.defaultSubtitle}`);
     const searchedScene = createPrintScene(searchedColorado, 'portrait');
-    check('a searched state still gets its illustrated backbone',
-      searchedScene.illustration.decorations.filter((item) => item.source === 'automatic').length >= 5,
-      `${searchedScene.illustration.decorations.length} marks`);
-    check('a searched state draws real terrain, not an empty sheet',
-      layoutDecorations(searchedScene).some((item) => item.kind === 'mountains' || item.kind === 'hills')
-        && layoutDecorations(searchedScene).some((item) => item.kind === 'forest'));
+    check('a searched state still draws a complete map',
+      searchedScene.detail.roads !== 'none'
+        && searchedScene.detail.labels.cities
+        && searchedScene.detail.rivers,
+      `${searchedScene.detail.roads} roads · ${searchedScene.detail.places} places`);
 
     // The same guarantee for a URL that carries only a bbox, as an ad does.
     const deepLinked = placeFromSearchParams(new URLSearchParams({
@@ -679,41 +633,32 @@ export default function SelfTest() {
     }));
     check('a bbox-only deep link resolves to the same print',
       deepLinked?.slug === 'michigan'
-        && createPrintScene(deepLinked!, 'portrait').illustration.decorations.length >= 5);
+        && createPrintScene(deepLinked!, 'portrait').detail.labels.cities);
 
     // Whatever the entry path, the same place must produce the same artwork.
     const catalogColorado = createPrintScene(getCatalogPrint('colorado')!, 'portrait');
     check('search and catalog entries produce an identical print',
-      searchedScene.illustration.decorations.map((item) => item.id).join() ===
-        catalogColorado.illustration.decorations.map((item) => item.id).join()
+      searchedScene.region.theme === catalogColorado.region.theme
+        && searchedScene.detail.places === catalogColorado.detail.places
+        && searchedScene.detail.roads === catalogColorado.detail.roads
         && searchedScene.title.subtitle === catalogColorado.title.subtitle);
 
-    // Every region must actually put marks on the page after layout, not just
-    // carry them in data — the difference between the two is a blank print.
-    const emptyAfterLayout = doodleRegions
-      .filter((regionPrint) => automaticDecorationsFor(regionPrint.slug, regionPrint.center).length >= 3)
-      .filter((regionPrint) => layoutDecorations(createPrintScene(regionPrint, 'portrait')).length < 3)
-      .map((regionPrint) => regionPrint.slug);
-    check('no region loses its illustrations during layout',
-      emptyAfterLayout.length === 0, emptyAfterLayout.slice(0, 5).join(', ') || 'all regions draw');
+    // Markers a customer places must survive an edition change: switching
+    // from atlas to topographic is choosing a different map, not discarding
+    // their work.
+    const withMarker = normalizeScene({
+      ...atlasScene,
+      markers: [createPersonalDecoration('heart', 0)],
+    });
+    const switched = applyRegionDesign(withMarker, applyRegionTheme(withMarker.region, 'topographic'));
+    check('switching edition keeps the customer’s markers',
+      switched.markers.length === 1 && switched.region.theme === 'topographic');
+    check('a placed marker actually reaches the page',
+      layoutDecorations(withMarker).length === 1);
 
-    // Not every state earns an illustrated edition: a few genuinely have no
-    // forests, no relief, and no named lakes, and a Doodle Atlas showing only
-    // a capital dot would be a worse product than the clean editions. What
-    // must hold is that the great majority qualify and that every state sells
-    // something.
-    const doodleCapable = getStateCatalogPrints()
-      .filter((statePrint) => hasDoodleContent(statePrint.slug, statePrint.center));
-    check('the large majority of states sell an illustrated edition',
-      doodleCapable.length >= 40, `${doodleCapable.length} of ${getStateCatalogPrints().length}`);
-    check('every state sells at least two finished designs',
-      getStateCatalogPrints().every((statePrint) => designsForState(statePrint.slug, statePrint.center).length >= 2));
-    check('an illustrated edition always carries real scenery, never a lone dot',
-      doodleCapable.every((statePrint) => {
-        const drawn = layoutDecorations(createPrintScene(statePrint, 'portrait'));
-        return drawn.filter((item) => item.kind === 'forest' || item.kind === 'mountains'
-          || item.kind === 'hills' || item.kind === 'waves').length >= 2;
-      }));
+    check('every state sells both finished editions',
+      getStateCatalogPrints().every((statePrint) =>
+        designsForState(statePrint.slug, statePrint.center).length === 2));
 
     setLines(out);
   }, []);

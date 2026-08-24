@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import { StudioHeader } from '@/components/Storefront/StudioHeader';
 import { storeScene } from '@/lib/print/scene';
-import type { IllustrationTheme } from '@/lib/print/decorations';
+import type { RegionTheme } from '@/lib/print/regionDesign';
 import {
   designsForState,
   sceneForCollectionDesign as sceneForDesign,
@@ -33,19 +33,19 @@ import { displayTitleText, titleFontCss } from '@/lib/print/title';
 export function StateProductPage({ print }: { print: CatalogPrint }) {
   const router = useRouter();
   const DESIGNS = useMemo(() => designsForState(print.slug, print.center), [print.center, print.slug]);
-  const [designId, setDesignId] = useState<IllustrationTheme>(DESIGNS[0].id);
+  const [designId, setDesignId] = useState<RegionTheme>(DESIGNS[0].id);
   const design = DESIGNS.find((entry) => entry.id === designId) ?? DESIGNS[0];
   const scene = useMemo(() => sceneForDesign(print, design), [design, print]);
   const [boundary, setBoundary] = useState<GeoJSON.Geometry | null>(() => getCachedBoundary(print.slug)?.geometry ?? null);
   const [artwork, setArtwork] = useState<string | null>(null);
-  const [thumbnails, setThumbnails] = useState<Partial<Record<IllustrationTheme, string>>>({});
+  const [thumbnails, setThumbnails] = useState<Partial<Record<RegionTheme, string>>>({});
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [buying, setBuying] = useState(false);
   const [encoded, setEncoded] = useState<string | null>(null);
   const thumbnailRun = useRef(0);
 
   useEffect(() => {
-    trackDemoEvent('product_viewed', { place: print.slug, productKind: 'state-doodle', canonical: true });
+    trackDemoEvent('product_viewed', { place: print.slug, productKind: 'state-edition', canonical: true });
   }, [print.slug]);
 
   useEffect(() => {
@@ -108,7 +108,7 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
       const proof = artwork ?? await renderScene(scene, boundary, { width: 1200 });
       storeScene(scene);
       storeProof(scene, proof);
-      trackDemoEvent('product_customize_started', { place: print.slug, palette: scene.illustration.theme, buyAsShown: true });
+      trackDemoEvent('product_customize_started', { place: print.slug, palette: scene.region.theme, buyAsShown: true });
       const params = new URLSearchParams({ print: print.slug, o: scene.orientation });
       if (encoded) params.set('d', encoded);
       router.push(`/size?${params.toString()}`);
@@ -130,7 +130,7 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
             <div className="relative flex min-h-[570px] items-center justify-center overflow-hidden border border-white/10 bg-white/[0.035] p-5 sm:min-h-[720px] sm:p-9 lg:min-h-[calc(100vh-155px)]">
               {artwork ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={artwork} alt={design.id === 'doodle-atlas' ? `${print.name} Doodle Atlas print with illustrated forests, lakes, and landmarks` : `${design.name} ${print.name} map print with roads, rivers, and lakes`} className="aspect-[3/4] h-auto max-h-[calc(100vh-205px)] w-auto max-w-full shadow-[0_35px_90px_rgba(0,0,0,0.42)]" />
+                <img src={artwork} alt={design.id === 'topographic' ? `${print.name} topographic map print with elevation relief and rivers` : `${design.name} ${print.name} map print with roads, rivers, and lakes`} className="aspect-[3/4] h-auto max-h-[calc(100vh-205px)] w-auto max-w-full shadow-[0_35px_90px_rgba(0,0,0,0.42)]" />
               ) : (
                 <div className="grid aspect-[3/4] w-[min(82vw,520px)] place-items-center bg-[#f7f3ea] text-[#3a352e] shadow-[0_35px_90px_rgba(0,0,0,0.42)]">
                   <div className="text-center">
@@ -210,7 +210,7 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
               <button type="button" onClick={buyAsShown} disabled={buying || status !== 'ready'} className="mt-6 flex min-h-14 w-full items-center justify-center bg-[#173f35] px-6 text-[10px] font-medium uppercase tracking-[0.2em] text-white transition-colors hover:bg-[#c66b4e] disabled:opacity-50">
                 {buying ? 'Preparing the print…' : 'Buy as shown'}
               </button>
-              <Link href={customizeHref} onClick={() => trackDemoEvent('product_customize_started', { place: print.slug, palette: scene.illustration.theme })} className="mt-3 flex min-h-12 w-full items-center justify-center border border-[#173f35] px-6 text-[10px] font-medium uppercase tracking-[0.18em] text-[#173f35] transition-colors hover:bg-[#e9eee9]">
+              <Link href={customizeHref} onClick={() => trackDemoEvent('product_customize_started', { place: print.slug, palette: scene.region.theme })} className="mt-3 flex min-h-12 w-full items-center justify-center border border-[#173f35] px-6 text-[10px] font-medium uppercase tracking-[0.18em] text-[#173f35] transition-colors hover:bg-[#e9eee9]">
                 Personalize this design
               </Link>
               <p className="mt-3 text-center text-[9px] leading-4 text-[#7a847e]">Add your wording, dates, stars, hearts, cabins, and the places that matter.</p>

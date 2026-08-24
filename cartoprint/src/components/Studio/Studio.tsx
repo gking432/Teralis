@@ -7,7 +7,7 @@ import type maplibregl from 'maplibre-gl';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import { LivePrintCanvas } from '@/components/Studio/LivePrintCanvas';
 import { TitleOverlay } from '@/components/Studio/TitleOverlay';
-import { DoodleOverlay } from '@/components/Studio/DoodleOverlay';
+import { MarkerOverlay } from '@/components/Studio/MarkerOverlay';
 import { MOVES, MoveTabs, StudioDock, StudioPanels, type Move } from '@/components/Studio/StudioDock';
 import { useSceneHistory } from '@/hooks/useSceneHistory';
 import {
@@ -27,7 +27,7 @@ import { formatRadius } from '@/lib/print/framing';
 import { fetchBoundary, getCachedBoundary } from '@/lib/print/boundaryCache';
 import { renderScene } from '@/lib/print/renderScene';
 import { DESIGN_PARAM, decodeDesign, encodeDesign } from '@/lib/print/designUrl';
-import { restoreIllustrationDesign, type IllustrationTheme } from '@/lib/print/decorations';
+import { regionThemeName, type RegionTheme } from '@/lib/print/regionDesign';
 import { storeProof } from '@/lib/print/proof';
 import { checkPrintReadiness } from '@/lib/print/readiness';
 import { trackDemoEvent } from '@/lib/demoAnalytics';
@@ -51,16 +51,9 @@ import type { Orientation } from '@/lib/print/orientation';
 /** Width of the small composite handed to the size/frame mockups. */
 const PREVIEW_EXPORT_WIDTH = 1200;
 
-const THEME_NAMES: Record<IllustrationTheme, string> = {
-  'doodle-atlas': 'Doodle Atlas',
-  heritage: 'Heritage',
-  topographic: 'Topographic',
-  none: 'Map Study',
-};
-
 /** The design's name on the "Change design" chip. */
 function designLabelFor(scene: PrintScene): string {
-  if (scene.place.kind === 'state') return THEME_NAMES[scene.illustration.theme];
+  if (scene.place.kind !== 'city') return regionThemeName(scene.region.theme);
   if (scene.paletteId === 'custom') return 'Custom colors';
   return getPalette(scene.paletteId).name;
 }
@@ -124,7 +117,8 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
         labelsAuto: decoded.labelsAuto,
         detail: decoded.detail,
         title: decoded.title,
-        illustration: restoreIllustrationDesign(decoded.illustration, base.illustration, print.slug, print.center),
+        region: decoded.region ?? base.region,
+        markers: decoded.markers ?? [],
       });
       arrivalScene.current = restoredScene;
       reset(restoredScene);
@@ -379,13 +373,13 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
               interactive={!viewLocked && scene.place.kind !== 'state'}
               className="h-full w-full"
             >
-              <DoodleOverlay
+              <MarkerOverlay
                 scene={scene}
                 containerRef={sheetRef}
-                onChange={(decorations) => touchedUpdate((current) => ({
+                onChange={(markers) => touchedUpdate((current) => ({
                   ...current,
-                  illustration: { ...current.illustration, decorations },
-                }), 'decoration-drag')}
+                  markers,
+                }), 'marker-drag')}
               />
               <TitleOverlay
                 design={scene.title}

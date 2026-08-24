@@ -26,16 +26,10 @@ export default function AuditDataPage() {
     const out: string[] = [];
     const states = getStateCatalogPrints();
 
-    out.push('REGION\tKIND\tMARKS\tTREES\tPEAKS\tWATER\tSTAR\tLABELS\tDESIGNS\tSUBTITLE\tREADY\tSEARCH_MATCH');
+    out.push('REGION\tKIND\tEDITION\tROADS\tPLACES\tRIVERS\tCOUNTIES\tCITY_LBL\tTOWN_LBL\tMARKERS\tDESIGNS\tSUBTITLE\tREADY\tSEARCH_MATCH');
     for (const print of [...states, getFeaturedCatalogPrint()]) {
       const scene = createPrintScene(print, 'portrait');
       const drawn = layoutDecorations(scene);
-      const count = (test: (kind: string) => boolean) => drawn.filter((d) => test(d.kind)).length;
-      const trees = count((k) => k === 'forest');
-      const peaks = count((k) => k === 'mountains' || k === 'hills');
-      const water = count((k) => k === 'waves');
-      const star = count((k) => k === 'star');
-      const labels = count((k) => k === 'text');
       const designs = designsForState(print.slug, print.center).map((d) => d.id[0]).join('');
       const ready = checkPrintReadiness(scene).ready ? 'y' : 'NO';
 
@@ -49,12 +43,15 @@ export default function AuditDataPage() {
         center: print.center,
       });
       const searchScene = createPrintScene(searched, 'portrait');
-      const same = searchScene.illustration.decorations.length === scene.illustration.decorations.length
+      const same = searchScene.region.theme === scene.region.theme
+        && searchScene.detail.places === scene.detail.places
         && searchScene.title.subtitle === scene.title.subtitle;
 
       out.push([
-        print.slug, print.kind, drawn.length, trees, peaks, water, star, labels,
-        designs, scene.title.subtitle, ready, same ? 'y' : 'MISMATCH',
+        print.slug, print.kind, scene.region.theme, scene.detail.roads, scene.detail.places,
+        scene.detail.rivers ? 'y' : 'n', scene.detail.counties ? 'y' : 'n',
+        scene.detail.labels.cities ? 'y' : 'n', scene.detail.labels.towns ? 'y' : 'n',
+        drawn.length, designs, scene.title.subtitle, ready, same ? 'y' : 'MISMATCH',
       ].join('\t'));
     }
 
@@ -65,19 +62,20 @@ export default function AuditDataPage() {
       const density = sceneDensity(scene);
       out.push([
         print.slug, print.defaultSubtitle, scene.detail.roads, scene.detail.places,
-        density.everyStreet ? 'y' : 'n', scene.illustration.decorations.length,
+        density.everyStreet ? 'y' : 'n', scene.markers.length,
         checkPrintReadiness(scene).ready ? 'y' : 'NO',
       ].join('\t'));
     }
 
     out.push('');
     out.push('THEME COVERAGE (marks drawn per design, per state)');
-    out.push('REGION\tDOODLE\tHERITAGE\tTOPO');
+    out.push('REGION\tTOPOGRAPHIC\tATLAS');
     for (const print of states) {
-      const perTheme = ['doodle-atlas', 'heritage', 'topographic'].map((id) => {
+      const perTheme = ['topographic', 'atlas'].map((id) => {
         const design = designsForState(print.slug, print.center).find((d) => d.id === id);
         if (!design) return '—';
-        return String(layoutDecorations(sceneForCollectionDesign(print, design)).length);
+        const themed = sceneForCollectionDesign(print, design);
+        return `${themed.detail.roads}/${themed.detail.places}${themed.detail.counties ? '/co' : ''}`;
       });
       out.push([print.slug, ...perTheme].join('\t'));
     }

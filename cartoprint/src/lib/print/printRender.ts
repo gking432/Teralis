@@ -3,7 +3,7 @@ import type { LayerState } from '@/types/map';
 import { addTerrain, applyGreyscale, applyStyleOverrides } from '@/lib/map/style';
 import { applyLayerVisibility, classifyLayer } from '@/lib/map/layers';
 import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSchemes';
-import type { IllustrationDesign } from '@/lib/print/decorations';
+import { hillshadeExaggeration, type RegionDesign } from '@/lib/print/regionDesign';
 import {
   scaledValue,
   scaledWidth,
@@ -654,15 +654,15 @@ export function applyPrintDetail(
  * visibility is handled by `visibleDecorations`; this handles the geography
  * beneath it so Map/Doodle/Hidden are not cosmetic control labels.
  */
-export function applyIllustrationMapLayers(
+export function applyRegionMapLayers(
   map: maplibregl.Map,
-  illustration: IllustrationDesign,
+  design: RegionDesign,
   detail: PrintDetailSettings,
 ): void {
-  const showWater = illustration.layers.water !== 'hidden';
-  const showTerrain = illustration.layers.terrain === 'minimal';
   const style = map.getStyle();
   if (!style) return;
+  const showTerrain = design.theme === 'topographic';
+  const showRoads = detail.roads !== 'none';
 
   style.layers.forEach((layer) => {
     const group = classifyLayer(layer.id);
@@ -671,16 +671,20 @@ export function applyIllustrationMapLayers(
     const isDetailedRoad = layer.id === 'print-state-detail-roads';
     const isDetailedCounty = layer.id === 'print-state-detail-county-boundaries';
     try {
-      if (isDetailedRoad || isDetailedCounty) {
+      if (isDetailedRoad) {
+        // Roads used to be tied to the county-lines setting, so a state print
+        // showed no local roads unless counties happened to be on.
+        map.setLayoutProperty(layer.id, 'visibility', showRoads ? 'visible' : 'none');
+      } else if (isDetailedCounty) {
         map.setLayoutProperty(layer.id, 'visibility', detail.counties ? 'visible' : 'none');
       } else if (group === 'water' || isDetailedLake) {
-        map.setLayoutProperty(layer.id, 'visibility', showWater ? 'visible' : 'none');
+        map.setLayoutProperty(layer.id, 'visibility', 'visible');
       } else if (group === 'rivers' || isDetailedRiver) {
-        map.setLayoutProperty(layer.id, 'visibility', showWater && detail.rivers ? 'visible' : 'none');
+        map.setLayoutProperty(layer.id, 'visibility', detail.rivers ? 'visible' : 'none');
       } else if (layer.id === 'hillshade-layer') {
         map.setLayoutProperty(layer.id, 'visibility', showTerrain ? 'visible' : 'none');
         if (showTerrain) {
-          map.setPaintProperty(layer.id, 'hillshade-exaggeration', 0.9);
+          map.setPaintProperty(layer.id, 'hillshade-exaggeration', hillshadeExaggeration(design.elevation));
         }
       }
     } catch {}

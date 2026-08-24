@@ -17,13 +17,15 @@ import { printGeometry } from '@/lib/print/geometry';
 import { resolveDensity, type DetailBias, type ResolvedDensity } from '@/lib/print/density';
 import type { SizeLabel } from '@/lib/print/sizeCatalog';
 import { makePalettePrintable } from '@/lib/print/contrast';
+import { markerCacheTag, type PrintDecoration } from '@/lib/print/decorations';
 import {
-  decorationCacheTag,
-  defaultIllustrationDesign,
-  type IllustrationDesign,
-} from '@/lib/print/decorations';
+  defaultRegionDesign,
+  detailForRegion,
+  type RegionDesign,
+  type RegionTheme,
+} from '@/lib/print/regionDesign';
 
-export const PRINT_SCENE_VERSION = 15;
+export const PRINT_SCENE_VERSION = 16;
 export const SESSION_SCENE_KEY = 'teralis:print-scene';
 
 export type PrintViewport = Viewport;
@@ -77,8 +79,10 @@ export interface PrintScene {
   labelsAuto: boolean;
   detail: PrintDetailSettings;
   title: TitleDesign;
-  /** Illustrated geography and personal story elements baked into the print. */
-  illustration: IllustrationDesign;
+  /** Which cartographic edition this is, and how dense each feature runs. */
+  region: RegionDesign;
+  /** Markers the customer placed themselves. */
+  markers: PrintDecoration[];
   updatedAt: number;
 }
 
@@ -132,37 +136,25 @@ export function sceneDensity(scene: PrintScene): ResolvedDensity {
  * right reason instead of being a setting the user has to find and manage.
  */
 export function syncDetail(scene: PrintScene): PrintScene {
-  const density = sceneDensity(scene);
-  const isState = scene.place.kind === 'state';
-  const illustratedRoads = scene.illustration?.layers.roads;
-  const stateRoads = illustratedRoads === 'hidden'
-    ? 'none'
-    : scene.detailBias === 1
-      ? 'neutral'
-    : illustratedRoads === 'minimal' || illustratedRoads === 'doodle'
-      ? 'less'
-      : density.roads;
-  return {
-    ...scene,
-    detail: {
-      ...scene.detail,
-      roads: isState ? stateRoads : density.roads,
-      places: isState ? 'none' : density.places,
-      rivers: isState
-        ? scene.illustration.layers.water !== 'hidden' && scene.detailBias !== -1
-        : scene.detail.rivers,
-      counties: isState ? scene.detailBias === 1 : scene.detail.counties,
-      labels: scene.labelsAuto
-        ? {
-            ...scene.detail.labels,
-            cities: scene.place.kind === 'country' && density.places !== 'none',
-            towns: false,
-          }
-        : isState
+  if (scene.place.kind === 'city') {
+    const density = sceneDensity(scene);
+    return {
+      ...scene,
+      detail: {
+        ...scene.detail,
+        roads: density.roads,
+        places: density.places,
+        labels: scene.labelsAuto
           ? { ...scene.detail.labels, cities: false, towns: false }
           : scene.detail.labels,
-    },
-  };
+      },
+    };
+  }
+  // State and country prints are cartographic editions: the design is
+  // authoritative. Capping it here silently turned "every town and city" back
+  // into "most towns", so the control promised something it never delivered.
+  // Density belongs to the customer's choice, not to a hidden governor.
+  return { ...scene, detail: detailForRegion(scene.region, scene.detail, scene.place.kind) };
 }
 
 /**
@@ -264,7 +256,8 @@ export function createPrintScene(
       enabled: print.kind === 'state',
       font: print.kind === 'state' ? 'hand' : 'editorial',
     },
-    illustration: defaultIllustrationDesign(print.slug, print.kind, center),
+    region: defaultRegionDesign(print.kind === 'city' ? 'atlas' : 'atlas'),
+    markers: [],
     updatedAt: Date.now(),
   };
 
@@ -283,7 +276,8 @@ export function normalizeScene(scene: PrintScene): PrintScene {
       ...scene.place,
       placeType: scene.place.placeType || scene.place.kind,
     },
-    illustration: scene.illustration ?? defaultIllustrationDesign(scene.place.slug, scene.place.kind, scene.place.center),
+    region: scene.region ?? defaultRegionDesign(),
+    markers: scene.markers ?? [],
     title: { ...scene.title, font: scene.title.font ?? 'editorial' },
     colors: makePalettePrintable(scene.colors),
   })));
@@ -439,6 +433,15 @@ export function sceneCacheTag(scene: PrintScene): string {
     labels.water ? 'lw1' : 'lw0',
     labels.rivers ? 'lrv1' : 'lrv0',
     titleCacheTag(scene.title),
-    decorationCacheTag(scene.illustration),
+    markerCacheTag(scene.region, scene.markers),
   ].join(':');
+}
+
+/** Switch cartographic edition, keeping framing, wording, and markers. */
+export function applyRegionDesign(scene: PrintScene, region: RegionDesign): PrintScene {
+  return normalizeScene({ ...scene, region, updatedAt: Date.now() });
+}
+
+export function sceneRegionTheme(scene: PrintScene): RegionTheme {
+  return scene.region.theme;
 }

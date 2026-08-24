@@ -1,29 +1,23 @@
 import type { PrintScene } from '@/lib/print/scene';
 import { printGeometry } from '@/lib/print/geometry';
-import generatedDoodles from '@/data/state_doodles.json';
-import { stateSlugForPlace } from '@/lib/geo/usRegions';
 
-export type IllustrationTheme = 'none' | 'doodle-atlas' | 'heritage' | 'topographic';
-export type IllustrationLayerMode = 'map' | 'doodle' | 'minimal' | 'hidden';
-export type DecorationKind =
-  | 'forest'
-  | 'mountains'
-  | 'hills'
-  | 'waves'
-  | 'star'
-  | 'heart'
-  | 'cabin'
-  | 'lighthouse'
-  | 'text';
+
+import type { RegionDesign } from '@/lib/print/regionDesign';
+
+export type { RegionTheme, FeatureLevel } from '@/lib/print/regionDesign';
+
+/**
+ * Customer-placed markers.
+ *
+ * Automatic illustration is gone: the region editions are cartographic, and
+ * hand-drawn scenery generated for fifty states looked like clip art rather
+ * than a print worth hanging. What remains is what a customer puts on their
+ * own map on purpose — a star or a heart where something happened, and words
+ * in their own handwriting.
+ */
+export type DecorationKind = 'star' | 'heart' | 'text';
 
 export type DecorationFont = 'hand' | 'atlas' | 'modern' | 'condensed';
-
-export interface IllustrationLayers {
-  roads: IllustrationLayerMode;
-  terrain: IllustrationLayerMode;
-  water: IllustrationLayerMode;
-  landmarks: IllustrationLayerMode;
-}
 
 export interface PrintDecoration {
   id: string;
@@ -40,207 +34,16 @@ export interface PrintDecoration {
   text?: string;
   font: DecorationFont;
   color?: string;
-  source: 'automatic' | 'personal';
-  layer: keyof IllustrationLayers | 'personal';
+  source: 'personal';
 }
 
-export interface IllustrationDesign {
-  theme: IllustrationTheme;
-  layers: IllustrationLayers;
-  decorations: PrintDecoration[];
+export interface MarkerDesign {
+  design: RegionDesign;
+  markers: PrintDecoration[];
 }
 
-const DEFAULT_LAYERS: IllustrationLayers = {
-  roads: 'minimal',
-  terrain: 'doodle',
-  water: 'doodle',
-  landmarks: 'doodle',
-};
-
-function automatic(
-  id: string,
-  kind: DecorationKind,
-  lng: number,
-  lat: number,
-  size: number,
-  rotation: number,
-  layer: keyof IllustrationLayers,
-  text?: string,
-  font: DecorationFont = 'hand',
-): PrintDecoration {
-  return { id, kind, anchor: 'geo', lng, lat, size, rotation, text, font, source: 'automatic', layer };
-}
-
-/**
- * A deliberately composed first edition. Coordinates are real geographic
- * anchors; the renderer projects them into whatever sheet shape the customer
- * chooses. Moving one converts it to a free sheet position.
- */
-export function wisconsinDoodleDecorations(): PrintDecoration[] {
-  return [
-    automatic('wi-northwoods-west', 'forest', -91.05, 46.18, 1.28, -4, 'terrain'),
-    automatic('wi-northwoods-center', 'forest', -89.85, 45.95, 1.42, 3, 'terrain'),
-    automatic('wi-nicolet', 'forest', -88.70, 45.65, 1.22, -5, 'terrain'),
-    automatic('wi-driftless-north', 'hills', -91.12, 44.15, 1.18, -7, 'terrain'),
-    automatic('wi-driftless-south', 'hills', -90.63, 43.24, 1.08, 5, 'terrain'),
-    automatic('wi-superior-waves', 'waves', -90.05, 46.78, 1.1, -2, 'water'),
-    automatic('wi-michigan-waves', 'waves', -87.25, 44.10, 1.14, 90, 'water'),
-    automatic('wi-door-light', 'lighthouse', -87.18, 45.12, 1.02, 4, 'landmarks'),
-    automatic('wi-madison-star', 'star', -89.3842, 43.0747, 0.88, -8, 'landmarks'),
-    automatic('wi-up-north', 'text', -89.72, 45.50, 1.18, -4, 'landmarks', 'Up North', 'hand'),
-    automatic('wi-nicolet-label', 'text', -89.18, 46.13, 0.62, -5, 'terrain', 'Chequamegon–Nicolet', 'condensed'),
-    automatic('wi-driftless-label', 'text', -90.60, 43.70, 0.72, -7, 'terrain', 'The Driftless', 'hand'),
-    automatic('wi-door-label', 'text', -87.23, 44.80, 0.62, 72, 'landmarks', 'Door County', 'condensed'),
-    automatic('wi-madison-label', 'text', -89.42, 42.82, 0.72, -2, 'landmarks', 'Madison', 'condensed'),
-    automatic('wi-milwaukee-label', 'text', -87.70, 42.84, 0.68, -5, 'landmarks', 'Milwaukee', 'condensed'),
-    automatic('wi-lake-michigan', 'text', -86.95, 43.83, 0.9, 88, 'water', 'Lake Michigan', 'hand'),
-    automatic('wi-lake-superior', 'text', -89.73, 47.02, 0.82, -3, 'water', 'Lake Superior', 'hand'),
-  ];
-}
-
-/**
- * The automatic doodle backbone.
- *
- * Every state and country print gets illustrations generated from real
- * geography — national forests become trees, computed terrain relief becomes
- * mountains and hills, named lakes get waves and lettering, and the capital
- * gets a star. The dataset is precomputed by scripts/gen-doodles.mjs from
- * bundled forest/lake/place data plus AWS elevation tiles, so every region is
- * produced by one pipeline instead of being hand-tuned map by map.
- *
- * A state can additionally carry a hand-curated set (Wisconsin) that layers
- * cultural wording and finer judgment on top; curation replaces generation.
- */
-interface GeneratedDoodle {
-  id: string;
-  kind: string;
-  lng: number;
-  lat: number;
-  size: number;
-  rotation: number;
-  text?: string;
-  font?: string;
-  layer: string;
-}
-
-const GENERATED: Record<string, GeneratedDoodle[]> = generatedDoodles as Record<string, GeneratedDoodle[]>;
-const CURATED_DOODLE_STATES = new Set(['wisconsin']);
-
-/**
- * The region key for a print. A slug from the catalog matches directly; a
- * searched place ("place-colorado-united-states") or a bbox-only deep link
- * resolves by where it actually is on the map.
- */
-export function regionKeyFor(slug: string, center?: [number, number] | null): string | null {
-  if (GENERATED[slug]) return slug;
-  const resolved = stateSlugForPlace({ name: slug.replace(/^place-/, '').replace(/-united-states$/, ''), center });
-  return resolved && GENERATED[resolved] ? resolved : null;
-}
-
-export function generatedDecorations(slug: string, center?: [number, number] | null): PrintDecoration[] {
-  const key = regionKeyFor(slug, center);
-  return (key ? GENERATED[key] : []).map((item) => ({
-    id: item.id,
-    kind: item.kind as DecorationKind,
-    anchor: 'geo' as const,
-    lng: item.lng,
-    lat: item.lat,
-    size: item.size,
-    rotation: item.rotation,
-    text: item.text,
-    font: (item.font ?? 'hand') as DecorationFont,
-    source: 'automatic' as const,
-    layer: item.layer as keyof IllustrationLayers,
-  }));
-}
-
-/** The automatic illustrations for a region: curated where drawn, generated elsewhere. */
-export function automaticDecorationsFor(slug: string, center?: [number, number] | null): PrintDecoration[] {
-  const key = regionKeyFor(slug, center) ?? slug;
-  if (CURATED_DOODLE_STATES.has(key)) return wisconsinDoodleDecorations();
-  return generatedDecorations(key);
-}
-
-/**
- * Whether a region has enough illustration to be sold as a Doodle Atlas.
- *
- * A capital star and its label is not an atlas — it is an empty print with a
- * dot on it. A region qualifies only when it carries real scenery (trees,
- * terrain, or water) with enough marks to read as a composed illustration.
- * States that do not qualify sell the clean editions, which are honest.
- */
-export function hasDoodleContent(slug: string, center?: [number, number] | null): boolean {
-  const key = regionKeyFor(slug, center) ?? slug;
-  if (CURATED_DOODLE_STATES.has(key)) return true;
-  const decorations = generatedDecorations(key);
-  const scenery = decorations.filter((item) =>
-    item.kind === 'forest' || item.kind === 'mountains' || item.kind === 'hills' || item.kind === 'waves');
-  return scenery.length >= 3 && decorations.length >= 6;
-}
-
-export function defaultIllustrationDesign(
-  slug: string,
-  kind: PrintScene['place']['kind'],
-  center?: [number, number] | null,
-): IllustrationDesign {
-  if (kind === 'city') {
-    return {
-      theme: 'none',
-      layers: { roads: 'map', terrain: 'hidden', water: 'map', landmarks: 'hidden' },
-      decorations: [],
-    };
-  }
-  return {
-    theme: 'doodle-atlas',
-    layers: { ...DEFAULT_LAYERS },
-    decorations: automaticDecorationsFor(slug, center),
-  };
-}
-
-export function illustrationForTheme(
-  theme: IllustrationTheme,
-  current: IllustrationDesign,
-  slug: string,
-  center?: [number, number] | null,
-): IllustrationDesign {
-  const personal = current.decorations.filter((item) => item.source === 'personal');
-  if (theme !== 'doodle-atlas') {
-    return {
-      theme,
-      layers: {
-        roads: 'map',
-        terrain: theme === 'topographic' ? 'minimal' : 'hidden',
-        water: 'map',
-        landmarks: 'hidden',
-      },
-      decorations: personal,
-    };
-  }
-  return {
-    theme,
-    layers: { ...DEFAULT_LAYERS },
-    decorations: [...automaticDecorationsFor(slug, center), ...personal],
-  };
-}
-
-/** Rebuild recipe elements omitted from compact share URLs, then apply edits. */
-export function restoreIllustrationDesign(
-  packed: IllustrationDesign,
-  current: IllustrationDesign,
-  slug: string,
-  center?: [number, number] | null,
-): IllustrationDesign {
-  const recipe = illustrationForTheme(packed.theme, current, slug, center);
-  const overrides = packed.decorations ?? [];
-  const overrideIds = new Set(overrides.map((item) => item.id));
-  return {
-    theme: packed.theme,
-    layers: { ...recipe.layers, ...packed.layers },
-    decorations: [
-      ...recipe.decorations.filter((item) => !overrideIds.has(item.id)),
-      ...overrides,
-    ],
-  };
+export function defaultMarkers(): PrintDecoration[] {
+  return [];
 }
 
 function mercatorY(latitude: number): number {
@@ -270,18 +73,8 @@ export function decorationSheetPosition(
   };
 }
 
-export function visibleDecorations(scene: Pick<PrintScene, 'illustration'>): PrintDecoration[] {
-  return scene.illustration.decorations.filter((item) => {
-    if (item.layer === 'personal') return true;
-    const mode = scene.illustration.layers[item.layer];
-    if (mode === 'hidden' || mode === 'map') return false;
-    if (mode === 'minimal') {
-      if (item.layer === 'terrain') return false;
-      if (item.layer === 'water') return item.kind === 'text';
-      if (item.layer === 'landmarks') return item.kind === 'text' || item.kind === 'star';
-    }
-    return true;
-  });
+export function visibleDecorations(scene: Pick<PrintScene, 'markers'>): PrintDecoration[] {
+  return scene.markers;
 }
 
 /** Footprint of a decoration on the sheet, matching what drawDecorations paints. */
@@ -294,15 +87,9 @@ function decorationFootprint(decoration: PrintDecoration): { halfW: number; half
   };
 }
 
-/** Higher wins a collision. Personal work always outranks generated scenery. */
+/** Higher wins a collision. Words outrank symbols; nothing outranks the customer. */
 function decorationPriority(decoration: PrintDecoration): number {
-  if (decoration.source === 'personal') return 100;
-  if (decoration.layer === 'landmarks') return 60;
-  if (decoration.layer === 'water') return 50;
-  if (decoration.kind === 'text') return 45;
-  if (decoration.kind === 'forest') return 40;
-  if (decoration.kind === 'mountains') return 30;
-  return 20;
+  return decoration.kind === 'text' ? 60 : 50;
 }
 
 /** A label and the glyph it names travel together and may sit close. */
@@ -321,7 +108,7 @@ function decorationFamily(id: string): string {
  * The renderer, the live overlay, and /selftest all read this one function.
  */
 export function layoutDecorations(
-  scene: Pick<PrintScene, 'illustration' | 'viewport' | 'orientation' | 'detail' | 'title'>,
+  scene: Pick<PrintScene, 'markers' | 'viewport' | 'orientation' | 'detail' | 'title'>,
 ): PrintDecoration[] {
   const candidates = visibleDecorations(scene)
     .map((decoration) => ({
@@ -347,7 +134,7 @@ export function layoutDecorations(
 
   // Restore the scene's own order so drawing stays predictable.
   const keptIds = new Set(kept.map((entry) => entry.decoration.id));
-  return scene.illustration.decorations.filter((decoration) => keptIds.has(decoration.id));
+  return scene.markers.filter((marker) => keptIds.has(marker.id));
 }
 
 export function createPersonalDecoration(
@@ -366,7 +153,6 @@ export function createPersonalDecoration(
     text: kind === 'text' ? (text || 'Where We Met') : undefined,
     font: kind === 'text' ? 'hand' : 'atlas',
     source: 'personal',
-    layer: 'personal',
   };
 }
 
@@ -399,75 +185,26 @@ function drawTree(ctx: CanvasRenderingContext2D, x: number, y: number, scale: nu
   line(ctx, [[x - scale * 0.31, y + scale * 0.39], [x, y - scale * 0.17], [x + scale * 0.31, y + scale * 0.39]]);
 }
 
-function drawIcon(ctx: CanvasRenderingContext2D, kind: DecorationKind, unit: number): void {
-  if (kind === 'forest') {
-    drawTree(ctx, -unit * 0.38, unit * 0.08, unit * 0.72);
-    drawTree(ctx, unit * 0.02, -unit * 0.05, unit * 0.92);
-    drawTree(ctx, unit * 0.42, unit * 0.11, unit * 0.68);
-    return;
-  }
-  if (kind === 'mountains') {
-    line(ctx, [[-unit * 0.58, unit * 0.4], [-unit * 0.12, -unit * 0.42], [unit * 0.14, unit * 0.02], [unit * 0.34, -unit * 0.28], [unit * 0.62, unit * 0.4]]);
-    line(ctx, [[-unit * 0.24, -unit * 0.2], [-unit * 0.1, -unit * 0.05], [unit * 0.01, -unit * 0.2]]);
-    return;
-  }
-  if (kind === 'hills') {
-    ctx.beginPath();
-    ctx.moveTo(-unit * 0.62, unit * 0.32);
-    ctx.bezierCurveTo(-unit * 0.4, -unit * 0.2, -unit * 0.12, -unit * 0.2, unit * 0.06, unit * 0.31);
-    ctx.bezierCurveTo(unit * 0.25, -unit * 0.04, unit * 0.48, -unit * 0.03, unit * 0.64, unit * 0.32);
-    ctx.stroke();
-    return;
-  }
-  if (kind === 'waves') {
-    [-0.22, 0.08, 0.38].forEach((row, index) => {
-      ctx.beginPath();
-      ctx.moveTo(-unit * 0.62, unit * row);
-      ctx.bezierCurveTo(-unit * 0.38, unit * (row - 0.17), -unit * 0.18, unit * (row + 0.17), 0, unit * row);
-      ctx.bezierCurveTo(unit * 0.2, unit * (row - 0.17), unit * 0.39, unit * (row + 0.17), unit * 0.62, unit * row);
-      ctx.globalAlpha = index === 1 ? 1 : 0.72;
-      ctx.stroke();
-    });
-    ctx.globalAlpha = 1;
-    return;
-  }
+function drawIcon(ctx: CanvasRenderingContext2D, kind: Exclude<DecorationKind, 'text'>, unit: number): void {
+  const r = unit * 0.5;
+  ctx.beginPath();
   if (kind === 'star') {
-    const points: Array<[number, number]> = [];
-    for (let index = 0; index < 10; index += 1) {
-      const radius = index % 2 ? unit * 0.24 : unit * 0.56;
-      const angle = -Math.PI / 2 + index * Math.PI / 5;
-      points.push([Math.cos(angle) * radius, Math.sin(angle) * radius]);
+    for (let i = 0; i < 10; i++) {
+      const radius = i % 2 === 0 ? r : r * 0.42;
+      const angle = (Math.PI / 5) * i - Math.PI / 2;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.beginPath();
-    points.forEach(([x, y], index) => index ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
     ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    return;
+  } else {
+    // Heart: two lobes over a point, drawn as one path so it fills cleanly.
+    ctx.moveTo(0, r * 0.85);
+    ctx.bezierCurveTo(-r * 1.35, -r * 0.1, -r * 0.55, -r * 1.05, 0, -r * 0.35);
+    ctx.bezierCurveTo(r * 0.55, -r * 1.05, r * 1.35, -r * 0.1, 0, r * 0.85);
+    ctx.closePath();
   }
-  if (kind === 'heart') {
-    ctx.beginPath();
-    ctx.moveTo(0, unit * 0.48);
-    ctx.bezierCurveTo(-unit * 0.68, unit * 0.02, -unit * 0.5, -unit * 0.52, -unit * 0.12, -unit * 0.32);
-    ctx.bezierCurveTo(0, -unit * 0.55, unit * 0.48, -unit * 0.52, unit * 0.5, -unit * 0.13);
-    ctx.bezierCurveTo(unit * 0.52, unit * 0.12, unit * 0.28, unit * 0.32, 0, unit * 0.48);
-    ctx.stroke();
-    return;
-  }
-  if (kind === 'cabin') {
-    line(ctx, [[-unit * 0.52, -unit * 0.02], [0, -unit * 0.46], [unit * 0.52, -unit * 0.02]]);
-    ctx.strokeRect(-unit * 0.4, -unit * 0.02, unit * 0.8, unit * 0.52);
-    ctx.strokeRect(-unit * 0.11, unit * 0.18, unit * 0.22, unit * 0.32);
-    line(ctx, [[unit * 0.25, -unit * 0.25], [unit * 0.25, -unit * 0.48], [unit * 0.37, -unit * 0.48], [unit * 0.37, -unit * 0.14]]);
-    return;
-  }
-  if (kind === 'lighthouse') {
-    line(ctx, [[-unit * 0.27, unit * 0.5], [-unit * 0.13, -unit * 0.24], [unit * 0.13, -unit * 0.24], [unit * 0.27, unit * 0.5]]);
-    ctx.strokeRect(-unit * 0.2, -unit * 0.43, unit * 0.4, unit * 0.2);
-    line(ctx, [[-unit * 0.14, -unit * 0.43], [0, -unit * 0.6], [unit * 0.14, -unit * 0.43]]);
-    line(ctx, [[-unit * 0.48, -unit * 0.32], [-unit * 0.72, -unit * 0.45]]);
-    line(ctx, [[unit * 0.48, -unit * 0.32], [unit * 0.72, -unit * 0.45]]);
-  }
+  ctx.fill();
 }
 
 export function drawDecorations(
@@ -503,19 +240,24 @@ export function drawDecorations(
   });
 }
 
-export function decorationCacheTag(illustration: IllustrationDesign): string {
+export function markerCacheTag(design: RegionDesign, markers: PrintDecoration[]): string {
   return [
-    illustration.theme,
-    illustration.layers.roads,
-    illustration.layers.terrain,
-    illustration.layers.water,
-    illustration.layers.landmarks,
-    ...illustration.decorations.map((item) => [
-      item.id, item.kind, item.anchor,
-      item.lng?.toFixed(4) ?? '', item.lat?.toFixed(4) ?? '',
-      item.x?.toFixed(4) ?? '', item.y?.toFixed(4) ?? '',
-      item.size.toFixed(3), item.rotation.toFixed(2), item.text ?? '', item.font,
-      item.color ?? '', item.source, item.layer,
-    ].join(',')),
+    design.theme,
+    design.roads,
+    design.places,
+    design.elevation,
+    design.rivers,
+    design.counties ? 'c1' : 'c0',
+    ...markers.map((item) => [
+      item.id,
+      item.kind,
+      item.anchor,
+      (item.lng ?? item.x ?? 0).toFixed(3),
+      (item.lat ?? item.y ?? 0).toFixed(3),
+      item.size.toFixed(2),
+      item.rotation.toFixed(1),
+      item.text ?? '',
+      item.font,
+    ].join('~')),
   ].join('|');
 }

@@ -18,9 +18,9 @@ import { designsForState, sceneForCollectionDesign, STATE_COLLECTION_DESIGNS } f
 import { createCityProductScene } from '@/lib/catalog/cityProduct';
 import { fetchBoundary } from '@/lib/print/boundaryCache';
 import { renderScene } from '@/lib/print/renderScene';
-import type { IllustrationTheme } from '@/lib/print/decorations';
+import type { RegionTheme } from '@/lib/print/regionDesign';
 
-type ThemeChoice = 'lead' | IllustrationTheme;
+type ThemeChoice = 'lead' | RegionTheme;
 type TileStatus = 'queued' | 'rendering' | 'ready' | 'error';
 
 interface Tile {
@@ -91,7 +91,7 @@ export default function AuditPage() {
           if (runRef.current !== run) return;
           setTiles((current) => ({
             ...current,
-            [key]: { ...current[key], status: 'ready', image, detail: `${scene.illustration.decorations.length} marks` },
+            [key]: { ...current[key], status: 'ready', image, detail: regionSummary(scene) },
           }));
         } else {
           setTiles((current) => ({ ...current, [key]: { ...current[key], status: 'rendering' } }));
@@ -147,7 +147,7 @@ export default function AuditPage() {
                 aria-pressed={theme === choice}
                 className={`px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] transition-colors ${theme === choice ? 'bg-[#f7f4eb] text-[#14201d]' : 'text-white/60 hover:text-white'}`}
               >
-                {choice === 'lead' ? 'Lead design' : choice.replace('doodle-atlas', 'Doodle')}
+                {choice === 'lead' ? 'Lead design' : choice}
               </button>
             ))}
           </div>
@@ -176,4 +176,10 @@ export default function AuditPage() {
       </section>
     </main>
   );
+}
+
+/** A one-glance summary of what an edition is drawing. */
+function regionSummary(scene: { region: { theme: string; places: string; roads: string; counties: boolean; elevation: string } }): string {
+  if (scene.region.theme === 'topographic') return `relief ${scene.region.elevation}`;
+  return `${scene.region.places} places · ${scene.region.roads} roads${scene.region.counties ? ' · counties' : ''}`;
 }

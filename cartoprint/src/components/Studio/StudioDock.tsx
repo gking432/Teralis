@@ -12,7 +12,7 @@ import {
 import { getLayout } from '@/lib/print/layouts';
 import { PALETTES, getPalette, type Palette } from '@/lib/print/palettes';
 import { PaletteSwatch } from '@/components/Studio/DesignSwatch';
-import { DoodleGlyph } from '@/components/Studio/DoodleOverlay';
+import { MarkerGlyph } from '@/components/Studio/MarkerOverlay';
 import {
   formatRadius,
   framingPresets,
@@ -35,12 +35,16 @@ import type { DetailBias } from '@/lib/print/density';
 import { trackDemoEvent } from '@/lib/demoAnalytics';
 import {
   createPersonalDecoration,
-  illustrationForTheme,
   type DecorationFont,
   type DecorationKind,
-  type IllustrationLayerMode,
-  type IllustrationTheme,
 } from '@/lib/print/decorations';
+import {
+  applyRegionTheme,
+  placeLevelLabel,
+  REGION_THEMES,
+  type FeatureLevel,
+  type RegionTheme,
+} from '@/lib/print/regionDesign';
 
 export type Move = 'view' | 'style' | 'title';
 
@@ -576,81 +580,128 @@ function GenericStylePanel({
   );
 }
 
-const STATE_THEMES: Array<{
-  id: IllustrationTheme;
-  name: string;
-  blurb: string;
-  palette: string;
-  font: TitleFont;
-  glyph: 'forest' | 'mountains' | 'waves';
-}> = [
-  { id: 'doodle-atlas', name: 'Doodle Atlas', blurb: 'Hand-drawn forests, water, places, and landmarks.', palette: 'bone', font: 'hand', glyph: 'forest' },
-  { id: 'heritage', name: 'Heritage', blurb: 'Classic roads, rivers, and lakes without doodles.', palette: 'terracotta', font: 'editorial', glyph: 'waves' },
-  { id: 'topographic', name: 'Topographic', blurb: 'Modern geographic linework without illustrated markers.', palette: 'forest', font: 'condensed', glyph: 'waves' },
-  { id: 'none', name: 'Map Study', blurb: 'Pure map linework without automatic illustrations.', palette: 'slate', font: 'editorial', glyph: 'waves' },
-];
-
+/**
+ * The region editor.
+ *
+ * Two editions and a short column of graded features. Every control changes
+ * something a customer can name — how many roads, how many town names, how
+ * strong the relief — so nothing here is a setting they have to decode.
+ */
 function StateStylePanel({ scene, update }: PanelProps) {
-  const isDoodleTheme = scene.illustration.theme === 'doodle-atlas';
-  const isTopographicTheme = scene.illustration.theme === 'topographic';
-  function chooseTheme(theme: typeof STATE_THEMES[number]) {
+  const design = scene.region;
+  const isTopographic = design.theme === 'topographic';
+
+  function chooseTheme(theme: RegionTheme) {
     update((current) => {
-      const colored = applyPalette(current, getPalette(theme.palette));
+      const themeMeta = REGION_THEMES.find((entry) => entry.id === theme)!;
+      const colored = applyPalette(current, getPalette(themeMeta.palette));
       return {
         ...colored,
-        illustration: illustrationForTheme(theme.id, current.illustration, current.place.slug, current.place.center),
-        title: { ...colored.title, enabled: true, font: theme.font },
+        region: applyRegionTheme(current.region, theme),
+        title: { ...colored.title, enabled: true, font: themeMeta.font },
         updatedAt: Date.now(),
       };
-    }, `illustration-${theme.id}`);
-    trackDemoEvent('illustration_theme_selected', { place: scene.place.slug, theme: theme.id });
+    }, `region-${theme}`);
+    trackDemoEvent('illustration_theme_selected', { place: scene.place.slug, theme });
   }
 
-  function setLayer(layer: keyof PrintScene['illustration']['layers'], mode: IllustrationLayerMode) {
+  function setFeature<K extends keyof PrintScene['region']>(key: K, value: PrintScene['region'][K]) {
     update((current) => ({
       ...current,
-      illustration: {
-        ...current.illustration,
-        layers: { ...current.illustration.layers, [layer]: mode },
-      },
+      region: { ...current.region, [key]: value },
       updatedAt: Date.now(),
-    }), `illustration-layer-${layer}`);
-    trackDemoEvent('illustration_layer_changed', { place: scene.place.slug, layer, mode });
+    }), `region-${String(key)}`);
+    trackDemoEvent('illustration_layer_changed', { place: scene.place.slug, layer: String(key), mode: String(value) });
   }
 
   const curatedPalettes = ['bone', 'terracotta', 'forest', 'blueprint', 'slate', 'midnight'].map(getPalette);
+
   return (
     <div className="grid gap-5">
       <div>
-        <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#a35b3f]">State edition</div>
-        <h3 className="mt-1 font-display text-[28px] font-light leading-none">Choose the story</h3>
-        <p className="mt-2 text-[12px] leading-5 text-[#68726c]">
-          Each direction is already composed for the wall. Personal additions stay with you when the direction changes.
-        </p>
+        <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#a35b3f]">
+          {scene.place.kind === 'country' ? 'Country edition' : 'State edition'}
+        </div>
+        <h3 className="mt-1 font-display text-[28px] font-light leading-none">Choose the map</h3>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        {STATE_THEMES.map((theme) => {
-          const selected = scene.illustration.theme === theme.id;
+        {REGION_THEMES.map((theme) => {
+          const selected = design.theme === theme.id;
           return (
             <button
               key={theme.id}
               type="button"
               aria-pressed={selected}
-              onClick={() => chooseTheme(theme)}
+              onClick={() => chooseTheme(theme.id)}
               className={`rounded-sm border p-3 text-left transition-all ${selected ? 'border-[#173f35] bg-[#eaf0ec] shadow-[inset_0_0_0_1px_#173f35]' : 'border-[#d8d9d3] bg-white hover:-translate-y-0.5 hover:border-[#849587]'}`}
             >
-              <span className="grid h-20 place-items-center overflow-hidden rounded-sm bg-[#f7f3ea] text-[#3a352e]" style={{ containerType: 'size' }}>
-                <DoodleGlyph kind={theme.glyph} size={1.25} />
-              </span>
-              <span className="mt-3 block text-[13px] font-medium">{theme.name}</span>
+              <span className="block text-[13px] font-medium">{theme.name}</span>
               <span className="mt-1 block text-[10px] leading-4 text-[#68726c]">{theme.blurb}</span>
             </button>
           );
         })}
       </div>
 
-      <Field label="Paper and ink" help="Curated pairings keep fine illustration strokes printable.">
+      {isTopographic ? (
+        <Field label="Elevation" help="How strongly the relief reads on paper.">
+          <Segmented
+            value={design.elevation}
+            options={[
+              { value: 'less', label: 'Subtle' },
+              { value: 'balanced', label: 'Balanced' },
+              { value: 'more', label: 'Dramatic' },
+            ]}
+            onChange={(value) => setFeature('elevation', value as FeatureLevel)}
+          />
+        </Field>
+      ) : (
+        <>
+          <Field label="Towns and cities" help={placeLevelLabel(design.places) + ' will be named on the print.'}>
+            <Segmented
+              value={design.places}
+              options={[
+                { value: 'less', label: 'Some cities' },
+                { value: 'balanced', label: 'Most towns' },
+                { value: 'more', label: 'Everything' },
+              ]}
+              onChange={(value) => setFeature('places', value as FeatureLevel)}
+            />
+          </Field>
+
+          <Field label="Roads" help="Highways only, through to local routes.">
+            <Segmented
+              value={design.roads}
+              options={[
+                { value: 'less', label: 'Less' },
+                { value: 'balanced', label: 'Balanced' },
+                { value: 'more', label: 'More' },
+              ]}
+              onChange={(value) => setFeature('roads', value as FeatureLevel)}
+            />
+          </Field>
+
+          <Toggle
+            label="County lines"
+            active={design.counties}
+            onChange={() => setFeature('counties', !design.counties)}
+          />
+        </>
+      )}
+
+      <Field label="Rivers" help="Rivers and streams across the region.">
+        <Segmented
+          value={design.rivers}
+          options={[
+            { value: 'less', label: 'Off' },
+            { value: 'balanced', label: 'Balanced' },
+            { value: 'more', label: 'More' },
+          ]}
+          onChange={(value) => setFeature('rivers', value as FeatureLevel)}
+        />
+      </Field>
+
+      <Field label="Paper and ink" help="Curated pairings keep fine linework printable.">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {curatedPalettes.map((palette) => (
             <PaletteButton
@@ -662,62 +713,14 @@ function StateStylePanel({ scene, update }: PanelProps) {
           ))}
         </div>
       </Field>
-
-      <details className="rounded-sm border border-[#d8d9d3] bg-white p-4">
-        <summary className="cursor-pointer list-none text-[12px] font-medium text-[#173f35]">
-          Advanced layer styles
-          <span className="float-right text-[#849587]">＋</span>
-        </summary>
-        <div className="mt-4 grid gap-4">
-          <p className="text-[11px] leading-5 text-[#68726c]">
-            {isDoodleTheme
-              ? 'Doodle draws the illustrated layer, Map or Topo uses geographic linework, and Hidden removes it.'
-              : isTopographicTheme
-                ? 'Topo uses real elevation shading. Roads, rivers, and lakes remain clean geographic layers.'
-                : 'Clean directions use geographic layers only. Switch to Doodle Atlas to use illustrated terrain and landmarks.'}
-          </p>
-          <LayerStyleControl label="Roads" value={scene.illustration.layers.roads} options={['map', 'minimal', 'hidden']} onChange={(value) => setLayer('roads', value)} />
-          {(isDoodleTheme || isTopographicTheme) && <LayerStyleControl label="Terrain" value={scene.illustration.layers.terrain} options={isDoodleTheme ? ['doodle', 'minimal', 'hidden'] : ['minimal', 'hidden']} onChange={(value) => setLayer('terrain', value)} />}
-          <LayerStyleControl label="Water" value={scene.illustration.layers.water} options={isDoodleTheme ? ['map', 'doodle', 'hidden'] : ['map', 'hidden']} onChange={(value) => setLayer('water', value)} />
-          {isDoodleTheme && <LayerStyleControl label="Landmarks" value={scene.illustration.layers.landmarks} options={['doodle', 'minimal', 'hidden']} onChange={(value) => setLayer('landmarks', value)} />}
-        </div>
-      </details>
-
-      <div className="rounded-sm border border-[#cad4cd] bg-[#eef3ef] px-4 py-3 text-[11px] leading-5 text-[#44504b]">
-        Illustrations are anchored to real geography and scale with the finished paper size. Drag any element on the print to make its position personal.
-      </div>
     </div>
-  );
-}
-
-function LayerStyleControl({ label, value, options, onChange }: {
-  label: string;
-  value: IllustrationLayerMode;
-  options: IllustrationLayerMode[];
-  onChange: (value: IllustrationLayerMode) => void;
-}) {
-  return (
-    <Field label={label}>
-      <Segmented
-        value={value}
-        options={options.map((option) => ({
-          value: option,
-          label: label === 'Terrain' && option === 'minimal'
-            ? 'Topo'
-            : label === 'Landmarks' && option === 'minimal'
-              ? 'Simple'
-              : capitalize(option),
-        }))}
-        onChange={(next) => onChange(next as IllustrationLayerMode)}
-      />
-    </Field>
   );
 }
 
 function TitlePanel({ scene, update }: PanelProps) {
   const title = scene.title;
   const [personalText, setPersonalText] = useState('Where We Met');
-  const personal = scene.illustration.decorations.filter((item) => item.source === 'personal');
+  const personal = scene.markers;
 
   function setTitle(patch: Partial<PrintScene['title']>, label: string) {
     update((current) => ({
@@ -740,25 +743,19 @@ function TitlePanel({ scene, update }: PanelProps) {
   function addDecoration(kind: DecorationKind, text?: string) {
     update((current) => ({
       ...current,
-      illustration: {
-        ...current.illustration,
-        decorations: [
-          ...current.illustration.decorations,
-          createPersonalDecoration(kind, current.illustration.decorations.length, text),
-        ],
-      },
+      markers: [
+        ...current.markers,
+        createPersonalDecoration(kind, current.markers.length, text),
+      ],
       updatedAt: Date.now(),
     }), `add-${kind}`);
     trackDemoEvent('personal_element_added', { place: scene.place.slug, kind });
   }
 
-  function updateDecoration(id: string, patch: Partial<PrintScene['illustration']['decorations'][number]>, label: string) {
+  function updateDecoration(id: string, patch: Partial<PrintScene['markers'][number]>, label: string) {
     update((current) => ({
       ...current,
-      illustration: {
-        ...current.illustration,
-        decorations: current.illustration.decorations.map((item) => item.id === id ? { ...item, ...patch } : item),
-      },
+      markers: current.markers.map((item) => (item.id === id ? { ...item, ...patch } : item)),
       updatedAt: Date.now(),
     }), label);
   }
@@ -766,10 +763,7 @@ function TitlePanel({ scene, update }: PanelProps) {
   function removeDecoration(id: string) {
     update((current) => ({
       ...current,
-      illustration: {
-        ...current.illustration,
-        decorations: current.illustration.decorations.filter((item) => item.id !== id),
-      },
+      markers: current.markers.filter((item) => item.id !== id),
       updatedAt: Date.now(),
     }), 'remove-decoration');
   }
@@ -901,9 +895,9 @@ function TitlePanel({ scene, update }: PanelProps) {
             </button>
           </div>
 
-          <div className="mt-3 grid grid-cols-5 gap-2">
+          <div className="mt-3 grid grid-cols-2 gap-2">
             {([
-              ['star', 'Star'], ['heart', 'Heart'], ['cabin', 'Cabin'], ['forest', 'Trees'], ['mountains', 'Hills'],
+              ['star', 'Star'], ['heart', 'Heart'],
             ] as Array<[DecorationKind, string]>).map(([kind, label]) => (
               <button
                 key={kind}
@@ -912,7 +906,7 @@ function TitlePanel({ scene, update }: PanelProps) {
                 className="grid min-h-[72px] place-items-center rounded-sm border border-[#d8d9d3] bg-white p-2 text-[#3a4a43] transition-colors hover:border-[#173f35] hover:bg-[#eef1ed]"
                 style={{ containerType: 'size' }}
               >
-                <DoodleGlyph kind={kind as Exclude<DecorationKind, 'text'>} size={0.75} />
+                <MarkerGlyph kind={kind as Exclude<DecorationKind, 'text'>} size={0.75} />
                 <span className="text-[9px]">{label}</span>
               </button>
             ))}

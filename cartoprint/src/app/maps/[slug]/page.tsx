@@ -17,11 +17,8 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   if (!print || print.kind === 'country') return {};
 
   if (print.kind === 'state') {
-    const hasDoodle = designsForState(print.slug).some((design) => design.id === 'doodle-atlas');
-    const title = hasDoodle
-      ? `${print.name} Map Print | Illustrated Atlas & Art Prints | Terralis`
-      : `${print.name} Map Print | Heritage & Topographic Art Prints | Terralis`;
-    const description = `Shop finished ${print.name} map prints — ${hasDoodle ? 'an illustrated Doodle Atlas, ' : ''}clean Heritage and Topographic editions — then personalize the wording, markers, and framing.`;
+    const title = `${print.name} Map Print | Topographic & Atlas Editions | Terralis`;
+    const description = `Shop finished ${print.name} map prints — a topographic edition with elevation relief and rivers, and an atlas edition with roads, town names, and county lines — then personalize the wording, markers, and framing.`;
     return {
       title,
       description,

@@ -7,7 +7,6 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "gen-doodles": "node scripts/gen-doodles.mjs",
     "gen-thumbnails": "node scripts/gen-thumbnails.mjs",
     "process-mockups": "node scripts/process-mockups.mjs"
   },
