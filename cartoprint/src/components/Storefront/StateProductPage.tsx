@@ -32,7 +32,7 @@ import { displayTitleText, titleFontCss } from '@/lib/print/title';
 
 export function StateProductPage({ print }: { print: CatalogPrint }) {
   const router = useRouter();
-  const DESIGNS = designsForState(print.slug);
+  const DESIGNS = useMemo(() => designsForState(print.slug), [print.slug]);
   const [designId, setDesignId] = useState<IllustrationTheme>(DESIGNS[0].id);
   const design = DESIGNS.find((entry) => entry.id === designId) ?? DESIGNS[0];
   const scene = useMemo(() => sceneForDesign(print, design), [design, print]);
@@ -90,7 +90,7 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [boundary, print]);
+  }, [DESIGNS, boundary, print]);
 
   useEffect(() => { setEncoded(encodeDesign(scene)); }, [scene]);
   const customizeHref = `/customize?print=${encodeURIComponent(print.slug)}${encoded ? `&d=${encodeURIComponent(encoded)}` : ''}`;
