@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
 import {
   decorationSheetPosition,
-  visibleDecorations,
+  layoutDecorations,
   type DecorationKind,
   type PrintDecoration,
 } from '@/lib/print/decorations';
@@ -72,7 +72,7 @@ export function DoodleOverlay({ scene, containerRef, onChange, editable = true }
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20" style={{ containerType: 'size' }} aria-label="Illustrated map elements">
-      {visibleDecorations(scene).map((decoration) => {
+      {layoutDecorations(scene).map((decoration) => {
         const position = decorationSheetPosition(scene, decoration);
         const active = selected === decoration.id;
         const color = decoration.color || scene.colors.roads || '#283a34';

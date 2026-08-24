@@ -238,10 +238,16 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
           </div>
         </section>
       </main>
-      <div className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-[auto_1fr_auto] items-center gap-2 border-t border-[#14201d]/15 bg-[#f7f5ef]/95 px-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] text-[#14201d] shadow-[0_-12px_35px_rgba(0,0,0,0.2)] backdrop-blur lg:hidden">
-        <span className="px-2 font-display text-3xl font-light">{price}</span>
-        <Link href={customizeHref} className="flex min-h-12 items-center justify-center bg-[#173f35] px-4 text-[9px] font-medium uppercase tracking-[0.16em] text-white">Personalize</Link>
-        <button type="button" onClick={buyAsShown} disabled={buying || status !== 'ready'} className="min-h-12 border border-[#173f35] px-3 text-[8px] font-medium uppercase tracking-[0.12em] disabled:opacity-45">Buy shown</button>
+      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-[#14201d]/15 bg-[#f7f5ef]/95 px-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] text-[#14201d] shadow-[0_-12px_35px_rgba(0,0,0,0.2)] backdrop-blur lg:hidden">
+        <div className="grid grid-cols-[auto_1fr] items-center gap-2">
+          <span className="px-2 font-display text-3xl font-light">{price}</span>
+          <button type="button" onClick={buyAsShown} disabled={buying || status !== 'ready'} className="flex min-h-12 items-center justify-center bg-[#173f35] px-4 text-[10px] font-medium uppercase tracking-[0.16em] text-white disabled:opacity-45">
+            {buying ? 'Preparing…' : 'Buy this print'}
+          </button>
+        </div>
+        <Link href={customizeHref} className="mt-1.5 block text-center text-[10px] text-[#68736d] underline underline-offset-4">
+          or personalize it first
+        </Link>
       </div>
     </div>
   );

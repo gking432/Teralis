@@ -46,7 +46,7 @@ import {
 } from '@/lib/print/tileZoom';
 import { buildPrintLayerState } from '@/lib/print/printRender';
 import { exportWidthForSize, type SizeLabel } from '@/lib/print/sizeCatalog';
-import { illustrationForTheme, visibleDecorations } from '@/lib/print/decorations';
+import { automaticDecorationsFor, hasDoodleContent, illustrationForTheme, layoutDecorations, visibleDecorations } from '@/lib/print/decorations';
 import {
   printableTitleTextColor,
   resolveTitleColors,
@@ -55,8 +55,9 @@ import {
   titleTypography,
   defaultTitleDesign,
 } from '@/lib/print/title';
+import { decorationSheetPosition } from '@/lib/print/decorations';
 import { buildPlaceCatalogPrint } from '@/lib/catalog/placeFromQuery';
-import { getCatalogPrint, getStateCatalogPrints } from '@/lib/catalog/prints';
+import { getCatalogPrint, getStateCatalogPrints, getFeaturedCatalogPrint } from '@/lib/catalog/prints';
 import {
   STATE_COLLECTION_DESIGNS,
   designsForState,
@@ -555,9 +556,13 @@ export default function SelfTest() {
     // a doodle edition with nothing drawn on it is not a product.
     check('wisconsin leads with its curated doodle atlas',
       designsForState('wisconsin')[0]?.id === 'doodle-atlas');
-    check('uncurated states sell only clean designs',
-      designsForState('california').every((design) => design.id !== 'doodle-atlas')
-        && designsForState('california').length >= 2);
+    check('generated states sell a doodle atlas built from real geography',
+      designsForState('california')[0]?.id === 'doodle-atlas'
+        && sceneForCollectionDesign(getCatalogPrint('california')!, designsForState('california')[0])
+          .illustration.decorations.some((item) => item.source === 'automatic'));
+    check('states without enough generated content sell clean designs only',
+      designsForState('delaware').every((design) => design.id !== 'doodle-atlas')
+        && designsForState('delaware').length >= 2);
     const statePrints = getStateCatalogPrints();
     const stateScenes = statePrints.map((statePrint) =>
       sceneForCollectionDesign(statePrint, designsForState(statePrint.slug)[0]));
@@ -570,6 +575,77 @@ export default function SelfTest() {
     check('every state storefront scene keeps the whole state on the sheet',
       stateScenes.every((scene) => !scene.freeViewport
         && scene.radiusMiles >= minimumStateRadius(scene) * 0.999));
+
+    // --- the automatic doodle backbone, audited for every region at once ---
+    // Terrain, forests, lakes, and capitals are generated from real geography
+    // by one pipeline. These invariants run across all 51 states plus the
+    // country print on every visit, so a change that helps one map and breaks
+    // another is caught here instead of by eyeballing each map by hand.
+    const doodleRegions = [...statePrints, getFeaturedCatalogPrint()];
+    const doodleProblems: string[] = [];
+    let doodleStates = 0;
+    for (const regionPrint of doodleRegions) {
+      const decorations = automaticDecorationsFor(regionPrint.slug);
+      if (decorations.length >= 3) doodleStates++;
+      const ids = new Set(decorations.map((item) => item.id));
+      if (ids.size !== decorations.length) doodleProblems.push(`${regionPrint.slug}: duplicate ids`);
+      if (decorations.length > 26) doodleProblems.push(`${regionPrint.slug}: too dense (${decorations.length})`);
+      if (decorations.some((item) => item.kind === 'text' && !item.text?.trim())) {
+        doodleProblems.push(`${regionPrint.slug}: empty text label`);
+      }
+      if (decorations.some((item) => item.source !== 'automatic')) {
+        doodleProblems.push(`${regionPrint.slug}: non-automatic decoration in backbone`);
+      }
+      const regionScene = createPrintScene(regionPrint, 'portrait');
+      for (const item of regionScene.illustration.decorations) {
+        const position = decorationSheetPosition(regionScene, item);
+        if (position.x < 0.005 || position.x > 0.995 || position.y < 0.005 || position.y > 0.995) {
+          doodleProblems.push(`${regionPrint.slug}: ${item.id} off-sheet at ${position.x.toFixed(2)},${position.y.toFixed(2)}`);
+        }
+      }
+    }
+    // Overlapping illustrations are the failure mode that reads as "this map
+    // looks bad" — a lake label printed through a mountain, a capital star
+    // buried in trees. Footprints are measured in sheet space, exactly where
+    // the renderer puts them, so no region can ship a collision unseen.
+    const collisions: string[] = [];
+    for (const regionPrint of doodleRegions) {
+      const regionScene = createPrintScene(regionPrint, 'portrait');
+      // Exactly what the renderer will paint, collisions already resolved.
+      const placed = layoutDecorations(regionScene).map((item) => {
+        const position = decorationSheetPosition(regionScene, item);
+        const unit = 0.044 * item.size;
+        const halfW = item.kind === 'text'
+          ? Math.max(0.05, (item.text?.length ?? 4) * unit * 0.24)
+          : unit * 0.5;
+        const halfH = item.kind === 'text' ? unit * 0.42 : unit * 0.5;
+        return { item, x: position.x, y: position.y, halfW, halfH };
+      });
+      const family = (id: string) => id.replace(/-label(-\d+)?$/, '').replace(/-\d+$/, '');
+      for (let i = 0; i < placed.length; i++) {
+        for (let j = i + 1; j < placed.length; j++) {
+          const a = placed[i];
+          const b = placed[j];
+          // A label and the glyph it names are one unit; they may sit close.
+          if (family(a.item.id) === family(b.item.id)) continue;
+          const overlapX = Math.abs(a.x - b.x) < (a.halfW + b.halfW) * 0.82;
+          const overlapY = Math.abs(a.y - b.y) < (a.halfH + b.halfH) * 0.82;
+          if (overlapX && overlapY) collisions.push(`${regionPrint.slug}: ${a.item.id} × ${b.item.id}`);
+        }
+      }
+    }
+    check('no region prints one illustration through another',
+      collisions.length === 0, collisions.slice(0, 5).join(' · ') || `${doodleRegions.length} regions clear`);
+
+    check('every region’s automatic doodles pass structural audit',
+      doodleProblems.length === 0, doodleProblems.slice(0, 4).join(' · ') || `${doodleRegions.length} regions`);
+    check('nearly every state has an automatic doodle backbone',
+      doodleStates >= 46, `${doodleStates} of ${doodleRegions.length}`);
+    check('the country print ships an illustrated backbone',
+      automaticDecorationsFor('united-states').length >= 12
+        && createPrintScene(getFeaturedCatalogPrint(), 'portrait').illustration.theme === 'doodle-atlas');
+    check('doodle-capable states now include the whole catalog',
+      getStateCatalogPrints().filter((statePrint) => hasDoodleContent(statePrint.slug)).length >= 46);
 
     setLines(out);
   }, []);

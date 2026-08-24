@@ -30,6 +30,7 @@ import { DESIGN_PARAM, decodeDesign, encodeDesign } from '@/lib/print/designUrl'
 import { restoreIllustrationDesign, type IllustrationTheme } from '@/lib/print/decorations';
 import { storeProof } from '@/lib/print/proof';
 import { checkPrintReadiness } from '@/lib/print/readiness';
+import { trackDemoEvent } from '@/lib/demoAnalytics';
 import { SIZE_CATALOG, formatPrice, getSizePrice } from '@/lib/print/sizeCatalog';
 import type { Orientation } from '@/lib/print/orientation';
 
@@ -95,6 +96,8 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const restored = useRef(false);
   const userTouched = useRef(false);
+  /** The design as it arrived — the safe state "Start over" returns to. */
+  const arrivalScene = useRef<PrintScene | null>(null);
 
   // --- Restore: URL design first (shareable), then the session, then default.
   useEffect(() => {
@@ -105,7 +108,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     const decoded = decodeDesign(encoded);
     if (decoded) {
       const base = createPrintScene(print, decoded.orientation);
-      reset(normalizeScene({
+      const restoredScene = normalizeScene({
         ...base,
         orientation: decoded.orientation,
         layoutId: decoded.layoutId,
@@ -122,7 +125,9 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
         detail: decoded.detail,
         title: decoded.title,
         illustration: restoreIllustrationDesign(decoded.illustration, base.illustration, print.slug),
-      }));
+      });
+      arrivalScene.current = restoredScene;
+      reset(restoredScene);
       userTouched.current = true;
       setViewLocked(true);
       // They chose this design on the product page — open on making it theirs,
@@ -133,12 +138,16 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
 
     const stored = readStoredScene(print);
     if (stored) {
-      reset(normalizeScene(stored));
+      const storedScene = normalizeScene(stored);
+      arrivalScene.current = storedScene;
+      reset(storedScene);
       userTouched.current = true;
       setViewLocked(true);
       setRailMove('title');
+      return;
     }
-  }, [print, reset, searchParams]);
+    arrivalScene.current = createPrintScene(print, orientation);
+  }, [orientation, print, reset, searchParams]);
 
   // --- Persist to the session and to the URL, so a design survives a reload.
   useEffect(() => {
@@ -255,6 +264,13 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     }
   }
 
+  /** Return to the exact design the customer arrived with. Undo still works. */
+  function handleStartOver() {
+    if (!arrivalScene.current) return;
+    update(() => normalizeScene(arrivalScene.current!), 'start-over');
+    trackDemoEvent('design_reset', { place: print.slug, kind: print.kind });
+  }
+
   async function handleShare() {
     try {
       await navigator.clipboard.writeText(window.location.href);
@@ -311,6 +327,15 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
         <div className="flex items-center gap-1.5 md:gap-2">
           <IconButton label="Undo" onClick={undo} disabled={!canUndo}>↺</IconButton>
           <IconButton label="Redo" onClick={redo} disabled={!canRedo}>↻</IconButton>
+          <button
+            type="button"
+            onClick={handleStartOver}
+            disabled={!canUndo}
+            title="Return to the design you started from"
+            className="rounded-full border border-white/15 px-3 py-2 text-[12px] text-[#dce2dd]/80 transition-colors hover:border-white/40 hover:text-white disabled:opacity-25 md:px-3.5"
+          >
+            Start over
+          </button>
           <button
             type="button"
             onClick={handleShare}

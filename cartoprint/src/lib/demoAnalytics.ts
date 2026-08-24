@@ -18,7 +18,12 @@ export type DemoEventName =
   | 'checkout_started'
   | 'personal_element_added'
   | 'illustration_theme_selected'
-  | 'illustration_layer_changed';
+  | 'illustration_layer_changed'
+  | 'design_landing_viewed'
+  | 'design_landing_shortcut'
+  // The bounce signal that matters most: an edit session the customer
+  // abandoned back to the design they arrived with.
+  | 'design_reset';
 
 interface DemoEvent {
   name: DemoEventName;

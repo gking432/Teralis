@@ -1,5 +1,6 @@
 import type { PrintScene } from '@/lib/print/scene';
 import { printGeometry } from '@/lib/print/geometry';
+import generatedDoodles from '@/data/state_doodles.json';
 
 export type IllustrationTheme = 'none' | 'doodle-atlas' | 'heritage' | 'topographic';
 export type IllustrationLayerMode = 'map' | 'doodle' | 'minimal' | 'hidden';
@@ -97,18 +98,61 @@ export function wisconsinDoodleDecorations(): PrintDecoration[] {
 }
 
 /**
- * States whose Doodle Atlas ships a curated set of automatic illustrations.
- * Only these states merchandise a Doodle Atlas design — a doodle edition with
- * nothing drawn on it is not a product. Clean designs cover every state.
+ * The automatic doodle backbone.
+ *
+ * Every state and country print gets illustrations generated from real
+ * geography — national forests become trees, computed terrain relief becomes
+ * mountains and hills, named lakes get waves and lettering, and the capital
+ * gets a star. The dataset is precomputed by scripts/gen-doodles.mjs from
+ * bundled forest/lake/place data plus AWS elevation tiles, so every region is
+ * produced by one pipeline instead of being hand-tuned map by map.
+ *
+ * A state can additionally carry a hand-curated set (Wisconsin) that layers
+ * cultural wording and finer judgment on top; curation replaces generation.
  */
+interface GeneratedDoodle {
+  id: string;
+  kind: string;
+  lng: number;
+  lat: number;
+  size: number;
+  rotation: number;
+  text?: string;
+  font?: string;
+  layer: string;
+}
+
+const GENERATED: Record<string, GeneratedDoodle[]> = generatedDoodles as Record<string, GeneratedDoodle[]>;
 const CURATED_DOODLE_STATES = new Set(['wisconsin']);
 
-export function hasCuratedDecorations(slug: string): boolean {
-  return CURATED_DOODLE_STATES.has(slug);
+export function generatedDecorations(slug: string): PrintDecoration[] {
+  return (GENERATED[slug] ?? []).map((item) => ({
+    id: item.id,
+    kind: item.kind as DecorationKind,
+    anchor: 'geo' as const,
+    lng: item.lng,
+    lat: item.lat,
+    size: item.size,
+    rotation: item.rotation,
+    text: item.text,
+    font: (item.font ?? 'hand') as DecorationFont,
+    source: 'automatic' as const,
+    layer: item.layer as keyof IllustrationLayers,
+  }));
+}
+
+/** The automatic illustrations for a region: curated where drawn, generated elsewhere. */
+export function automaticDecorationsFor(slug: string): PrintDecoration[] {
+  if (CURATED_DOODLE_STATES.has(slug)) return wisconsinDoodleDecorations();
+  return generatedDecorations(slug);
+}
+
+export function hasDoodleContent(slug: string): boolean {
+  return CURATED_DOODLE_STATES.has(slug) || generatedDecorations(slug).length >= 3;
 }
 
 export function defaultIllustrationDesign(slug: string, kind: PrintScene['place']['kind']): IllustrationDesign {
-  if (kind !== 'state') {
+  if (kind === 'city') {
     return {
       theme: 'none',
       layers: { roads: 'map', terrain: 'hidden', water: 'map', landmarks: 'hidden' },
@@ -118,7 +162,7 @@ export function defaultIllustrationDesign(slug: string, kind: PrintScene['place'
   return {
     theme: 'doodle-atlas',
     layers: { ...DEFAULT_LAYERS },
-    decorations: slug === 'wisconsin' ? wisconsinDoodleDecorations() : [],
+    decorations: automaticDecorationsFor(slug),
   };
 }
 
@@ -140,11 +184,10 @@ export function illustrationForTheme(
       decorations: personal,
     };
   }
-  const automaticDecorations = slug === 'wisconsin' ? wisconsinDoodleDecorations() : [];
   return {
     theme,
     layers: { ...DEFAULT_LAYERS },
-    decorations: [...automaticDecorations, ...personal],
+    decorations: [...automaticDecorationsFor(slug), ...personal],
   };
 }
 
@@ -206,6 +249,72 @@ export function visibleDecorations(scene: Pick<PrintScene, 'illustration'>): Pri
     }
     return true;
   });
+}
+
+/** Footprint of a decoration on the sheet, matching what drawDecorations paints. */
+function decorationFootprint(decoration: PrintDecoration): { halfW: number; halfH: number } {
+  const unit = 0.044 * decoration.size;
+  if (decoration.kind !== 'text') return { halfW: unit * 0.5, halfH: unit * 0.5 };
+  return {
+    halfW: Math.max(0.05, (decoration.text?.length ?? 4) * unit * 0.24),
+    halfH: unit * 0.42,
+  };
+}
+
+/** Higher wins a collision. Personal work always outranks generated scenery. */
+function decorationPriority(decoration: PrintDecoration): number {
+  if (decoration.source === 'personal') return 100;
+  if (decoration.layer === 'landmarks') return 60;
+  if (decoration.layer === 'water') return 50;
+  if (decoration.kind === 'text') return 45;
+  if (decoration.kind === 'forest') return 40;
+  if (decoration.kind === 'mountains') return 30;
+  return 20;
+}
+
+/** A label and the glyph it names travel together and may sit close. */
+function decorationFamily(id: string): string {
+  return id.replace(/-label(-\d+)?$/, '').replace(/-\d+$/, '');
+}
+
+/**
+ * What actually gets drawn, after collisions are resolved.
+ *
+ * Illustrations are anchored to real coordinates, so the same set of marks
+ * crowds differently on every state, every orientation, and every zoom — a
+ * lake label printed through a mountain is what makes a map look cheap. Rather
+ * than hand-tuning each region, lower-priority scenery yields to higher at
+ * render time, so the composition stays clean wherever the customer takes it.
+ * The renderer, the live overlay, and /selftest all read this one function.
+ */
+export function layoutDecorations(
+  scene: Pick<PrintScene, 'illustration' | 'viewport' | 'orientation' | 'detail' | 'title'>,
+): PrintDecoration[] {
+  const candidates = visibleDecorations(scene)
+    .map((decoration) => ({
+      decoration,
+      position: decorationSheetPosition(scene, decoration),
+      footprint: decorationFootprint(decoration),
+      priority: decorationPriority(decoration),
+    }))
+    .sort((a, b) => b.priority - a.priority);
+
+  const kept: typeof candidates = [];
+  for (const candidate of candidates) {
+    const clashes = kept.some((other) => {
+      if (decorationFamily(other.decoration.id) === decorationFamily(candidate.decoration.id)) return false;
+      const overlapX = Math.abs(other.position.x - candidate.position.x)
+        < (other.footprint.halfW + candidate.footprint.halfW) * 0.82;
+      const overlapY = Math.abs(other.position.y - candidate.position.y)
+        < (other.footprint.halfH + candidate.footprint.halfH) * 0.82;
+      return overlapX && overlapY;
+    });
+    if (!clashes) kept.push(candidate);
+  }
+
+  // Restore the scene's own order so drawing stays predictable.
+  const keptIds = new Set(kept.map((entry) => entry.decoration.id));
+  return scene.illustration.decorations.filter((decoration) => keptIds.has(decoration.id));
 }
 
 export function createPersonalDecoration(
@@ -335,7 +444,7 @@ export function drawDecorations(
   canvasHeight: number,
 ): void {
   const ink = scene.colors.roads || scene.colors.water || '#283a34';
-  visibleDecorations(scene).forEach((decoration) => {
+  layoutDecorations(scene).forEach((decoration) => {
     const position = decorationSheetPosition(scene, decoration);
     const x = position.x * canvasWidth;
     const y = position.y * canvasHeight;

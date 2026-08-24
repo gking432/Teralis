@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { PrintRegionScope } from '@/types/order';
 import { clipGeometryToLand, getGeometryBBox } from '@/lib/geo/landClip';
+import bundledStates from '@/data/us_states_50m.json';
 
 const NOMINATIM_BASE = process.env.NEXT_PUBLIC_NOMINATIM_URL || 'https://nominatim.openstreetmap.org';
 
@@ -47,7 +48,7 @@ interface BoundaryResult {
   fullName: string;
   bbox: [string, string, string, string] | null;
   geometry: GeoJSON.Geometry;
-  source: 'reverse' | 'search' | 'reverse-land' | 'search-land';
+  source: 'reverse' | 'search' | 'reverse-land' | 'search-land' | 'bundled';
 }
 
 async function rateLimitedFetch(url: string): Promise<Response> {
@@ -208,6 +209,60 @@ async function searchBoundary(query: string, scope: PrintRegionScope): Promise<N
     .sort((a, b) => scoreResultForScope(b, scope) - scoreResultForScope(a, scope))[0] || null;
 }
 
+interface BundledState {
+  name: string;
+  postal: string;
+  geometry: GeoJSON.Geometry;
+}
+
+const BUNDLED_STATES = bundledStates as unknown as Record<string, BundledState>;
+
+function ringContains(ring: number[][], lng: number, lat: number): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi || 1e-12) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function bundledGeometryContains(geometry: GeoJSON.Geometry, lng: number, lat: number): boolean {
+  if (geometry.type === 'Polygon') return ringContains(geometry.coordinates[0] as number[][], lng, lat);
+  if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates.some((poly) => ringContains(poly[0] as number[][], lng, lat));
+  }
+  return false;
+}
+
+/**
+ * Offline fallback: Nominatim rate-limits, blocks, and sometimes just fails —
+ * and a storefront that cannot draw its state is a storefront that cannot
+ * sell. US state boundaries ship with the app (Natural Earth 1:50m), so a
+ * state-level request always has an answer even when the geocoder has none.
+ */
+function bundledStateBoundary(lat: string, lng: string): BoundaryResult | null {
+  const pointLng = Number(lng);
+  const pointLat = Number(lat);
+  if (!Number.isFinite(pointLng) || !Number.isFinite(pointLat)) return null;
+  for (const [slug, state] of Object.entries(BUNDLED_STATES)) {
+    if (!bundledGeometryContains(state.geometry, pointLng, pointLat)) continue;
+    const bbox = getGeometryBBox(state.geometry);
+    return {
+      id: `state:bundled:${slug}`,
+      level: 'state',
+      name: state.name,
+      fullName: `${state.name}, United States`,
+      bbox: bbox
+        ? [bbox[1].toString(), bbox[3].toString(), bbox[0].toString(), bbox[2].toString()]
+        : null,
+      geometry: state.geometry,
+      source: 'bundled',
+    };
+  }
+  return null;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const lat = searchParams.get('lat');
@@ -218,21 +273,35 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing lat/lng or invalid level' }, { status: 400 });
   }
 
-  const reverse = await reverseBoundary(lat, lng, scope);
+  let reverse: NominatimResult | null = null;
+  try {
+    reverse = await reverseBoundary(lat, lng, scope);
+  } catch {
+    reverse = null;
+  }
   if (hasUsablePolygon(reverse) && scoreResultForScope(reverse, scope) >= 8) {
     return NextResponse.json(normalizeBoundary(reverse, scope, 'reverse'));
   }
 
   const query = reverse ? getSearchQuery(reverse, scope) : null;
   if (query) {
-    const searched = await searchBoundary(query, scope);
-    if (hasUsablePolygon(searched)) {
-      return NextResponse.json(normalizeBoundary(searched, scope, 'search'));
+    try {
+      const searched = await searchBoundary(query, scope);
+      if (hasUsablePolygon(searched)) {
+        return NextResponse.json(normalizeBoundary(searched, scope, 'search'));
+      }
+    } catch {
+      // fall through to the remaining sources
     }
   }
 
   if (hasUsablePolygon(reverse)) {
     return NextResponse.json(normalizeBoundary(reverse, scope, 'reverse'));
+  }
+
+  if (scope === 'state') {
+    const bundled = bundledStateBoundary(lat, lng);
+    if (bundled) return NextResponse.json(bundled);
   }
 
   return NextResponse.json(

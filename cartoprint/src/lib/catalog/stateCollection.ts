@@ -1,7 +1,7 @@
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import { applyPalette, createPrintScene, normalizeScene, type PrintScene } from '@/lib/print/scene';
 import { getPalette } from '@/lib/print/palettes';
-import { hasCuratedDecorations, illustrationForTheme, type IllustrationTheme } from '@/lib/print/decorations';
+import { hasDoodleContent, illustrationForTheme, type IllustrationTheme } from '@/lib/print/decorations';
 
 /**
  * The finished designs a regional state collection sells.
@@ -71,5 +71,5 @@ export function sceneForCollectionDesign(print: CatalogPrint, design: Collection
  */
 export function designsForState(slug: string): CollectionDesign[] {
   return STATE_COLLECTION_DESIGNS.filter((design) =>
-    design.id !== 'doodle-atlas' || hasCuratedDecorations(slug));
+    design.id !== 'doodle-atlas' || hasDoodleContent(slug));
 }
