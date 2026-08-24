@@ -1,15 +1,35 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { CityProductPage } from '@/components/Storefront/CityProductPage';
-import { getCityCatalogPrint, getCityCatalogPrints } from '@/lib/catalog/prints';
+import { StateProductPage } from '@/components/Storefront/StateProductPage';
+import { getCatalogPrint, getCityCatalogPrints, getStateCatalogPrints } from '@/lib/catalog/prints';
+import { designsForState } from '@/lib/catalog/stateCollection';
 
 export function generateStaticParams() {
-  return getCityCatalogPrints().map((print) => ({ slug: print.slug }));
+  return [
+    ...getCityCatalogPrints().map((print) => ({ slug: print.slug })),
+    ...getStateCatalogPrints().map((print) => ({ slug: print.slug })),
+  ];
 }
 
 export function generateMetadata({ params }: { params: { slug: string } }): Metadata {
-  const print = getCityCatalogPrint(params.slug);
-  if (!print) return {};
+  const print = getCatalogPrint(params.slug);
+  if (!print || print.kind === 'country') return {};
+
+  if (print.kind === 'state') {
+    const hasDoodle = designsForState(print.slug).some((design) => design.id === 'doodle-atlas');
+    const title = hasDoodle
+      ? `${print.name} Map Print | Illustrated Atlas & Art Prints | Terralis`
+      : `${print.name} Map Print | Heritage & Topographic Art Prints | Terralis`;
+    const description = `Shop finished ${print.name} map prints — ${hasDoodle ? 'an illustrated Doodle Atlas, ' : ''}clean Heritage and Topographic editions — then personalize the wording, markers, and framing.`;
+    return {
+      title,
+      description,
+      alternates: { canonical: `/maps/${print.slug}` },
+      openGraph: { title, description, type: 'website', url: `/maps/${print.slug}` },
+    };
+  }
+
   const title = `${print.name} Map Print | Every Street | Terralis`;
   const description = `Create a detailed ${print.name}, ${print.defaultSubtitle} street map print. Choose the color, title, border, size, and frame.`;
   return {
@@ -25,9 +45,13 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   };
 }
 
-export default function CityMapProductPage({ params }: { params: { slug: string } }) {
-  const print = getCityCatalogPrint(params.slug);
-  if (!print) notFound();
+export default function MapProductPage({ params }: { params: { slug: string } }) {
+  const print = getCatalogPrint(params.slug);
+  if (!print || print.kind === 'country') notFound();
+
+  if (print.kind === 'state') {
+    return <StateProductPage print={print} />;
+  }
 
   return (
     <CityProductPage

@@ -1,5 +1,5 @@
 import type { MetadataRoute } from 'next';
-import { getCityCatalogPrints } from '@/lib/catalog/prints';
+import { getCityCatalogPrints, getStateCatalogPrints } from '@/lib/catalog/prints';
 
 const SITE_URL = 'https://cartoprint.vercel.app';
 
@@ -11,6 +11,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 1,
     },
     ...getCityCatalogPrints().map((print) => ({
+      url: `${SITE_URL}/maps/${print.slug}`,
+      changeFrequency: 'monthly' as const,
+      priority: 0.85,
+    })),
+    ...getStateCatalogPrints().map((print) => ({
       url: `${SITE_URL}/maps/${print.slug}`,
       changeFrequency: 'monthly' as const,
       priority: 0.85,

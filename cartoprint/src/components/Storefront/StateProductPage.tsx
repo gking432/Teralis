@@ -8,7 +8,7 @@ import { StudioHeader } from '@/components/Storefront/StudioHeader';
 import { storeScene } from '@/lib/print/scene';
 import type { IllustrationTheme } from '@/lib/print/decorations';
 import {
-  STATE_COLLECTION_DESIGNS as DESIGNS,
+  designsForState,
   sceneForCollectionDesign as sceneForDesign,
   type CollectionDesign,
 } from '@/lib/catalog/stateCollection';
@@ -32,7 +32,8 @@ import { displayTitleText, titleFontCss } from '@/lib/print/title';
 
 export function StateProductPage({ print }: { print: CatalogPrint }) {
   const router = useRouter();
-  const [designId, setDesignId] = useState<IllustrationTheme>('doodle-atlas');
+  const DESIGNS = designsForState(print.slug);
+  const [designId, setDesignId] = useState<IllustrationTheme>(DESIGNS[0].id);
   const design = DESIGNS.find((entry) => entry.id === designId) ?? DESIGNS[0];
   const scene = useMemo(() => sceneForDesign(print, design), [design, print]);
   const [boundary, setBoundary] = useState<GeoJSON.Geometry | null>(() => getCachedBoundary(print.slug)?.geometry ?? null);
@@ -172,7 +173,7 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
 
             <div className="px-6 py-6 sm:px-8">
               <div className="text-[9px] uppercase tracking-[0.18em] text-[#69736e]">Designs in this collection</div>
-              <div className="mt-3 grid grid-cols-3 gap-2">
+              <div className={`mt-3 grid gap-2 ${DESIGNS.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
                 {DESIGNS.map((entry) => {
                   const thumbnail = thumbnails[entry.id];
                   const selected = designId === entry.id;

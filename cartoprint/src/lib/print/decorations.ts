@@ -96,6 +96,17 @@ export function wisconsinDoodleDecorations(): PrintDecoration[] {
   ];
 }
 
+/**
+ * States whose Doodle Atlas ships a curated set of automatic illustrations.
+ * Only these states merchandise a Doodle Atlas design — a doodle edition with
+ * nothing drawn on it is not a product. Clean designs cover every state.
+ */
+const CURATED_DOODLE_STATES = new Set(['wisconsin']);
+
+export function hasCuratedDecorations(slug: string): boolean {
+  return CURATED_DOODLE_STATES.has(slug);
+}
+
 export function defaultIllustrationDesign(slug: string, kind: PrintScene['place']['kind']): IllustrationDesign {
   if (kind !== 'state') {
     return {

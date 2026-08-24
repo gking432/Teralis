@@ -1,7 +1,7 @@
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import { applyPalette, createPrintScene, normalizeScene, type PrintScene } from '@/lib/print/scene';
 import { getPalette } from '@/lib/print/palettes';
-import { illustrationForTheme, type IllustrationTheme } from '@/lib/print/decorations';
+import { hasCuratedDecorations, illustrationForTheme, type IllustrationTheme } from '@/lib/print/decorations';
 
 /**
  * The finished designs a regional state collection sells.
@@ -61,4 +61,15 @@ export function sceneForCollectionDesign(print: CatalogPrint, design: Collection
     illustration: illustrationForTheme(design.id, base.illustration, print.slug),
     title: { ...recolored.title, enabled: true, font: design.font },
   });
+}
+
+/**
+ * The designs actually for sale for one state. The Doodle Atlas appears only
+ * where a curated illustration set exists — every state sells the clean
+ * Heritage and Topographic editions, and doodle editions launch state by
+ * state as their geography is drawn.
+ */
+export function designsForState(slug: string): CollectionDesign[] {
+  return STATE_COLLECTION_DESIGNS.filter((design) =>
+    design.id !== 'doodle-atlas' || hasCuratedDecorations(slug));
 }

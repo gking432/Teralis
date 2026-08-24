@@ -56,9 +56,10 @@ import {
   defaultTitleDesign,
 } from '@/lib/print/title';
 import { buildPlaceCatalogPrint } from '@/lib/catalog/placeFromQuery';
-import { getCatalogPrint } from '@/lib/catalog/prints';
+import { getCatalogPrint, getStateCatalogPrints } from '@/lib/catalog/prints';
 import {
   STATE_COLLECTION_DESIGNS,
+  designsForState,
   sceneForCollectionDesign,
 } from '@/lib/catalog/stateCollection';
 import { applyLayout, applyPalette } from '@/lib/print/scene';
@@ -548,6 +549,27 @@ export default function SelfTest() {
         && seamDecoded?.paletteId === doodleDesign.palette
         && seamDecoded?.title.subtitle === doodleScene.title.subtitle
         && seamDecoded?.viewport.bbox.join() === doodleScene.viewport.bbox.join());
+
+    // Every state is a sellable storefront, not just the launch state. The
+    // Doodle Atlas is merchandised only where curated illustrations exist —
+    // a doodle edition with nothing drawn on it is not a product.
+    check('wisconsin leads with its curated doodle atlas',
+      designsForState('wisconsin')[0]?.id === 'doodle-atlas');
+    check('uncurated states sell only clean designs',
+      designsForState('california').every((design) => design.id !== 'doodle-atlas')
+        && designsForState('california').length >= 2);
+    const statePrints = getStateCatalogPrints();
+    const stateScenes = statePrints.map((statePrint) =>
+      sceneForCollectionDesign(statePrint, designsForState(statePrint.slug)[0]));
+    check('every state storefront scene opens with its own wording',
+      stateScenes.every((scene, index) =>
+        scene.title.enabled
+          && scene.title.text === statePrints[index].name
+          && scene.title.subtitle === statePrints[index].defaultSubtitle),
+      `${statePrints.length} states`);
+    check('every state storefront scene keeps the whole state on the sheet',
+      stateScenes.every((scene) => !scene.freeViewport
+        && scene.radiusMiles >= minimumStateRadius(scene) * 0.999));
 
     setLines(out);
   }, []);

@@ -5,10 +5,11 @@ import { useEffect } from 'react';
 import { LocationSearch } from '@/components/Storefront/LocationSearch';
 import { StudioHeader } from '@/components/Storefront/StudioHeader';
 import { CityArtworkImage } from '@/components/Storefront/CityArtwork';
-import { getCityCatalogPrints } from '@/lib/catalog/prints';
+import { getCityCatalogPrints, getStateCatalogPrints } from '@/lib/catalog/prints';
 import { trackDemoEvent } from '@/lib/demoAnalytics';
 
 const CITIES = getCityCatalogPrints();
+const STATES = getStateCatalogPrints();
 const FEATURED_CITY = CITIES[0];
 
 export default function StorefrontPage() {
@@ -108,6 +109,31 @@ export default function StorefrontPage() {
             <div className="absolute bottom-5 right-6 text-[9px] uppercase tracking-[0.16em] text-[#758079]">Drag · label · remember</div>
           </div>
         </Link>
+      </section>
+
+      <section className="border-t border-white/10">
+        <div className="mx-auto max-w-[1500px] px-5 py-12 sm:px-7 md:px-10 lg:px-16 lg:py-16">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <div className="studio-kicker">The state collection</div>
+              <h2 className="mt-4 font-display text-4xl font-light leading-none md:text-5xl">Every state, already composed.</h2>
+            </div>
+            <p className="max-w-sm text-[12px] leading-6 text-white/50">
+              Heritage and Topographic editions for all fifty states. Illustrated Doodle Atlas editions arrive state by state, starting with Wisconsin.
+            </p>
+          </div>
+          <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2.5">
+            {STATES.map((state) => (
+              <Link
+                key={state.slug}
+                href={`/maps/${state.slug}`}
+                className="text-[13px] text-white/60 underline-offset-4 transition-colors hover:text-white hover:underline"
+              >
+                {state.name}
+              </Link>
+            ))}
+          </div>
+        </div>
       </section>
 
       <section className="border-t border-white/10 bg-[#0f1917]/55">
