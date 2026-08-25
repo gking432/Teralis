@@ -11,7 +11,6 @@ import {
   applyRegionMapLayers,
   applyPrintMapStyle,
   applyPrintMaskColor,
-  wantsEveryTown,
 } from '@/lib/print/printRender';
 import { fetchDetailedCityRoads } from '@/lib/print/cityRoads';
 import { fetchDetailedStateFeatures } from '@/lib/print/stateDetails';
@@ -36,56 +35,6 @@ import { drawDecorations } from '@/lib/print/decorations';
  */
 
 const TILE_TIMEOUT_MS = 20000;
-
-function addEveryTownLayer(
-  map: maplibregl.Map,
-  fc: GeoJSON.FeatureCollection,
-  ink: string,
-  land: string,
-  haloWidth: number,
-): void {
-  if (!fc?.features?.length) return;
-  try {
-    if (map.getLayer('print-every-town-labels')) map.removeLayer('print-every-town-labels');
-    if (map.getLayer('print-every-town-dots')) map.removeLayer('print-every-town-dots');
-    if (map.getSource('print-every-town')) map.removeSource('print-every-town');
-  } catch {}
-  try {
-    map.addSource('print-every-town', { type: 'geojson', data: fc });
-    map.addLayer({
-      id: 'print-every-town-dots',
-      type: 'circle',
-      source: 'print-every-town',
-      paint: {
-        'circle-color': ink,
-        'circle-radius': ['match', ['get', 'place'], 'city', 2.4, 'town', 1.9, 'village', 1.5, 1.2],
-        'circle-opacity': 0.6,
-      },
-    });
-    map.addLayer({
-      id: 'print-every-town-labels',
-      type: 'symbol',
-      source: 'print-every-town',
-      layout: {
-        'text-field': ['get', 'name'],
-        'text-font': ['Noto Sans Regular'],
-        'text-size': ['match', ['get', 'place'], 'city', 13, 'town', 11, 'village', 10, 9.5],
-        'text-variable-anchor': ['top', 'bottom', 'left', 'right'],
-        'text-radial-offset': 0.4,
-        'text-justify': 'auto',
-        'text-allow-overlap': false,
-        'text-optional': true,
-        'text-padding': 1,
-        'symbol-sort-key': ['get', 'rank'],
-      },
-      paint: {
-        'text-color': ink,
-        'text-halo-color': land,
-        'text-halo-width': haloWidth,
-      },
-    });
-  } catch {}
-}
 
 function addUnitedStatesLabels(map: maplibregl.Map, ink: string, land: string, haloWidth: number): void {
   const features: GeoJSON.Feature<GeoJSON.Point>[] = getStateCatalogPrints().map((state) => ({
@@ -209,7 +158,7 @@ export async function renderScene(
         try { initIsolationLayers(map); } catch {}
 
         applyPrintMapStyle(map, scene.colors, kind, scene.detail, scale, scene.strokeWeight);
-        applyRegionMapLayers(map, scene.region, scene.detail);
+        applyRegionMapLayers(map, scene.region, scene.detail, scene.detailBias, kind);
 
         if (boundary && kind !== 'city') {
           try {
@@ -250,25 +199,14 @@ export async function renderScene(
         }
 
         if (kind === 'state') {
-          featureTasks.push(fetchDetailedStateFeatures(scene.viewport.bbox, signal)
+          featureTasks.push(fetchDetailedStateFeatures(scene.viewport.bbox, boundary, signal)
             .then((fc) => {
               addDetailedStateFeatures(map, fc, scene.colors, scale, scene.strokeWeight);
-              applyRegionMapLayers(map, scene.region, scene.detail);
-              try { map.moveLayer('mask-layer'); } catch {}
-            })
-            .catch(() => {}));
-        }
-
-        if (wantsEveryTown(scene.detail)) {
-          featureTasks.push(fetch('/api/print/features', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bbox: scene.viewport.bbox, geometry: boundary, towns: true }),
-            signal,
-          })
-            .then((response) => (response.ok ? response.json() : null))
-            .then((fc: GeoJSON.FeatureCollection | null) => {
-              if (fc) addEveryTownLayer(map, fc, ink, paper, 1.4 * scale.widthScale);
+              applyRegionMapLayers(map, scene.region, scene.detail, scene.detailBias, kind);
+              try {
+                map.moveLayer('mask-layer');
+                map.moveLayer('print-state-detail-place-labels');
+              } catch {}
             })
             .catch(() => {}));
         }
@@ -322,10 +260,9 @@ export async function renderScene(
       targetMapH,
     );
 
-    // Illustrated geography and personal story elements use sheet coordinates
-    // and are drawn after the map, before the title. The live overlay uses the
-    // same scene objects, so none of the customer's additions disappear when
-    // the print is exported.
+    // Personal story elements use sheet coordinates and are drawn after the
+    // map, before the title. The live overlay uses the same scene objects, so
+    // none of the customer's additions disappear when the print is exported.
     drawDecorations(ctx, scene, sheetW, sheetH);
     bakeTitle(ctx, scene.title, scene.colors, sheetW, sheetH);
 

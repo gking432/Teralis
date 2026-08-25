@@ -37,12 +37,13 @@ export function stateDetailZoomForBbox(bbox: StateDetailBbox): number {
 /** Fetch state-scale geography omitted from low-zoom base map tiles. */
 export async function fetchDetailedStateFeatures(
   bbox: StateDetailBbox,
+  geometry?: GeoJSON.Geometry | null,
   signal?: AbortSignal,
 ): Promise<GeoJSON.FeatureCollection> {
   const response = await fetch('/api/print/features', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bbox, stateDetails: true }),
+    body: JSON.stringify({ bbox, geometry, stateDetails: true }),
     signal,
   });
   if (!response.ok) throw new Error('Detailed state geography is unavailable.');

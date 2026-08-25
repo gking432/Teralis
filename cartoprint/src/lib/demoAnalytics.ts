@@ -17,8 +17,8 @@ export type DemoEventName =
   | 'demo_order_failed'
   | 'checkout_started'
   | 'personal_element_added'
-  | 'illustration_theme_selected'
-  | 'illustration_layer_changed'
+  | 'region_theme_selected'
+  | 'region_detail_changed'
   | 'design_landing_viewed'
   | 'design_landing_shortcut'
   // The bounce signal that matters most: an edit session the customer

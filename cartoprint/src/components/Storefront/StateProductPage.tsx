@@ -98,7 +98,7 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
 
   function chooseDesign(entry: CollectionDesign) {
     setDesignId(entry.id);
-    trackDemoEvent('illustration_theme_selected', { place: print.slug, theme: entry.id, surface: 'product' });
+    trackDemoEvent('region_theme_selected', { place: print.slug, theme: entry.id, surface: 'product' });
   }
 
   async function buyAsShown() {
@@ -130,7 +130,7 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
             <div className="relative flex min-h-[570px] items-center justify-center overflow-hidden border border-white/10 bg-white/[0.035] p-5 sm:min-h-[720px] sm:p-9 lg:min-h-[calc(100vh-155px)]">
               {artwork ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={artwork} alt={design.id === 'topographic' ? `${print.name} topographic map print with elevation relief and rivers` : `${design.name} ${print.name} map print with roads, rivers, and lakes`} className="aspect-[3/4] h-auto max-h-[calc(100vh-205px)] w-auto max-w-full shadow-[0_35px_90px_rgba(0,0,0,0.42)]" />
+                <img src={artwork} alt={design.id === 'topographic' ? `${print.name} topographic map print with elevation relief and rivers` : `${design.name} ${print.name} map print with roads, cities, and town names`} className="aspect-[3/4] h-auto max-h-[calc(100vh-205px)] w-auto max-w-full shadow-[0_35px_90px_rgba(0,0,0,0.42)]" />
               ) : (
                 <div className="grid aspect-[3/4] w-[min(82vw,520px)] place-items-center bg-[#f7f3ea] text-[#3a352e] shadow-[0_35px_90px_rgba(0,0,0,0.42)]">
                   <div className="text-center">
@@ -213,14 +213,14 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
               <Link href={customizeHref} onClick={() => trackDemoEvent('product_customize_started', { place: print.slug, palette: scene.region.theme })} className="mt-3 flex min-h-12 w-full items-center justify-center border border-[#173f35] px-6 text-[10px] font-medium uppercase tracking-[0.18em] text-[#173f35] transition-colors hover:bg-[#e9eee9]">
                 Personalize this design
               </Link>
-              <p className="mt-3 text-center text-[9px] leading-4 text-[#7a847e]">Add your wording, dates, stars, hearts, cabins, and the places that matter.</p>
+              <p className="mt-3 text-center text-[9px] leading-4 text-[#7a847e]">Change the wording and lettering, or add your own labels, stars, and hearts.</p>
             </div>
           </aside>
         </section>
 
         <section className="border-y border-white/10 bg-[#0f1917]/55">
           <div className="mx-auto grid max-w-[1320px] gap-8 px-6 py-14 md:grid-cols-3 md:px-10">
-            <Story number="01" title="Geography first">Every automatic illustration begins at a real coordinate and follows the map when the sheet changes shape.</Story>
+            <Story number="01" title="Geography first">Every edition uses real boundaries, roads, water, place data, and elevation appropriate to its purpose.</Story>
             <Story number="02" title="Make it yours">What you see is what you personalize — the exact design carries into the studio, lakes, fonts, and all.</Story>
             <Story number="03" title="Made for print">Vector-like linework, guarded contrast, and a shared export model keep the final artwork crisp at full size.</Story>
           </div>
@@ -232,7 +232,7 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
             <h2 className="mt-4 font-display text-5xl font-light leading-[0.95]">Not just where.<br /><span className="font-hand text-[#d9b09d]">What happened there.</span></h2>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {['Where We Met', 'Up North', 'Our First Home', 'The Family Cabin', 'Every Summer', 'Home, for now'].map((label) => (
+            {['Where We Met', 'Our First Home', 'Home', 'Since 2018', 'Every Summer', 'Always Here'].map((label) => (
               <div key={label} className="grid min-h-32 place-items-center border border-white/12 bg-white/[0.035] p-4 text-center font-hand text-3xl text-[#e7ded2]">{label}</div>
             ))}
           </div>

@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
           place: scene.place.name,
           layout: scene.layoutId,
           palette: scene.paletteId,
-          illustration: scene.region?.theme,
+          edition: scene.region?.theme,
           orientation: typedOrientation,
           sku: fulfillment.sku,
           total: authoritativeTotal,

@@ -71,7 +71,7 @@ export function MarkerOverlay({ scene, containerRef, onChange, editable = true }
   }
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-20" style={{ containerType: 'size' }} aria-label="Illustrated map elements">
+    <div className="pointer-events-none absolute inset-0 z-20" style={{ containerType: 'size' }} aria-label="Personal map elements">
       {layoutDecorations(scene).map((decoration) => {
         const position = decorationSheetPosition(scene, decoration);
         const active = selected === decoration.id;

@@ -6,7 +6,7 @@ import { defaultRegionDesign, REGION_THEMES, type RegionTheme } from '@/lib/prin
 /**
  * The editions a region print is sold in.
  *
- * Two, deliberately: the land (topographic) and the settlement (atlas). Both
+ * Two, deliberately: the land (topographic) and the settlement (street atlas). Both
  * are real cartography that holds up at any scale and needs no per-state
  * curation, so every state and country ships the same complete pair.
  */
@@ -25,7 +25,7 @@ export const STATE_COLLECTION_DESIGNS: CollectionDesign[] = REGION_THEMES.map((t
   note: theme.blurb,
   description: theme.id === 'topographic'
     ? 'The shape of the land: elevation relief, rivers, and open water, drawn as a quiet study in contour.'
-    : 'The shape of settlement: roads, towns and cities by name, and county lines — a proper reference atlas.',
+    : 'The shape of settlement: roads, cities, and town names, without terrain or river linework.',
   palette: theme.palette,
   font: theme.font,
 }));

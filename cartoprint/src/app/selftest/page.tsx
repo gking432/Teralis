@@ -45,13 +45,13 @@ import {
   supersampleFactor,
   DENSE_ROAD_TILE_ZOOM,
 } from '@/lib/print/tileZoom';
-import { buildPrintLayerState, wantsEveryTown } from '@/lib/print/printRender';
+import { buildPrintLayerState } from '@/lib/print/printRender';
 import { exportWidthForSize, type SizeLabel } from '@/lib/print/sizeCatalog';
 import { createPersonalDecoration, layoutDecorations } from '@/lib/print/decorations';
 import {
   applyRegionTheme,
-  FEATURE_LEVELS,
   hillshadeExaggeration,
+  REGION_DETAIL_LEVELS,
 } from '@/lib/print/regionDesign';
 import {
   printableTitleTextColor,
@@ -256,7 +256,7 @@ export default function SelfTest() {
       `${den('city', 25, 'small').milesPerInch.toFixed(2)} mi/in`);
     check('city 80mi still keeps every street', den('city', 80, 'xlarge').everyStreet);
 
-    // State prints are road-and-water studies, not low-zoom gazetteers.
+    // The physical-density resolver leaves state labels to the chosen edition.
     check('state small omits place names', den('state', 150, 'small').places === 'none');
     check('state large still omits place names', den('state', 150, 'large').places === 'none');
     check('state maximum still omits place names', den('state', 150, 'xlarge', 1).places === 'none');
@@ -268,8 +268,8 @@ export default function SelfTest() {
       places: 'more',
       labels: { ...scene.detail.labels, cities: true, towns: true },
     });
-    check('state layer gate rejects restored place labels',
-      !stateLayers.capitals && !stateLayers.cities && !stateLayers.towns && !stateLayers.statelabels);
+    check('state layer gate accepts Street Atlas city and town labels',
+      !stateLayers.capitals && stateLayers.cities && stateLayers.towns && !stateLayers.statelabels);
     check('state more detailed layer enables local roads',
       buildPrintLayerState('state', { ...scene.detail, roads: 'more' }).allroads === true);
 
@@ -310,13 +310,12 @@ export default function SelfTest() {
       bbox: wisconsinBbox.map(Number) as [number, number, number, number],
       center: [-89.847, 44.786],
     }), 'portrait');
-    // Rivers are a region-design choice now, not a side effect of detail bias.
-    const riverlessWisconsin = normalizeScene({ ...wisconsin, region: { ...wisconsin.region, rivers: 'less' } });
-    check('turning rivers off removes them', riverlessWisconsin.detail.rivers === false);
+    const cleanWisconsin = normalizeScene({ ...wisconsin, detailBias: -1 });
     const denseWisconsin = normalizeScene({ ...wisconsin, detailBias: 1 });
-    check('state more detailed raises road density', denseWisconsin.detail.roads === 'neutral');
-    check('state more detailed adds county structure', denseWisconsin.detail.counties === true);
-    check('state more detailed reveals the shared boundary layer', buildPrintLayerState('state', denseWisconsin.detail).states === true);
+    check('state detail changes road density',
+      cleanWisconsin.detail.roads === 'less' && denseWisconsin.detail.roads === 'more');
+    check('state detail never adds county structure',
+      !cleanWisconsin.detail.counties && !denseWisconsin.detail.counties);
     const titledWisconsin = applyLayout(wisconsin, getLayout('poster'));
     const [safeSouth, safeNorth, safeWest, safeEast] = titledWisconsin.viewport.bbox.map(Number);
     check('adding a state title preserves the whole state',
@@ -468,10 +467,10 @@ export default function SelfTest() {
     check('the atlas edition names towns and cities; topographic does not',
       atlasScene.detail.labels.cities && atlasScene.detail.labels.towns
         && !topoScene.detail.labels.cities && !topoScene.detail.labels.towns);
-    check('the atlas edition draws roads and county lines',
-      atlasScene.detail.roads !== 'none' && atlasScene.detail.counties);
-    check('the topographic edition keeps rivers and drops county lines',
-      topoScene.detail.rivers && !topoScene.detail.counties);
+    check('the street atlas draws roads and omits rivers and county lines',
+      atlasScene.detail.roads !== 'none' && !atlasScene.detail.rivers && !atlasScene.detail.counties);
+    check('the topographic edition keeps rivers and drops roads and county lines',
+      topoScene.detail.rivers && topoScene.detail.roads === 'none' && !topoScene.detail.counties);
     check('the two editions are visibly different maps',
       atlasScene.detail.places !== topoScene.detail.places
         && atlasScene.detail.roads !== topoScene.detail.roads);
@@ -479,25 +478,20 @@ export default function SelfTest() {
       atlasScene.title.font !== topoScene.title.font && atlasScene.paletteId !== topoScene.paletteId);
 
     // A graded control that does not change the map is a control that lies.
-    const atlasDesign = atlasScene.region;
-    const placeDensities = FEATURE_LEVELS.map((level) =>
-      normalizeScene({ ...atlasScene, region: { ...atlasDesign, places: level } }).detail.places);
-    check('every "towns and cities" level changes the map',
+    const placeDensities = REGION_DETAIL_LEVELS.map((detailBias) =>
+      normalizeScene({ ...atlasScene, detailBias }).detail.places);
+    check('every Street Atlas detail level changes town density',
       new Set(placeDensities).size === 3, placeDensities.join(' → '));
-    const roadDensities = FEATURE_LEVELS.map((level) =>
-      normalizeScene({ ...atlasScene, region: { ...atlasDesign, roads: level } }).detail.roads);
-    check('every "roads" level changes the map',
+    const roadDensities = REGION_DETAIL_LEVELS.map((detailBias) =>
+      normalizeScene({ ...atlasScene, detailBias }).detail.roads);
+    check('every Street Atlas detail level changes road density',
       new Set(roadDensities).size === 3, roadDensities.join(' → '));
-    check('county lines can be turned off and on',
-      !normalizeScene({ ...atlasScene, region: { ...atlasDesign, counties: false } }).detail.counties
-        && normalizeScene({ ...atlasScene, region: { ...atlasDesign, counties: true } }).detail.counties);
-    check('rivers can be turned off',
-      !normalizeScene({ ...atlasScene, region: { ...atlasDesign, rivers: 'less' } }).detail.rivers);
-    check('every elevation level changes the relief strength',
-      new Set(FEATURE_LEVELS.map(hillshadeExaggeration)).size === 3);
-    check('"everything" names every town from the bundled dataset',
-      wantsEveryTown(normalizeScene({ ...atlasScene, region: { ...atlasDesign, places: 'more' } }).detail));
-
+    check('rivers belong only to the Topographic edition',
+      REGION_DETAIL_LEVELS.every((detailBias) =>
+        !normalizeScene({ ...atlasScene, detailBias }).detail.rivers
+          && normalizeScene({ ...topoScene, detailBias }).detail.rivers));
+    check('every Topographic detail level changes relief strength',
+      new Set(REGION_DETAIL_LEVELS.map(hillshadeExaggeration)).size === 3);
     // Cities are a different product and stay clean: streets and water, never
     // county lines or a town-name gazetteer.
     const cityAuditScene = createPrintScene(getCityCatalogPrint('madison-wi')!, 'portrait');
@@ -551,14 +545,11 @@ export default function SelfTest() {
         && seamDecoded?.paletteId === leadDesign.palette
         && seamDecoded?.title.subtitle === leadScene.title.subtitle
         && seamDecoded?.viewport.bbox.join() === leadScene.viewport.bbox.join());
-    check('the personalize link round-trips every feature level',
-      seamDecoded?.region.places === leadScene.region.places
-        && seamDecoded?.region.roads === leadScene.region.roads
-        && seamDecoded?.region.counties === leadScene.region.counties
-        && seamDecoded?.region.elevation === leadScene.region.elevation);
+    check('the personalize link round-trips edition and detail',
+      seamDecoded?.region.theme === leadScene.region.theme
+        && seamDecoded?.detailBias === leadScene.detailBias);
 
-    // Every state is a sellable storefront, and both editions work everywhere
-    // without curation — that is the point of dropping illustration.
+    // Every state is a sellable storefront and both editions work everywhere.
     check('every state leads with the topographic edition',
       designsForState('wisconsin')[0]?.id === 'topographic'
         && designsForState('california')[0]?.id === 'topographic'
@@ -601,8 +592,8 @@ export default function SelfTest() {
 
     // --- the search path, which is how most customers actually arrive ---
     // A place reached by search used to become `place-colorado-united-states`:
-    // a slug nothing recognised, so the print silently lost every illustration
-    // and showed "United States" instead of its own subtitle. Catalog-only
+    // a slug nothing recognised, so the print silently lost its regional
+    // configuration and showed "United States" instead. Catalog-only
     // coverage never saw it. These build a print the way a search does.
     const searchedColorado = buildPlaceCatalogPrint({
       name: 'Colorado',
@@ -619,7 +610,7 @@ export default function SelfTest() {
     check('a searched state still draws a complete map',
       searchedScene.detail.roads !== 'none'
         && searchedScene.detail.labels.cities
-        && searchedScene.detail.rivers,
+        && !searchedScene.detail.rivers,
       `${searchedScene.detail.roads} roads · ${searchedScene.detail.places} places`);
 
     // The same guarantee for a URL that carries only a bbox, as an ad does.

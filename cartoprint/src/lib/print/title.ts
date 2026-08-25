@@ -267,7 +267,7 @@ export const BODY_FONT_STACK = BODY_FONT;
 
 export const TITLE_FONT_OPTIONS: Array<{ value: TitleFont; label: string; sample: string }> = [
   { value: 'editorial', label: 'Editorial', sample: 'Wisconsin' },
-  { value: 'hand', label: 'Hand drawn', sample: 'Up North' },
+  { value: 'hand', label: 'Script', sample: 'Where We Met' },
   { value: 'modern', label: 'Modern', sample: 'WISCONSIN' },
   { value: 'condensed', label: 'Atlas', sample: 'WISCONSIN' },
 ];
@@ -281,7 +281,7 @@ export function titleFontSamples(title: string): Array<{ value: TitleFont; label
   const words = title.trim() || 'Your place';
   return [
     { value: 'editorial', label: 'Editorial', sample: words },
-    { value: 'hand', label: 'Hand drawn', sample: words },
+    { value: 'hand', label: 'Script', sample: words },
     { value: 'modern', label: 'Modern', sample: words.toUpperCase() },
     { value: 'condensed', label: 'Atlas', sample: words.toUpperCase() },
   ];

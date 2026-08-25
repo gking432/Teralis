@@ -40,9 +40,7 @@ import {
 } from '@/lib/print/decorations';
 import {
   applyRegionTheme,
-  placeLevelLabel,
   REGION_THEMES,
-  type FeatureLevel,
   type RegionTheme,
 } from '@/lib/print/regionDesign';
 
@@ -228,11 +226,17 @@ function ViewPanel({ scene, update }: PanelProps) {
       ? 'Every street will remain clear at the selected print size.'
       : density.description.replace('Showing ', '') + ' will remain clear in print.'
     : scene.place.kind === 'state'
-      ? scene.detailBias === -1
-        ? 'Water only. Roads and rivers are removed.'
-        : scene.detailBias === 1
-          ? 'Highways, local routes, county lines, rivers, and water are included.'
-          : 'Highways, main roads, rivers, and water are included.'
+      ? scene.region.theme === 'atlas'
+        ? scene.detailBias === -1
+          ? 'Highways and major city names.'
+          : scene.detailBias === 1
+          ? 'Secondary routes and additional town and city names.'
+            : 'Highways, main roads, cities, and town names.'
+        : scene.detailBias === -1
+          ? 'Quiet elevation relief with major waterways and open water.'
+          : scene.detailBias === 1
+            ? 'Stronger relief with the most complete available river and lake detail.'
+            : 'Balanced elevation with rivers, lakes, and open water.'
       : density.description.replace('Showing ', '') + ' will remain clear in print.';
 
   return (
@@ -338,10 +342,15 @@ function ViewPanel({ scene, update }: PanelProps) {
               label: option.label,
             }))}
             value={String(scene.detailBias)}
-            onChange={(value) => update(
-              (current) => ({ ...current, detailBias: Number(value) as DetailBias }),
-              'detail-bias',
-            )}
+            onChange={(value) => {
+              const detailBias = Number(value) as DetailBias;
+              update((current) => ({ ...current, detailBias }), 'detail-bias');
+              trackDemoEvent('region_detail_changed', {
+                place: scene.place.slug,
+                theme: scene.region.theme,
+                level: detailBias,
+              });
+            }}
           />
           <p className="mt-2 text-[12px] leading-5 text-[#44504b]">{capitalize(detailPromise)}</p>
         </Field>
@@ -580,16 +589,9 @@ function GenericStylePanel({
   );
 }
 
-/**
- * The region editor.
- *
- * Two editions and a short column of graded features. Every control changes
- * something a customer can name — how many roads, how many town names, how
- * strong the relief — so nothing here is a setting they have to decode.
- */
+/** Two edition choices. Map density lives only in Composition. */
 function StateStylePanel({ scene, update }: PanelProps) {
   const design = scene.region;
-  const isTopographic = design.theme === 'topographic';
 
   function chooseTheme(theme: RegionTheme) {
     update((current) => {
@@ -602,16 +604,7 @@ function StateStylePanel({ scene, update }: PanelProps) {
         updatedAt: Date.now(),
       };
     }, `region-${theme}`);
-    trackDemoEvent('illustration_theme_selected', { place: scene.place.slug, theme });
-  }
-
-  function setFeature<K extends keyof PrintScene['region']>(key: K, value: PrintScene['region'][K]) {
-    update((current) => ({
-      ...current,
-      region: { ...current.region, [key]: value },
-      updatedAt: Date.now(),
-    }), `region-${String(key)}`);
-    trackDemoEvent('illustration_layer_changed', { place: scene.place.slug, layer: String(key), mode: String(value) });
+    trackDemoEvent('region_theme_selected', { place: scene.place.slug, theme });
   }
 
   const curatedPalettes = ['bone', 'terracotta', 'forest', 'blueprint', 'slate', 'midnight'].map(getPalette);
@@ -643,63 +636,10 @@ function StateStylePanel({ scene, update }: PanelProps) {
         })}
       </div>
 
-      {isTopographic ? (
-        <Field label="Elevation" help="How strongly the relief reads on paper.">
-          <Segmented
-            value={design.elevation}
-            options={[
-              { value: 'less', label: 'Subtle' },
-              { value: 'balanced', label: 'Balanced' },
-              { value: 'more', label: 'Dramatic' },
-            ]}
-            onChange={(value) => setFeature('elevation', value as FeatureLevel)}
-          />
-        </Field>
-      ) : (
-        <>
-          <Field label="Towns and cities" help={placeLevelLabel(design.places) + ' will be named on the print.'}>
-            <Segmented
-              value={design.places}
-              options={[
-                { value: 'less', label: 'Some cities' },
-                { value: 'balanced', label: 'Most towns' },
-                { value: 'more', label: 'Everything' },
-              ]}
-              onChange={(value) => setFeature('places', value as FeatureLevel)}
-            />
-          </Field>
-
-          <Field label="Roads" help="Highways only, through to local routes.">
-            <Segmented
-              value={design.roads}
-              options={[
-                { value: 'less', label: 'Less' },
-                { value: 'balanced', label: 'Balanced' },
-                { value: 'more', label: 'More' },
-              ]}
-              onChange={(value) => setFeature('roads', value as FeatureLevel)}
-            />
-          </Field>
-
-          <Toggle
-            label="County lines"
-            active={design.counties}
-            onChange={() => setFeature('counties', !design.counties)}
-          />
-        </>
-      )}
-
-      <Field label="Rivers" help="Rivers and streams across the region.">
-        <Segmented
-          value={design.rivers}
-          options={[
-            { value: 'less', label: 'Off' },
-            { value: 'balanced', label: 'Balanced' },
-            { value: 'more', label: 'More' },
-          ]}
-          onChange={(value) => setFeature('rivers', value as FeatureLevel)}
-        />
-      </Field>
+      <div className="rounded-sm border border-[#cad4cd] bg-[#eef3ef] px-4 py-3 text-[11px] leading-5 text-[#44504b]">
+        Use <strong>Composition → Map detail</strong> to change road and town
+        density in Atlas, or relief and water detail in Topographic.
+      </div>
 
       <Field label="Paper and ink" help="Curated pairings keep fine linework printable.">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">

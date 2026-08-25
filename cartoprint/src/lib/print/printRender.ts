@@ -4,6 +4,7 @@ import { addTerrain, applyGreyscale, applyStyleOverrides } from '@/lib/map/style
 import { applyLayerVisibility, classifyLayer } from '@/lib/map/layers';
 import { getPrintInkColor, type PreviewColorSettings } from '@/lib/print/colorSchemes';
 import { hillshadeExaggeration, type RegionDesign } from '@/lib/print/regionDesign';
+import type { DetailBias } from '@/lib/print/density';
 import {
   scaledValue,
   scaledWidth,
@@ -80,8 +81,9 @@ export function getBorderFraction(weight: BorderWeight): number {
 
 // --- per-kind base layer states ---
 
-// State / city prints: highways + main roads, water + rivers. City streets are
-// supplied separately; state place names are intentionally omitted.
+// Shared state/city base. The edition normalizer decides whether roads, place
+// names, or rivers are enabled; city streets and ranked state labels can also
+// be supplied by their dedicated high-resolution sources.
 // No borders — the isolation mask defines the region edge.
 const STATE_PRINT_LAYER_STATE: LayerState = {
   countries: false,
@@ -130,11 +132,6 @@ const COUNTRY_PRINT_LAYER_STATE: LayerState = {
 // Legacy export (kept for any code that imported the old name).
 export const PRINT_LAYER_STATE = STATE_PRINT_LAYER_STATE;
 
-// True when the "more" level should pull every town from the place dataset.
-export function wantsEveryTown(detail: PrintDetailSettings): boolean {
-  return detail.places === 'more';
-}
-
 const CITY_ROAD_SOURCE_ID = 'print-city-road-network';
 const CITY_ROAD_LAYERS = [
   'print-city-road-local',
@@ -146,6 +143,8 @@ const STATE_DETAIL_LAYERS = [
   'print-state-detail-county-boundaries',
   'print-state-detail-rivers',
   'print-state-detail-roads',
+  'print-state-detail-place-dots',
+  'print-state-detail-place-labels',
 ] as const;
 
 export function removeDetailedStateFeatures(map: maplibregl.Map): void {
@@ -219,6 +218,41 @@ export function addDetailedStateFeatures(
         'line-color': colors.roads || getPrintInkColor(colors),
         'line-opacity': 0.58,
         'line-width': scaledWidth(STROKE_CURVES.street, scale, weight),
+      },
+    }, beforeMask);
+    map.addLayer({
+      id: 'print-state-detail-place-dots',
+      type: 'circle',
+      source: STATE_DETAIL_SOURCE_ID,
+      filter: ['==', ['get', 'kind'], 'place'],
+      paint: {
+        'circle-color': getPrintInkColor(colors),
+        'circle-radius': ['interpolate', ['linear'], ['get', 'rank'], 2, 2.4, 14, 1.1],
+        'circle-opacity': 0.58,
+      },
+    }, beforeMask);
+    map.addLayer({
+      id: 'print-state-detail-place-labels',
+      type: 'symbol',
+      source: STATE_DETAIL_SOURCE_ID,
+      filter: ['==', ['get', 'kind'], 'place'],
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': ['interpolate', ['linear'], ['get', 'rank'], 2, 13, 14, 8.5],
+        'text-variable-anchor': ['top', 'bottom', 'left', 'right'],
+        'text-radial-offset': 0.45,
+        'text-justify': 'auto',
+        'text-allow-overlap': false,
+        'text-optional': true,
+        'symbol-avoid-edges': true,
+        'text-padding': 1.5,
+        'symbol-sort-key': ['get', 'rank'],
+      },
+      paint: {
+        'text-color': getPrintInkColor(colors),
+        'text-halo-color': colors.land || '#ffffff',
+        'text-halo-width': 1.25,
       },
     }, beforeMask);
     return true;
@@ -317,11 +351,11 @@ export function buildPrintLayerState(
   const p = detail.places;
   const r = detail.roads;
 
-  // Places: none < less (major cities) < neutral (+towns) < more (every town).
+  // Places: none < less (major cities) < neutral (+towns) < more (additional towns).
   // The base style ranks city/town labels by importance, so "less" naturally
   // surfaces only the largest cities.
-  const cities = kind === 'state' ? false : detail.labels?.cities ?? (p !== 'none');
-  const towns = kind === 'state' ? false : detail.labels?.towns ?? (p === 'neutral' || p === 'more');
+  const cities = detail.labels?.cities ?? (p !== 'none');
+  const towns = detail.labels?.towns ?? (p === 'neutral' || p === 'more');
 
   // Roads: none < less (highways) < neutral (+main roads) < more (+streets).
   const highways = r !== 'none';
@@ -368,12 +402,13 @@ export function buildPrintLayerState(
     };
   }
 
-  // State prints use road and water structure without place-name clutter.
+  // The Street Atlas uses the base style's ranked state-scale labels. The
+  // Topographic edition passes both values as false.
   return {
     ...STATE_PRINT_LAYER_STATE,
     capitals: false,
-    cities: false,
-    towns: false,
+    cities,
+    towns,
     highways,
     mainroads,
     allroads,
@@ -485,7 +520,7 @@ function applyPrintPreviewOverrides(
 
     // Town/village labels: show major towns from low zoom. When denseTowns
     // (places = More) push the zoom range lower and tighten padding so far
-    // more places fit — matching the full builder's "every town" look.
+    // more places fit — matching the full builder's denser-label look.
     if (layers.towns && /label_(town|village|other)/.test(id) && layer.type === 'symbol') {
       try {
         const minZoom = denseTowns ? 3 : (id === 'label_other' ? 6 : 4);
@@ -649,20 +684,19 @@ export function applyPrintDetail(
   }
 }
 
-/**
- * Apply the state art-direction layer choices to real map layers. Decoration
- * visibility is handled by `visibleDecorations`; this handles the geography
- * beneath it so Map/Doodle/Hidden are not cosmetic control labels.
- */
+/** Apply the selected regional edition and detail level to real map layers. */
 export function applyRegionMapLayers(
   map: maplibregl.Map,
   design: RegionDesign,
   detail: PrintDetailSettings,
+  detailBias: DetailBias,
+  kind: 'country' | 'state' | 'city',
 ): void {
   const style = map.getStyle();
   if (!style) return;
   const showTerrain = design.theme === 'topographic';
-  const showRoads = detail.roads !== 'none';
+  const showDetailedRoads = design.theme === 'atlas' && detailBias === 1;
+  const showDetailedRivers = showTerrain && detailBias !== -1;
 
   style.layers.forEach((layer) => {
     const group = classifyLayer(layer.id);
@@ -670,21 +704,46 @@ export function applyRegionMapLayers(
     const isDetailedRiver = layer.id === 'print-state-detail-rivers';
     const isDetailedRoad = layer.id === 'print-state-detail-roads';
     const isDetailedCounty = layer.id === 'print-state-detail-county-boundaries';
+    const isDetailedPlace = layer.id === 'print-state-detail-place-dots'
+      || layer.id === 'print-state-detail-place-labels';
     try {
-      if (isDetailedRoad) {
-        // Roads used to be tied to the county-lines setting, so a state print
-        // showed no local roads unless counties happened to be on.
-        map.setLayoutProperty(layer.id, 'visibility', showRoads ? 'visible' : 'none');
+      if (kind === 'state' && (group === 'cities' || group === 'towns')) {
+        // State labels come from the same ranked, boundary-filtered source used
+        // by the export. Hiding base symbols prevents two label engines from
+        // colliding and suppressing one another.
+        map.setLayoutProperty(layer.id, 'visibility', 'none');
+      } else if (isDetailedRoad) {
+        // The base style supplies highways and main roads. The shared
+        // high-resolution pass adds secondary routes only at More detail.
+        map.setLayoutProperty(layer.id, 'visibility', showDetailedRoads ? 'visible' : 'none');
       } else if (isDetailedCounty) {
-        map.setLayoutProperty(layer.id, 'visibility', detail.counties ? 'visible' : 'none');
+        map.setLayoutProperty(layer.id, 'visibility', 'none');
+      } else if (isDetailedPlace) {
+        const rank = detailBias === -1 ? 6 : detailBias === 1 ? 14 : 9;
+        map.setLayoutProperty(layer.id, 'visibility', design.theme === 'atlas' ? 'visible' : 'none');
+        map.setFilter(layer.id, [
+          'all',
+          ['==', ['get', 'kind'], 'place'],
+          ['<=', ['coalesce', ['get', 'rank'], 99], rank],
+        ]);
       } else if (group === 'water' || isDetailedLake) {
         map.setLayoutProperty(layer.id, 'visibility', 'visible');
-      } else if (group === 'rivers' || isDetailedRiver) {
+      } else if (isDetailedRiver) {
+        map.setLayoutProperty(layer.id, 'visibility', showDetailedRivers ? 'visible' : 'none');
+        if (showDetailedRivers) {
+          map.setFilter(layer.id, detailBias === 1
+            ? ['==', ['get', 'kind'], 'river']
+            : ['all',
+                ['==', ['get', 'kind'], 'river'],
+                ['match', ['get', 'class'], ['river', 'canal'], true, false],
+              ]);
+        }
+      } else if (group === 'rivers') {
         map.setLayoutProperty(layer.id, 'visibility', detail.rivers ? 'visible' : 'none');
       } else if (layer.id === 'hillshade-layer') {
         map.setLayoutProperty(layer.id, 'visibility', showTerrain ? 'visible' : 'none');
         if (showTerrain) {
-          map.setPaintProperty(layer.id, 'hillshade-exaggeration', hillshadeExaggeration(design.elevation));
+          map.setPaintProperty(layer.id, 'hillshade-exaggeration', hillshadeExaggeration(detailBias));
         }
       }
     } catch {}

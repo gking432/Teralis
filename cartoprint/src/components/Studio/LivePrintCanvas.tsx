@@ -26,8 +26,6 @@ import { measureWaterShare } from '@/lib/print/autoLook';
 import { supersampleFactor } from '@/lib/print/tileZoom';
 import { findWaterPlacement, mapRectToSheet } from '@/lib/print/waterPlacement';
 import type { NormalisedRect } from '@/lib/print/geometry';
-import { wantsEveryTown } from '@/lib/print/printRender';
-import { getPrintInkColor } from '@/lib/print/colorSchemes';
 
 /**
  * The live print canvas.
@@ -186,15 +184,27 @@ export function LivePrintCanvas({
     mapRef.current = map;
     onReadyStateChangeRef.current?.(false);
 
+    let styleDidLoad = false;
+    const styleLoadTimeout = window.setTimeout(() => {
+      if (styleDidLoad) return;
+      setFailed(true);
+      onReadyStateChangeRef.current?.(false);
+    }, 15_000);
+
     map.on('error', (event) => {
-      // Style/tile failures are the only fatal case; missing sprites are not.
-      if ((event as { error?: { status?: number } })?.error) {
-        setFailed(true);
-        onReadyStateChangeRef.current?.(false);
+      // Individual source tiles can fail once and then succeed on retry. That
+      // is especially common when terrain is first revealed, and it must not
+      // replace an otherwise usable map with a fatal error overlay. The load
+      // timeout above is the backstop for a style that genuinely cannot boot.
+      if (process.env.NODE_ENV !== 'production' && (event as { error?: unknown })?.error) {
+        console.warn('A map resource failed and will be retried.', (event as { error?: unknown }).error);
       }
     });
 
     map.on('load', () => {
+      styleDidLoad = true;
+      window.clearTimeout(styleLoadTimeout);
+      setFailed(false);
       const active = sceneRef.current;
       try {
         initIsolationLayers(map);
@@ -207,7 +217,7 @@ export function LivePrintCanvas({
         strokeScaleFor(map.getCanvas().clientWidth || 900),
         active.strokeWeight,
       );
-      applyRegionMapLayers(map, active.region, active.detail);
+      applyRegionMapLayers(map, active.region, active.detail, active.detailBias, active.place.kind);
       applyPrintMaskColor(map, active.colors);
       setStyleReady(true);
       fitViewport(active.viewport);
@@ -267,6 +277,7 @@ export function LivePrintCanvas({
     });
 
     return () => {
+      window.clearTimeout(styleLoadTimeout);
       map.remove();
       mapRef.current = null;
     };
@@ -299,10 +310,10 @@ export function LivePrintCanvas({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !styleReady || kind !== 'state') return;
-    applyRegionMapLayers(map, scene.region, scene.detail);
+    applyRegionMapLayers(map, scene.region, scene.detail, scene.detailBias, kind);
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();
-  }, [kind, reportMapPreview, scene.detail, scene.region, styleReady]);
+  }, [kind, reportMapPreview, scene.detail, scene.detailBias, scene.region, styleReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -325,81 +336,6 @@ export function LivePrintCanvas({
     } catch {}
   }, [geometry, kind, styleReady, scene.colors]);
 
-  // "Every town" comes from our own dataset, not the vector tiles — the base
-  // style thins place labels aggressively at low zoom. The exporter already
-  // fetched it; the live preview did not, so a state print looked far emptier
-  // on screen than it printed.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !styleReady) return;
-
-    const removeLayers = () => {
-      for (const id of ['print-every-town-labels', 'print-every-town-dots']) {
-        try { if (map.getLayer(id)) map.removeLayer(id); } catch {}
-      }
-      try { if (map.getSource('print-every-town')) map.removeSource('print-every-town'); } catch {}
-    };
-
-    if (!wantsEveryTown(scene.detail)) {
-      removeLayers();
-      return;
-    }
-
-    const controller = new AbortController();
-    fetch('/api/print/features', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bbox: scene.viewport.bbox, geometry, towns: true }),
-      signal: controller.signal,
-    })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((collection: GeoJSON.FeatureCollection | null) => {
-        if (controller.signal.aborted || !collection?.features?.length) return;
-        const active = sceneRef.current;
-        const ink = getPrintInkColor(active.colors);
-        const paper = active.colors.land || '#ffffff';
-        const width = map.getCanvas().clientWidth || 900;
-        const haloScale = strokeScaleFor(width).widthScale;
-        removeLayers();
-        map.addSource('print-every-town', { type: 'geojson', data: collection });
-        map.addLayer({
-          id: 'print-every-town-dots',
-          type: 'circle',
-          source: 'print-every-town',
-          paint: {
-            'circle-color': ink,
-            'circle-radius': ['match', ['get', 'place'], 'city', 2.4, 'town', 1.9, 'village', 1.5, 1.2],
-            'circle-opacity': 0.6,
-          },
-        });
-        map.addLayer({
-          id: 'print-every-town-labels',
-          type: 'symbol',
-          source: 'print-every-town',
-          layout: {
-            'text-field': ['get', 'name'],
-            'text-font': ['Noto Sans Regular'],
-            'text-size': ['match', ['get', 'place'], 'city', 13, 'town', 11, 'village', 10, 9.5],
-            'text-variable-anchor': ['top', 'bottom', 'left', 'right'],
-            'text-radial-offset': 0.4,
-            'text-justify': 'auto',
-            'text-allow-overlap': false,
-            'text-optional': true,
-            'text-padding': 1,
-            'symbol-sort-key': ['get', 'rank'],
-          },
-          paint: {
-            'text-color': ink,
-            'text-halo-color': paper,
-            'text-halo-width': 1.4 * haloScale,
-          },
-        });
-      })
-      .catch(() => {});
-
-    return () => controller.abort();
-  }, [scene.detail, scene.viewport.bbox, scene.colors, geometry, styleReady]);
-
   // State-scale base tiles are generalized differently at preview and export
   // sizes. Load one shared scale-aware geography pass for every state scene so
   // lakes and rivers never disappear when the customer enters the personalizer;
@@ -411,15 +347,22 @@ export function LivePrintCanvas({
     const controller = new AbortController();
     const detailBbox = bboxKey.split(',') as [string, string, string, string];
     onReadyStateChangeRef.current?.(false);
-    fetchDetailedStateFeatures(detailBbox, controller.signal)
+    fetchDetailedStateFeatures(detailBbox, geometry, controller.signal)
       .then((collection) => {
         if (controller.signal.aborted) return;
         const active = sceneRef.current;
         const added = addDetailedStateFeatures(map, collection, active.colors, currentScale(), active.strokeWeight);
         setStateDetailLoaded(added);
-        applyRegionMapLayers(map, active.region, active.detail);
-        try { map.moveLayer('mask-layer'); } catch {}
-        map.once('idle', () => {
+        applyRegionMapLayers(map, active.region, active.detail, active.detailBias, kind);
+        try {
+          map.moveLayer('mask-layer');
+          map.moveLayer('print-state-detail-place-labels');
+        } catch {}
+        // The state GeoJSON is already local at this point, so the next frame
+        // contains the added linework and labels. Waiting for full map `idle`
+        // can hang indefinitely while optional terrain tiles retry, leaving a
+        // visibly finished print stuck behind a disabled purchase button.
+        map.once('render', () => {
           onReadyStateChangeRef.current?.(true);
           reportMapPreview(map);
         });
@@ -433,7 +376,7 @@ export function LivePrintCanvas({
       });
 
     return () => controller.abort();
-  }, [bboxKey, currentScale, kind, reportMapPreview, styleReady]);
+  }, [bboxKey, currentScale, geometry, kind, reportMapPreview, styleReady]);
 
   // City streets come from z12 transportation tiles decoded by our API. This
   // keeps the complete residential network independent of the visible camera
@@ -483,7 +426,7 @@ export function LivePrintCanvas({
     const scale = strokeScaleFor(map.getCanvas().clientWidth || canvasWidth);
     applyPrintDetail(map, kind, active.detail, scale, active.strokeWeight);
     applyPrintColors(map, active.colors, scale);
-    applyRegionMapLayers(map, active.region, active.detail);
+    applyRegionMapLayers(map, active.region, active.detail, active.detailBias, active.place.kind);
     if (!active.freeViewport) fitViewport(active.viewport);
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();

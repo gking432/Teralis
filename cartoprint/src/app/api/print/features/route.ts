@@ -310,10 +310,17 @@ function geometrySpan(geometry: GeoJSON.Geometry): number {
 function mergeStateDetailFeatures(features: GeoJSON.Feature[]): GeoJSON.Feature[] {
   const lines = new Map<string, GeoJSON.Position[][]>();
   const polygons: GeoJSON.Position[][][] = [];
+  const points = new Map<string, GeoJSON.Feature<GeoJSON.Point>>();
 
   features.forEach((feature) => {
     const kind = String(feature.properties?.kind || '');
     const roadClass = String(feature.properties?.class || '');
+    if (kind === 'place' && feature.geometry.type === 'Point') {
+      const name = String(feature.properties?.name || '');
+      const key = `${name}:${feature.geometry.coordinates.join(',')}`;
+      points.set(key, feature as GeoJSON.Feature<GeoJSON.Point>);
+      return;
+    }
     if (kind === 'lake') {
       if (feature.geometry.type === 'Polygon') polygons.push(feature.geometry.coordinates);
       if (feature.geometry.type === 'MultiPolygon') polygons.push(...feature.geometry.coordinates);
@@ -341,6 +348,7 @@ function mergeStateDetailFeatures(features: GeoJSON.Feature[]): GeoJSON.Feature[
       geometry: { type: 'MultiPolygon', coordinates: polygons },
     });
   }
+  merged.push(...points.values());
   return merged;
 }
 
@@ -350,7 +358,10 @@ function mergeStateDetailFeatures(features: GeoJSON.Feature[]): GeoJSON.Feature[
  * Pull those features from the highest bounded source zoom for the state so
  * small states retain fine geography and large states never fail the tile cap.
  */
-async function getStateDetailFeatures(bbox: BBox): Promise<GeoJSON.FeatureCollection> {
+async function getStateDetailFeatures(
+  bbox: BBox,
+  boundary?: GeoJSON.Geometry | null,
+): Promise<GeoJSON.FeatureCollection> {
   const [south, north, west, east] = bbox.map(Number);
   const zoom = stateDetailZoomForBbox(bbox);
   const minX = longitudeToTileX(west, zoom);
@@ -383,8 +394,8 @@ async function getStateDetailFeatures(bbox: BBox): Promise<GeoJSON.FeatureCollec
       const tile = new VectorTile(new Pbf(new Uint8Array(await response.arrayBuffer())));
       const tileFeatures: GeoJSON.Feature[] = [];
       const collect = (
-        layerName: 'transportation' | 'waterway' | 'water' | 'boundary',
-        kind: 'road' | 'river' | 'lake' | 'county',
+        layerName: 'transportation' | 'waterway' | 'water' | 'boundary' | 'place',
+        kind: 'road' | 'river' | 'lake' | 'county' | 'place',
         include: (properties: Record<string, unknown>) => boolean,
       ) => {
         const layer = tile.layers[layerName];
@@ -395,9 +406,21 @@ async function getStateDetailFeatures(bbox: BBox): Promise<GeoJSON.FeatureCollec
           const geojson = feature.toGeoJSON(x, y, zoom) as GeoJSON.Feature;
           if (!('coordinates' in geojson.geometry)) continue;
           if (!coordinatesIntersectBBox(geojson.geometry.coordinates, south, north, west, east)) continue;
+          if (
+            kind === 'place'
+            && geojson.geometry.type === 'Point'
+            && !isPointInGeometry(geojson.geometry.coordinates as [number, number], boundary)
+          ) continue;
           geojson.geometry = prepareStateGeometry(geojson.geometry);
           if (kind === 'lake' && geometrySpan(geojson.geometry) < 0.012) continue;
-          geojson.properties = { kind, class: String(feature.properties.class || '') };
+          geojson.properties = kind === 'place'
+            ? {
+                kind,
+                class: String(feature.properties.class || ''),
+                name: String(feature.properties.name_en || feature.properties.name || ''),
+                rank: Number(feature.properties.rank || 99),
+              }
+            : { kind, class: String(feature.properties.class || '') };
           tileFeatures.push(geojson);
         }
       };
@@ -410,6 +433,9 @@ async function getStateDetailFeatures(bbox: BBox): Promise<GeoJSON.FeatureCollec
       collect('waterway', 'river', () => true);
       collect('water', 'lake', () => true);
       collect('boundary', 'county', (properties) => Number(properties.admin_level) === 6);
+      collect('place', 'place', (properties) =>
+        ['city', 'town', 'village'].includes(String(properties.class || ''))
+          && Boolean(properties.name_en || properties.name));
       return tileFeatures;
     }));
     tiles.forEach((tileFeatures) => features.push(...tileFeatures));
@@ -494,7 +520,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.stateDetails) {
-      const details = await getStateDetailFeatures(body.bbox);
+      const details = await getStateDetailFeatures(body.bbox, body.geometry);
       return NextResponse.json(details, {
         headers: { 'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=604800' },
       });
@@ -507,10 +533,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    if (getBBoxArea(body.bbox) > MAX_BBOX_AREA) {
-      return NextResponse.json({ type: 'FeatureCollection', features: [] });
-    }
-
     const [south, north, west, east] = body.bbox.map(Number);
     const localPlaces = [...US_PLACES, ...US_TOWNSHIPS].filter(
       (place) => place.lat >= south && place.lat <= north && place.lng >= west && place.lng <= east
@@ -518,6 +540,10 @@ export async function POST(request: NextRequest) {
 
     if (localPlaces.length > 0) {
       return NextResponse.json(placesToFeatureCollection(localPlaces, body.geometry));
+    }
+
+    if (getBBoxArea(body.bbox) > MAX_BBOX_AREA) {
+      return NextResponse.json({ type: 'FeatureCollection', features: [] });
     }
 
     if (getBBoxArea(body.bbox) > MAX_OVERPASS_BBOX_AREA) {

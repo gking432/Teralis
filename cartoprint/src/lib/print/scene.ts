@@ -151,10 +151,13 @@ export function syncDetail(scene: PrintScene): PrintScene {
     };
   }
   // State and country prints are cartographic editions: the design is
-  // authoritative. Capping it here silently turned "every town and city" back
-  // into "most towns", so the control promised something it never delivered.
+  // authoritative. Capping it here silently made the selected detail level
+  // render less geography than the customer chose.
   // Density belongs to the customer's choice, not to a hidden governor.
-  return { ...scene, detail: detailForRegion(scene.region, scene.detail, scene.place.kind) };
+  return {
+    ...scene,
+    detail: detailForRegion(scene.region, scene.detail, scene.place.kind, scene.detailBias),
+  };
 }
 
 /**

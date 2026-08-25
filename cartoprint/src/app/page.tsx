@@ -29,15 +29,15 @@ export default function StorefrontPage() {
             <span className="block italic text-[#cbd4cc]">Your story.</span>
           </h1>
           <p className="mt-8 max-w-xl text-[15px] font-light leading-7 text-[#dce2dd]/72 md:text-[17px]">
-            Start with a finished city map or an illustrated state atlas. Change the color, wording, landmarks, and little details only if you want to.
+            Start with a finished city map, a state Street Atlas, or a Topographic edition. Change the color, wording, and personal markers only if you want to.
           </p>
 
           <div className="mt-8 max-w-2xl">
             <LocationSearch placeholder="Search for a city or town" />
             <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-[#dce2dd]/58">
               <span className="mr-1 text-[9px] uppercase tracking-[0.2em] text-[#c66b4e]">Popular</span>
-              <Link href="/maps/wisconsin/doodle" className="border-b border-transparent pb-0.5 font-medium text-[#e1b39e] transition-colors hover:border-[#e1b39e]">
-                Wisconsin Doodle Atlas
+              <Link href="/maps/wisconsin" className="border-b border-transparent pb-0.5 font-medium text-[#e1b39e] transition-colors hover:border-[#e1b39e]">
+                Wisconsin collection
               </Link>
               {CITIES.map((city) => (
                 <Link
@@ -83,30 +83,37 @@ export default function StorefrontPage() {
       </section>
 
       <section className="border-y border-white/10 bg-[#e9e1d3] text-[#14201d]">
-        <Link href="/maps/wisconsin/doodle" className="group mx-auto grid max-w-[1500px] gap-8 px-5 py-12 sm:px-7 md:px-10 lg:grid-cols-[0.78fr_1.22fr] lg:items-center lg:px-16 lg:py-20">
+        <Link href="/maps/wisconsin" className="group mx-auto grid max-w-[1500px] gap-8 px-5 py-12 sm:px-7 md:px-10 lg:grid-cols-[0.78fr_1.22fr] lg:items-center lg:px-16 lg:py-20">
           <div className="max-w-xl">
-            <div className="text-[9px] uppercase tracking-[0.22em] text-[#a45c45]">New · illustrated state edition</div>
-            <h2 className="mt-5 font-hand text-[clamp(4rem,7vw,7rem)] font-semibold leading-[0.8] tracking-[-0.045em]">Wisconsin,<br />drawn like a story.</h2>
+            <div className="text-[9px] uppercase tracking-[0.22em] text-[#a45c45]">The state collection</div>
+            <h2 className="mt-5 font-display text-[clamp(3.7rem,6vw,6.5rem)] font-light leading-[0.82] tracking-[-0.04em]">Two ways to<br />read Wisconsin.</h2>
             <p className="mt-6 max-w-lg text-[13px] leading-6 text-[#53605a]">
-              Northwoods trees, Driftless hills, Great Lakes lettering, cities, landmarks, and the places only you know. Buy the finished atlas or move every personal detail yourself.
+              Choose the land itself—elevation, rivers, lakes, and open water—or the human network of roads, cities, and town names.
             </p>
             <span className="mt-7 inline-flex min-h-12 items-center border border-[#173f35] bg-[#173f35] px-6 text-[9px] font-medium uppercase tracking-[0.19em] text-white transition-colors group-hover:bg-[#c66b4e]">
-              Explore the Doodle Atlas →
+              Explore Wisconsin →
             </span>
           </div>
-          <div className="relative min-h-[390px] overflow-hidden border border-[#14201d]/15 bg-[#f8f3e9] p-6 sm:min-h-[470px] sm:p-10">
-            <div className="absolute left-[9%] top-[11%] font-hand text-4xl -rotate-6 text-[#365044]">Up North</div>
-            <div className="absolute right-[7%] top-[9%] text-[8px] uppercase tracking-[0.2em] text-[#68736e]">Doodle Atlas No. 01</div>
-            <svg viewBox="0 0 520 420" className="absolute inset-x-[10%] bottom-[4%] h-[78%] w-[80%] overflow-visible" aria-hidden="true">
-              <path d="M171 17 231 13 258 31 301 34 334 54 338 88 366 109 372 143 395 172 381 207 398 241 375 268 363 303 331 321 313 351 275 344 249 371 218 349 187 357 170 326 140 313 146 278 125 254 139 221 123 191 143 162 137 128 157 99 151 64Z" fill="#eee4d2" stroke="#27473d" strokeWidth="4" strokeLinejoin="round" />
-              <path d="M175 100c18-17 29-12 38 4m-45 11c20-16 35-11 44 5m-37 10c18-15 28-9 37 5M180 89l-17 39m43-39-13 48" fill="none" stroke="#315a47" strokeWidth="4" strokeLinecap="round" />
-              <path d="m168 258 24-26 22 27 21-18 28 33m-109 0 31-33 23 27" fill="none" stroke="#a65d47" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="m254 208 4 11 12 1-9 8 3 12-10-7-10 7 3-12-9-8 12-1Z" fill="#c26749" stroke="#65392e" strokeWidth="2" />
-              <path d="M337 96c22 34 26 75 20 113M342 82c17 26 30 41 46 56" fill="none" stroke="#5c8090" strokeWidth="5" strokeLinecap="round" strokeDasharray="2 12" />
-              <text x="271" y="302" fill="#243f37" fontSize="19" fontFamily="var(--font-hand), cursive" transform="rotate(-5 271 302)">Where We Met</text>
-              <text x="221" y="407" fill="#68736e" fontSize="12" letterSpacing="3">WISCONSIN</text>
-            </svg>
-            <div className="absolute bottom-5 right-6 text-[9px] uppercase tracking-[0.16em] text-[#758079]">Drag · label · remember</div>
+          <div className="grid min-h-[390px] gap-3 sm:min-h-[470px] sm:grid-cols-2">
+            <div className="relative overflow-hidden border border-[#14201d]/15 bg-[#173f35] p-7 text-[#f7f4eb] sm:p-9">
+              <div className="text-[8px] uppercase tracking-[0.2em] text-white/50">Edition 01</div>
+              <div className="absolute inset-x-0 top-1/4 grid gap-5 opacity-25" aria-hidden="true">
+                {[0, 1, 2, 3, 4, 5].map((line) => <span key={line} className="block h-px -rotate-3 bg-white" />)}
+              </div>
+              <div className="relative mt-24 font-condensed text-4xl uppercase tracking-[0.08em]">Topographic</div>
+              <p className="relative mt-3 text-[11px] leading-5 text-white/65">Elevation · rivers · lakes · water</p>
+            </div>
+            <div className="relative overflow-hidden border border-[#14201d]/15 bg-[#f8f3e9] p-7 sm:p-9">
+              <div className="text-[8px] uppercase tracking-[0.2em] text-[#758079]">Edition 02</div>
+              <div className="absolute inset-8 top-20 opacity-25" aria-hidden="true">
+                <span className="absolute left-1/2 h-full w-px rotate-12 bg-[#243f37]" />
+                <span className="absolute top-1/2 h-px w-full -rotate-12 bg-[#243f37]" />
+                <span className="absolute left-1/4 h-full w-px -rotate-6 bg-[#243f37]" />
+                <span className="absolute top-1/3 h-px w-full rotate-6 bg-[#243f37]" />
+              </div>
+              <div className="relative mt-24 font-display text-4xl">Street Atlas</div>
+              <p className="relative mt-3 text-[11px] leading-5 text-[#53605a]">Roads · cities · town names</p>
+            </div>
           </div>
         </Link>
       </section>
@@ -119,7 +126,7 @@ export default function StorefrontPage() {
               <h2 className="mt-4 font-display text-4xl font-light leading-none md:text-5xl">Every state, already composed.</h2>
             </div>
             <p className="max-w-sm text-[12px] leading-6 text-white/50">
-              Heritage and Topographic editions for all fifty states. Illustrated Doodle Atlas editions arrive state by state, starting with Wisconsin.
+              Topographic and Street Atlas editions for all fifty states, built from the same production cartography used in the editor and final print.
             </p>
           </div>
           <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2.5">

@@ -20,10 +20,5 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'monthly' as const,
       priority: 0.85,
     })),
-    {
-      url: `${SITE_URL}/maps/wisconsin/doodle`,
-      changeFrequency: 'weekly',
-      priority: 0.95,
-    },
   ];
 }

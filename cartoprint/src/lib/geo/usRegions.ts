@@ -7,7 +7,7 @@ import bundledStates from '@/data/us_states_50m.json';
  * (`place-colorado-united-states`), or from an ad deep link carrying only a
  * bbox. Anything keyed on the slug string alone therefore works for one entry
  * path and silently does nothing for the others — which is exactly how a state
- * print ended up with no illustrations at all when reached through search.
+ * print used to lose its state-specific configuration when reached by search.
  *
  * Geography is the one identity every path shares, so resolve by point.
  */

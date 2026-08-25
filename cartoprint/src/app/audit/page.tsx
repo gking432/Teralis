@@ -179,7 +179,7 @@ export default function AuditPage() {
 }
 
 /** A one-glance summary of what an edition is drawing. */
-function regionSummary(scene: { region: { theme: string; places: string; roads: string; counties: boolean; elevation: string } }): string {
-  if (scene.region.theme === 'topographic') return `relief ${scene.region.elevation}`;
-  return `${scene.region.places} places · ${scene.region.roads} roads${scene.region.counties ? ' · counties' : ''}`;
+function regionSummary(scene: { region: { theme: string }; detailBias: number }): string {
+  const detail = scene.detailBias === -1 ? 'clean' : scene.detailBias === 1 ? 'more detail' : 'detailed';
+  return `${scene.region.theme} · ${detail}`;
 }

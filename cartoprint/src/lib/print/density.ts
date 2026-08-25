@@ -48,10 +48,10 @@ const HIGHWAYS_MAX = 260;
 
 /**
  * A town label needs about half an inch of clear paper. Towns are ~5–15 mi
- * apart in settled country, so "every town" only works on a large sheet — this
- * is deliberately conservative so a small print never arrives as a wall of type.
+ * apart in settled country, so dense town labeling only works on a large sheet.
+ * This is deliberately conservative so a small print never becomes a wall of type.
  */
-const EVERY_TOWN_MAX = 14;
+const DENSE_TOWNS_MAX = 14;
 
 /** Named towns, thinned by the base style's own importance ranking. */
 const MAJOR_TOWNS_MAX = 70;
@@ -84,8 +84,6 @@ export interface ResolvedDensity {
   description: string;
   /** True when the frame is showing every residential street. */
   everyStreet: boolean;
-  /** True when every town in the frame is labelled. */
-  everyTown: boolean;
 }
 
 /** The short side of the sheet in inches — the axis the radius is measured on. */
@@ -135,7 +133,7 @@ function autoRoads(milesPerInch: number): Density {
 }
 
 function autoPlaces(milesPerInch: number): Density {
-  if (milesPerInch <= EVERY_TOWN_MAX) return 'more';
+  if (milesPerInch <= DENSE_TOWNS_MAX) return 'more';
   if (milesPerInch <= MAJOR_TOWNS_MAX) return 'neutral';
   if (milesPerInch <= CITIES_MAX) return 'less';
   return 'none';
@@ -196,7 +194,7 @@ const ROAD_WORDS: Record<Density, string> = {
 };
 
 const PLACE_WORDS: Record<Density, string> = {
-  more: 'every town',
+  more: 'additional towns',
   neutral: 'towns and cities',
   less: 'major cities',
   none: 'no place names',
@@ -258,23 +256,7 @@ export function resolveDensity({
     milesPerInch,
     description: `Showing ${parts.join(' and ')}`,
     everyStreet: roads === 'more',
-    everyTown: places === 'more',
   };
-}
-
-/**
- * The smallest paper that would let this frame show every town — used to tell
- * the user WHY a bigger print would give them more, instead of leaving them to
- * guess.
- */
-export function smallestSizeForEveryTown(
-  radiusMiles: number,
-  orientation: Orientation,
-): SizeLabel | null {
-  const sizes: SizeLabel[] = ['small', 'medium', 'large', 'xlarge'];
-  return sizes.find((size) =>
-    milesPerInchFor(radiusMiles, size, orientation) <= EVERY_TOWN_MAX,
-  ) ?? null;
 }
 
 /** Same question for the residential street network. */

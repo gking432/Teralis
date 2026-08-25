@@ -17,8 +17,8 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   if (!print || print.kind === 'country') return {};
 
   if (print.kind === 'state') {
-    const title = `${print.name} Map Print | Topographic & Atlas Editions | Terralis`;
-    const description = `Shop finished ${print.name} map prints — a topographic edition with elevation relief and rivers, and an atlas edition with roads, town names, and county lines — then personalize the wording, markers, and framing.`;
+    const title = `${print.name} Map Print | Topographic & Street Atlas Editions | Terralis`;
+    const description = `Shop finished ${print.name} map prints — a Topographic edition with elevation relief and rivers, and a Street Atlas edition with roads, cities, and town names — then personalize the wording, markers, and framing.`;
     return {
       title,
       description,

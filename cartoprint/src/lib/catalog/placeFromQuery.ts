@@ -110,7 +110,7 @@ export function buildPlaceCatalogPrint(input: {
 
   // A searched state is the same product as its catalog page. Without this,
   // "Colorado" arrives as `place-colorado-united-states` — a slug nothing
-  // recognises — so it loses its illustrations and its real subtitle, and is
+  // recognises — so it loses its regional configuration and real subtitle, and is
   // subtly a different print from the one the storefront sells.
   if (input.kind === 'state') {
     const canonical = getCatalogPrint(stateSlugForPlace({

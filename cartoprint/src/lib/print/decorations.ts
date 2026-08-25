@@ -4,16 +4,13 @@ import { printGeometry } from '@/lib/print/geometry';
 
 import type { RegionDesign } from '@/lib/print/regionDesign';
 
-export type { RegionTheme, FeatureLevel } from '@/lib/print/regionDesign';
+export type { RegionTheme } from '@/lib/print/regionDesign';
 
 /**
  * Customer-placed markers.
  *
- * Automatic illustration is gone: the region editions are cartographic, and
- * hand-drawn scenery generated for fifty states looked like clip art rather
- * than a print worth hanging. What remains is what a customer puts on their
- * own map on purpose — a star or a heart where something happened, and words
- * in their own handwriting.
+ * These are only the elements a customer deliberately adds to the map: a star
+ * or heart where something happened, and their own words.
  */
 export type DecorationKind = 'star' | 'heart' | 'text';
 
@@ -100,12 +97,9 @@ function decorationFamily(id: string): string {
 /**
  * What actually gets drawn, after collisions are resolved.
  *
- * Illustrations are anchored to real coordinates, so the same set of marks
- * crowds differently on every state, every orientation, and every zoom — a
- * lake label printed through a mountain is what makes a map look cheap. Rather
- * than hand-tuning each region, lower-priority scenery yields to higher at
- * render time, so the composition stays clean wherever the customer takes it.
- * The renderer, the live overlay, and /selftest all read this one function.
+ * Markers can be anchored to real coordinates, so the same personal elements
+ * crowd differently after reframing. Resolve those collisions in one place so
+ * the live preview and ordered artwork stay consistent.
  */
 export function layoutDecorations(
   scene: Pick<PrintScene, 'markers' | 'viewport' | 'orientation' | 'detail' | 'title'>,
@@ -243,11 +237,6 @@ export function drawDecorations(
 export function markerCacheTag(design: RegionDesign, markers: PrintDecoration[]): string {
   return [
     design.theme,
-    design.roads,
-    design.places,
-    design.elevation,
-    design.rivers,
-    design.counties ? 'c1' : 'c0',
     ...markers.map((item) => [
       item.id,
       item.kind,
