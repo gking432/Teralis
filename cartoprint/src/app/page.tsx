@@ -88,7 +88,7 @@ export default function StorefrontPage() {
             <div className="text-[9px] uppercase tracking-[0.22em] text-[#a45c45]">The state collection</div>
             <h2 className="mt-5 font-display text-[clamp(3.7rem,6vw,6.5rem)] font-light leading-[0.82] tracking-[-0.04em]">Two ways to<br />read Wisconsin.</h2>
             <p className="mt-6 max-w-lg text-[13px] leading-6 text-[#53605a]">
-              Choose the land itself—elevation, rivers, lakes, and open water—or the human network of roads, cities, and town names.
+              Choose the land itself—elevation, rivers, lakes, and open water—or a clean study of the road network.
             </p>
             <span className="mt-7 inline-flex min-h-12 items-center border border-[#173f35] bg-[#173f35] px-6 text-[9px] font-medium uppercase tracking-[0.19em] text-white transition-colors group-hover:bg-[#c66b4e]">
               Explore Wisconsin →
@@ -112,7 +112,7 @@ export default function StorefrontPage() {
                 <span className="absolute top-1/3 h-px w-full rotate-6 bg-[#243f37]" />
               </div>
               <div className="relative mt-24 font-display text-4xl">Street Atlas</div>
-              <p className="relative mt-3 text-[11px] leading-5 text-[#53605a]">Roads · cities · town names</p>
+              <p className="relative mt-3 text-[11px] leading-5 text-[#53605a]">Highways · main roads · secondary routes</p>
             </div>
           </div>
         </Link>

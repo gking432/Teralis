@@ -208,7 +208,6 @@ export async function renderScene(
               try {
                 map.moveLayer('mask-layer');
                 map.moveLayer('selection-outline-layer');
-                map.moveLayer('print-state-detail-place-labels');
               } catch {}
             })
             .catch(() => {}));

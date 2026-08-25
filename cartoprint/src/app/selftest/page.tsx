@@ -262,15 +262,15 @@ export default function SelfTest() {
     check('state maximum still omits place names', den('state', 150, 'xlarge', 1).places === 'none');
     check('state clean removes every road', den('state', 150, 'medium', -1).roads === 'none');
     check('state detailed shows main roads', den('state', 150, 'medium').roads === 'neutral');
-    check('state more detailed enables local roads', den('state', 150, 'medium', 1).roads === 'more');
+    check('state more detailed increases road density', den('state', 150, 'medium', 1).roads === 'more');
     const stateLayers = buildPrintLayerState('state', {
       ...scene.detail,
       places: 'more',
       labels: { ...scene.detail.labels, cities: true, towns: true },
     });
-    check('state layer gate accepts Street Atlas city and town labels',
-      !stateLayers.capitals && stateLayers.cities && stateLayers.towns && !stateLayers.statelabels);
-    check('state more detailed layer enables local roads',
+    check('state layer gate always suppresses city and town labels',
+      !stateLayers.capitals && !stateLayers.cities && !stateLayers.towns && !stateLayers.statelabels);
+    check('state more detailed layer increases road density',
       buildPrintLayerState('state', { ...scene.detail, roads: 'more' }).allroads === true);
 
     // Cities carry no place labels — the title block names them.
@@ -464,24 +464,25 @@ export default function SelfTest() {
     const atlasScene = sceneForCollectionDesign(editionPrint, STATE_COLLECTION_DESIGNS.find((d) => d.id === 'atlas')!);
     check('a region sells exactly two editions',
       STATE_COLLECTION_DESIGNS.map((d) => d.id).join() === 'topographic,atlas');
-    check('the atlas edition names towns and cities; topographic does not',
-      atlasScene.detail.labels.cities && atlasScene.detail.labels.towns
+    check('neither state edition prints town or city names',
+      !atlasScene.detail.labels.cities && !atlasScene.detail.labels.towns
         && !topoScene.detail.labels.cities && !topoScene.detail.labels.towns);
     check('the street atlas draws roads and omits rivers and county lines',
       atlasScene.detail.roads !== 'none' && !atlasScene.detail.rivers && !atlasScene.detail.counties);
     check('the topographic edition keeps rivers and drops roads and county lines',
       topoScene.detail.rivers && topoScene.detail.roads === 'none' && !topoScene.detail.counties);
     check('the two editions are visibly different maps',
-      atlasScene.detail.places !== topoScene.detail.places
-        && atlasScene.detail.roads !== topoScene.detail.roads);
+      atlasScene.detail.roads !== topoScene.detail.roads
+        && atlasScene.detail.rivers !== topoScene.detail.rivers);
     check('each edition carries its own typography and palette',
       atlasScene.title.font !== topoScene.title.font && atlasScene.paletteId !== topoScene.paletteId);
 
     // A graded control that does not change the map is a control that lies.
-    const placeDensities = REGION_DETAIL_LEVELS.map((detailBias) =>
-      normalizeScene({ ...atlasScene, detailBias }).detail.places);
-    check('every Street Atlas detail level changes town density',
-      new Set(placeDensities).size === 3, placeDensities.join(' → '));
+    check('every Street Atlas detail level keeps place names off',
+      REGION_DETAIL_LEVELS.every((detailBias) => {
+        const detail = normalizeScene({ ...atlasScene, detailBias }).detail;
+        return detail.places === 'none' && !detail.labels.cities && !detail.labels.towns;
+      }));
     const roadDensities = REGION_DETAIL_LEVELS.map((detailBias) =>
       normalizeScene({ ...atlasScene, detailBias }).detail.roads);
     check('every Street Atlas detail level changes road density',
@@ -609,7 +610,8 @@ export default function SelfTest() {
     const searchedScene = createPrintScene(searchedColorado, 'portrait');
     check('a searched state still draws a complete map',
       searchedScene.detail.roads !== 'none'
-        && searchedScene.detail.labels.cities
+        && !searchedScene.detail.labels.cities
+        && !searchedScene.detail.labels.towns
         && !searchedScene.detail.rivers,
       `${searchedScene.detail.roads} roads · ${searchedScene.detail.places} places`);
 
@@ -624,7 +626,8 @@ export default function SelfTest() {
     }));
     check('a bbox-only deep link resolves to the same print',
       deepLinked?.slug === 'michigan'
-        && createPrintScene(deepLinked!, 'portrait').detail.labels.cities);
+        && !createPrintScene(deepLinked!, 'portrait').detail.labels.cities
+        && !createPrintScene(deepLinked!, 'portrait').detail.labels.towns);
 
     // Whatever the entry path, the same place must produce the same artwork.
     const catalogColorado = createPrintScene(getCatalogPrint('colorado')!, 'portrait');

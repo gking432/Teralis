@@ -228,10 +228,10 @@ function ViewPanel({ scene, update }: PanelProps) {
     : scene.place.kind === 'state'
       ? scene.region.theme === 'atlas'
         ? scene.detailBias === -1
-          ? 'Highways and major city names.'
+          ? 'Highways only.'
           : scene.detailBias === 1
-          ? 'Secondary routes and additional town and city names.'
-            : 'Highways, main roads, cities, and town names.'
+          ? 'Highways, main roads, and secondary routes.'
+            : 'Highways and main roads.'
         : scene.detailBias === -1
           ? 'Quiet elevation relief with major waterways and open water.'
           : scene.detailBias === 1

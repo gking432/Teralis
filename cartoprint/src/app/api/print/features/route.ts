@@ -446,9 +446,6 @@ async function getStateDetailFeatures(
       collect('waterway', 'river', () => true);
       collect('water', 'lake', () => true);
       collect('boundary', 'county', (properties) => Number(properties.admin_level) === 6);
-      collect('place', 'place', (properties) =>
-        ['city', 'town', 'village'].includes(String(properties.class || ''))
-          && Boolean(properties.name_en || properties.name));
       return tileFeatures;
     }));
     tiles.forEach((tileFeatures) => features.push(...tileFeatures));

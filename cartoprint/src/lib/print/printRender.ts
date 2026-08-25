@@ -143,8 +143,6 @@ const STATE_DETAIL_LAYERS = [
   'print-state-detail-county-boundaries',
   'print-state-detail-rivers',
   'print-state-detail-roads',
-  'print-state-detail-place-dots',
-  'print-state-detail-place-labels',
 ] as const;
 
 export function removeDetailedStateFeatures(map: maplibregl.Map): void {
@@ -156,7 +154,7 @@ export function removeDetailedStateFeatures(map: maplibregl.Map): void {
   } catch {}
 }
 
-/** Re-project state-detail strokes and labels after the live canvas resizes. */
+/** Re-project state-detail strokes after the live canvas resizes. */
 export function styleDetailedStateFeatures(
   map: maplibregl.Map,
   scale: StrokeScale = UNSCALED,
@@ -182,28 +180,6 @@ export function styleDetailedStateFeatures(
         'print-state-detail-roads',
         'line-width',
         scaledWidth(STROKE_CURVES.street, scale, weight * 0.9),
-      );
-    }
-    if (map.getLayer('print-state-detail-place-dots')) {
-      map.setPaintProperty('print-state-detail-place-dots', 'circle-radius', [
-        'interpolate', ['linear'], ['get', 'rank'],
-        2, scaledValue(3.2, scale), 14, scaledValue(1.45, scale),
-      ]);
-    }
-    if (map.getLayer('print-state-detail-place-labels')) {
-      map.setLayoutProperty('print-state-detail-place-labels', 'text-size', [
-        'interpolate', ['linear'], ['get', 'rank'],
-        2, scaledValue(32, scale), 14, scaledValue(18, scale),
-      ]);
-      map.setLayoutProperty(
-        'print-state-detail-place-labels',
-        'text-padding',
-        scaledValue(2.25, scale),
-      );
-      map.setPaintProperty(
-        'print-state-detail-place-labels',
-        'text-halo-width',
-        scaledValue(1.6, scale),
       );
     }
   } catch {}
@@ -271,46 +247,6 @@ export function addDetailedStateFeatures(
         'line-color': colors.roads || getPrintInkColor(colors),
         'line-opacity': 0.38,
         'line-width': scaledWidth(STROKE_CURVES.street, scale, weight * 0.9),
-      },
-    }, beforeMask);
-    map.addLayer({
-      id: 'print-state-detail-place-dots',
-      type: 'circle',
-      source: STATE_DETAIL_SOURCE_ID,
-      filter: ['==', ['get', 'kind'], 'place'],
-      paint: {
-        'circle-color': colors.roads || getPrintInkColor(colors),
-        'circle-radius': ['interpolate', ['linear'], ['get', 'rank'],
-          2, scaledValue(3.2, scale), 14, scaledValue(1.45, scale)],
-        'circle-opacity': 0.78,
-      },
-    }, beforeMask);
-    map.addLayer({
-      id: 'print-state-detail-place-labels',
-      type: 'symbol',
-      source: STATE_DETAIL_SOURCE_ID,
-      filter: ['==', ['get', 'kind'], 'place'],
-      layout: {
-        'text-field': ['get', 'name'],
-        'text-font': ['Noto Sans Regular'],
-        // This source is added after the map has been supersampled. Fixed
-        // pixel sizes were then downsampled into near-invisible type in the
-        // storefront export; scale them just like every other print label.
-        'text-size': ['interpolate', ['linear'], ['get', 'rank'],
-          2, scaledValue(32, scale), 14, scaledValue(18, scale)],
-        'text-variable-anchor': ['top', 'bottom', 'left', 'right'],
-        'text-radial-offset': 0.45,
-        'text-justify': 'auto',
-        'text-allow-overlap': false,
-        'text-optional': true,
-        'symbol-avoid-edges': true,
-        'text-padding': scaledValue(2.25, scale),
-        'symbol-sort-key': ['get', 'rank'],
-      },
-      paint: {
-        'text-color': colors.roads || getPrintInkColor(colors),
-        'text-halo-color': colors.land || '#ffffff',
-        'text-halo-width': scaledValue(1.6, scale),
       },
     }, beforeMask);
     styleDetailedStateFeatures(map, scale, weight);
@@ -461,13 +397,13 @@ export function buildPrintLayerState(
     };
   }
 
-  // The Street Atlas uses the base style's ranked state-scale labels. The
-  // Topographic edition passes both values as false.
+  // Region editions keep place labels off; customer-added text remains the
+  // only wording inside the map itself.
   return {
     ...STATE_PRINT_LAYER_STATE,
     capitals: false,
-    cities,
-    towns,
+    cities: false,
+    towns: false,
     highways,
     mainroads,
     allroads,
@@ -769,13 +705,10 @@ export function applyRegionMapLayers(
     const isDetailedRiver = layer.id === 'print-state-detail-rivers';
     const isDetailedRoad = layer.id === 'print-state-detail-roads';
     const isDetailedCounty = layer.id === 'print-state-detail-county-boundaries';
-    const isDetailedPlace = layer.id === 'print-state-detail-place-dots'
-      || layer.id === 'print-state-detail-place-labels';
     try {
       if (kind === 'state' && (group === 'cities' || group === 'towns')) {
-        // State labels come from the same ranked, boundary-filtered source used
-        // by the export. Hiding base symbols prevents two label engines from
-        // colliding and suppressing one another.
+        // State editions are intentionally unlabelled. The only words on the
+        // map are the title and customer-added personal text.
         map.setLayoutProperty(layer.id, 'visibility', 'none');
       } else if (kind === 'state' && group === 'allroads') {
         // The boundary-filtered detail source is the single controlled local
@@ -788,17 +721,6 @@ export function applyRegionMapLayers(
         map.setLayoutProperty(layer.id, 'visibility', showDetailedRoads ? 'visible' : 'none');
       } else if (isDetailedCounty) {
         map.setLayoutProperty(layer.id, 'visibility', 'none');
-      } else if (isDetailedPlace) {
-        // Tile ranks jump from a few regional centers to hundreds of small
-        // towns at rank 11. Keep the three settings on the useful side of
-        // that cliff: 5 / ~20 / ~30 labels for a Wisconsin-sized frame.
-        const rank = detailBias === -1 ? 6 : detailBias === 1 ? 9 : 8;
-        map.setLayoutProperty(layer.id, 'visibility', design.theme === 'atlas' ? 'visible' : 'none');
-        map.setFilter(layer.id, [
-          'all',
-          ['==', ['get', 'kind'], 'place'],
-          ['<=', ['coalesce', ['get', 'rank'], 99], rank],
-        ]);
       } else if (isDetailedLake) {
         map.setLayoutProperty(layer.id, 'visibility', 'visible');
         if (detailBias === -1) {

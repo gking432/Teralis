@@ -65,8 +65,8 @@ export interface PrintScene {
   strokeWeight: number;
   /**
    * Paper size. It lives in the scene because it changes the ARTWORK, not just
-   * the checkout line item: a bigger sheet can legibly carry more streets and
-   * more town names for the same piece of ground.
+   * the checkout line item: a bigger sheet can legibly carry more streets for
+   * the same piece of ground.
    */
   size: SizeLabel;
   /** User nudge on the resolved density: −1 cleaner, 0 automatic, +1 maximum. */

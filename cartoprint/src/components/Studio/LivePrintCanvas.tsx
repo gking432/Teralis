@@ -360,7 +360,6 @@ export function LivePrintCanvas({
         try {
           map.moveLayer('mask-layer');
           map.moveLayer('selection-outline-layer');
-          map.moveLayer('print-state-detail-place-labels');
         } catch {}
         // The state GeoJSON is already local at this point, so the next frame
         // contains the added linework and labels. Waiting for full map `idle`

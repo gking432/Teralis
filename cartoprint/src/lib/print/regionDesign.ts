@@ -5,7 +5,7 @@ import type { Density, PrintDetailSettings } from '@/lib/print/printRender';
  * State and country prints come in two honest cartographic editions:
  *
  *   Topographic — elevation, rivers, lakes, and open water.
- *   Atlas       — roads, cities, and town names.
+ *   Atlas       — the road network, without place-name clutter.
  *
  * The Composition panel's single Map detail control changes the amount of
  * geography inside either edition. There are no duplicate per-layer controls.
@@ -36,7 +36,7 @@ export const REGION_THEMES: Array<{
   {
     id: 'atlas',
     name: 'Street Atlas',
-    blurb: 'Roads, cities, and town names. No terrain or river layer.',
+    blurb: 'Road hierarchy without terrain, rivers, or place names.',
     palette: 'bone',
     font: 'condensed',
   },
@@ -82,14 +82,14 @@ export function detailForRegion(
   return {
     ...base,
     roads: atlas ? density : 'none',
-    places: atlas ? density : 'none',
+    places: 'none',
     rivers: !atlas,
     counties: false,
     states: kind === 'country',
     labels: {
       ...base.labels,
-      cities: atlas,
-      towns: atlas && detailBias !== -1,
+      cities: false,
+      towns: false,
       roads: false,
       water: false,
       rivers: false,

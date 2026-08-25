@@ -130,7 +130,7 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
             <div className="relative flex min-h-[570px] items-center justify-center overflow-hidden border border-white/10 bg-white/[0.035] p-5 sm:min-h-[720px] sm:p-9 lg:min-h-[calc(100vh-155px)]">
               {artwork ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={artwork} alt={design.id === 'topographic' ? `${print.name} topographic map print with elevation relief and rivers` : `${design.name} ${print.name} map print with roads, cities, and town names`} className="aspect-[3/4] h-auto max-h-[calc(100vh-205px)] w-auto max-w-full shadow-[0_35px_90px_rgba(0,0,0,0.42)]" />
+                <img src={artwork} alt={design.id === 'topographic' ? `${print.name} topographic map print with elevation relief and rivers` : `${design.name} ${print.name} map print with a clean road hierarchy`} className="aspect-[3/4] h-auto max-h-[calc(100vh-205px)] w-auto max-w-full shadow-[0_35px_90px_rgba(0,0,0,0.42)]" />
               ) : (
                 <div className="grid aspect-[3/4] w-[min(82vw,520px)] place-items-center bg-[#f7f3ea] text-[#3a352e] shadow-[0_35px_90px_rgba(0,0,0,0.42)]">
                   <div className="text-center">
