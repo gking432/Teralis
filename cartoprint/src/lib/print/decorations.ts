@@ -145,7 +145,7 @@ export function createPersonalDecoration(
     size: kind === 'text' ? 0.82 : 0.72,
     rotation: 0,
     text: kind === 'text' ? (text || 'Where We Met') : undefined,
-    font: kind === 'text' ? 'hand' : 'atlas',
+    font: 'atlas',
     source: 'personal',
   };
 }

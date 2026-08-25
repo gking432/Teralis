@@ -156,6 +156,59 @@ export function removeDetailedStateFeatures(map: maplibregl.Map): void {
   } catch {}
 }
 
+/** Re-project state-detail strokes and labels after the live canvas resizes. */
+export function styleDetailedStateFeatures(
+  map: maplibregl.Map,
+  scale: StrokeScale = UNSCALED,
+  weight = 1,
+): void {
+  try {
+    if (map.getLayer('print-state-detail-county-boundaries')) {
+      map.setPaintProperty(
+        'print-state-detail-county-boundaries',
+        'line-width',
+        scaledWidth(STROKE_CURVES.countyBorder, scale, weight),
+      );
+    }
+    if (map.getLayer('print-state-detail-rivers')) {
+      map.setPaintProperty(
+        'print-state-detail-rivers',
+        'line-width',
+        scaledWidth(STROKE_CURVES.waterway, scale, weight),
+      );
+    }
+    if (map.getLayer('print-state-detail-roads')) {
+      map.setPaintProperty(
+        'print-state-detail-roads',
+        'line-width',
+        scaledWidth(STROKE_CURVES.street, scale, weight * 0.9),
+      );
+    }
+    if (map.getLayer('print-state-detail-place-dots')) {
+      map.setPaintProperty('print-state-detail-place-dots', 'circle-radius', [
+        'interpolate', ['linear'], ['get', 'rank'],
+        2, scaledValue(3.2, scale), 14, scaledValue(1.45, scale),
+      ]);
+    }
+    if (map.getLayer('print-state-detail-place-labels')) {
+      map.setLayoutProperty('print-state-detail-place-labels', 'text-size', [
+        'interpolate', ['linear'], ['get', 'rank'],
+        2, scaledValue(32, scale), 14, scaledValue(18, scale),
+      ]);
+      map.setLayoutProperty(
+        'print-state-detail-place-labels',
+        'text-padding',
+        scaledValue(2.25, scale),
+      );
+      map.setPaintProperty(
+        'print-state-detail-place-labels',
+        'text-halo-width',
+        scaledValue(1.6, scale),
+      );
+    }
+  } catch {}
+}
+
 /** Add geography that low-zoom state tiles do not contain. */
 export function addDetailedStateFeatures(
   map: maplibregl.Map,
@@ -204,7 +257,7 @@ export function addDetailedStateFeatures(
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': colors.water || getPrintInkColor(colors),
-        'line-opacity': 0.78,
+        'line-opacity': 0.58,
         'line-width': scaledWidth(STROKE_CURVES.waterway, scale, weight),
       },
     }, beforeMask);
@@ -216,8 +269,8 @@ export function addDetailedStateFeatures(
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': colors.roads || getPrintInkColor(colors),
-        'line-opacity': 0.58,
-        'line-width': scaledWidth(STROKE_CURVES.street, scale, weight),
+        'line-opacity': 0.38,
+        'line-width': scaledWidth(STROKE_CURVES.street, scale, weight * 0.9),
       },
     }, beforeMask);
     map.addLayer({
@@ -226,9 +279,10 @@ export function addDetailedStateFeatures(
       source: STATE_DETAIL_SOURCE_ID,
       filter: ['==', ['get', 'kind'], 'place'],
       paint: {
-        'circle-color': getPrintInkColor(colors),
-        'circle-radius': ['interpolate', ['linear'], ['get', 'rank'], 2, 2.4, 14, 1.1],
-        'circle-opacity': 0.58,
+        'circle-color': colors.roads || getPrintInkColor(colors),
+        'circle-radius': ['interpolate', ['linear'], ['get', 'rank'],
+          2, scaledValue(3.2, scale), 14, scaledValue(1.45, scale)],
+        'circle-opacity': 0.78,
       },
     }, beforeMask);
     map.addLayer({
@@ -239,22 +293,27 @@ export function addDetailedStateFeatures(
       layout: {
         'text-field': ['get', 'name'],
         'text-font': ['Noto Sans Regular'],
-        'text-size': ['interpolate', ['linear'], ['get', 'rank'], 2, 13, 14, 8.5],
+        // This source is added after the map has been supersampled. Fixed
+        // pixel sizes were then downsampled into near-invisible type in the
+        // storefront export; scale them just like every other print label.
+        'text-size': ['interpolate', ['linear'], ['get', 'rank'],
+          2, scaledValue(32, scale), 14, scaledValue(18, scale)],
         'text-variable-anchor': ['top', 'bottom', 'left', 'right'],
         'text-radial-offset': 0.45,
         'text-justify': 'auto',
         'text-allow-overlap': false,
         'text-optional': true,
         'symbol-avoid-edges': true,
-        'text-padding': 1.5,
+        'text-padding': scaledValue(2.25, scale),
         'symbol-sort-key': ['get', 'rank'],
       },
       paint: {
-        'text-color': getPrintInkColor(colors),
+        'text-color': colors.roads || getPrintInkColor(colors),
         'text-halo-color': colors.land || '#ffffff',
-        'text-halo-width': 1.25,
+        'text-halo-width': scaledValue(1.6, scale),
       },
     }, beforeMask);
+    styleDetailedStateFeatures(map, scale, weight);
     return true;
   } catch {
     removeDetailedStateFeatures(map);
@@ -623,6 +682,12 @@ export function applyPrintColors(
         id === 'selection-outline-layer' ||
         id.startsWith('print-exclusions-')
       ) return;
+      if (layer.type === 'hillshade') {
+        map.setPaintProperty(id, 'hillshade-shadow-color', water);
+        map.setPaintProperty(id, 'hillshade-highlight-color', land);
+        map.setPaintProperty(id, 'hillshade-accent-color', roads);
+        return;
+      }
       if (layer.type === 'background') {
         map.setPaintProperty(id, 'background-color', land);
         return;
@@ -696,7 +761,7 @@ export function applyRegionMapLayers(
   if (!style) return;
   const showTerrain = design.theme === 'topographic';
   const showDetailedRoads = design.theme === 'atlas' && detailBias === 1;
-  const showDetailedRivers = showTerrain && detailBias !== -1;
+  const showDetailedRivers = showTerrain;
 
   style.layers.forEach((layer) => {
     const group = classifyLayer(layer.id);
@@ -712,6 +777,11 @@ export function applyRegionMapLayers(
         // by the export. Hiding base symbols prevents two label engines from
         // colliding and suppressing one another.
         map.setLayoutProperty(layer.id, 'visibility', 'none');
+      } else if (kind === 'state' && group === 'allroads') {
+        // The boundary-filtered detail source is the single controlled local
+        // road pass for states. Keeping Liberty's local-road layers as well
+        // doubled the network into an unreadable gray mesh at More detail.
+        map.setLayoutProperty(layer.id, 'visibility', 'none');
       } else if (isDetailedRoad) {
         // The base style supplies highways and main roads. The shared
         // high-resolution pass adds secondary routes only at More detail.
@@ -719,27 +789,49 @@ export function applyRegionMapLayers(
       } else if (isDetailedCounty) {
         map.setLayoutProperty(layer.id, 'visibility', 'none');
       } else if (isDetailedPlace) {
-        const rank = detailBias === -1 ? 6 : detailBias === 1 ? 14 : 9;
+        // Tile ranks jump from a few regional centers to hundreds of small
+        // towns at rank 11. Keep the three settings on the useful side of
+        // that cliff: 5 / ~20 / ~30 labels for a Wisconsin-sized frame.
+        const rank = detailBias === -1 ? 6 : detailBias === 1 ? 9 : 8;
         map.setLayoutProperty(layer.id, 'visibility', design.theme === 'atlas' ? 'visible' : 'none');
         map.setFilter(layer.id, [
           'all',
           ['==', ['get', 'kind'], 'place'],
           ['<=', ['coalesce', ['get', 'rank'], 99], rank],
         ]);
-      } else if (group === 'water' || isDetailedLake) {
+      } else if (isDetailedLake) {
+        map.setLayoutProperty(layer.id, 'visibility', 'visible');
+        if (detailBias === -1) {
+          map.setFilter(layer.id, ['all',
+            ['==', ['get', 'kind'], 'lake'],
+            ['==', ['get', 'class'], 'major'],
+          ]);
+          map.setPaintProperty(layer.id, 'fill-opacity', 0.82);
+        } else {
+          map.setFilter(layer.id, ['==', ['get', 'kind'], 'lake']);
+          map.setPaintProperty(layer.id, 'fill-opacity', detailBias === 1
+            ? 0.95
+            : ['match', ['get', 'class'], 'major', 0.88, 'medium', 0.64, 0.34]);
+        }
+      } else if (group === 'water') {
         map.setLayoutProperty(layer.id, 'visibility', 'visible');
       } else if (isDetailedRiver) {
         map.setLayoutProperty(layer.id, 'visibility', showDetailedRivers ? 'visible' : 'none');
         if (showDetailedRivers) {
+          const riverClasses = detailBias === -1 ? ['river'] : ['river', 'canal'];
           map.setFilter(layer.id, detailBias === 1
             ? ['==', ['get', 'kind'], 'river']
             : ['all',
-                ['==', ['get', 'kind'], 'river'],
-                ['match', ['get', 'class'], ['river', 'canal'], true, false],
-              ]);
+              ['==', ['get', 'kind'], 'river'],
+              ['match', ['get', 'class'], riverClasses, true, false],
+            ]);
+          map.setPaintProperty(layer.id, 'line-opacity', detailBias === 1 ? 0.42 : 0.62);
         }
       } else if (group === 'rivers') {
-        map.setLayoutProperty(layer.id, 'visibility', detail.rivers ? 'visible' : 'none');
+        // State river density comes from the ranked, boundary-filtered source
+        // above. Hiding the uncontrolled base waterways makes Clean/Detailed/
+        // More distinct and prevents two copies of the same river network.
+        map.setLayoutProperty(layer.id, 'visibility', kind === 'state' ? 'none' : detail.rivers ? 'visible' : 'none');
       } else if (layer.id === 'hillshade-layer') {
         map.setLayoutProperty(layer.id, 'visibility', showTerrain ? 'visible' : 'none');
         if (showTerrain) {
@@ -776,8 +868,25 @@ export function applyPrintMapStyle(
   applyPrintColors(map, colors, scale);
 }
 
-/** Sets the isolation mask (area outside the region) to the ink color. */
+/** Sets the isolation mask to paper, clipping neighboring geography quietly. */
 export function applyPrintMaskColor(map: maplibregl.Map, colors: PreviewColorSettings): void {
-  const ink = getPrintInkColor(colors);
-  try { map.setPaintProperty('mask-layer', 'fill-color', ink); } catch {}
+  try { map.setPaintProperty('mask-layer', 'fill-color', colors.land || '#ffffff'); } catch {}
+}
+
+/** Draw a deliberate state/country edge without turning the sheet into a slab. */
+export function applyPrintRegionOutline(
+  map: maplibregl.Map,
+  geometry: GeoJSON.Geometry,
+  colors: PreviewColorSettings,
+  scale: StrokeScale = UNSCALED,
+): void {
+  try {
+    const source = map.getSource('selection-outline') as maplibregl.GeoJSONSource;
+    source?.setData({ type: 'Feature', properties: {}, geometry });
+    map.setLayoutProperty('selection-outline-layer', 'visibility', 'visible');
+    map.setPaintProperty('selection-outline-layer', 'line-color', colors.roads || getPrintInkColor(colors));
+    map.setPaintProperty('selection-outline-layer', 'line-opacity', 0.82);
+    map.setPaintProperty('selection-outline-layer', 'line-width', scaledValue(1.5, scale));
+    map.moveLayer('selection-outline-layer');
+  } catch {}
 }

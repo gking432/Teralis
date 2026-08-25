@@ -31,14 +31,14 @@ export const REGION_THEMES: Array<{
     name: 'Topographic',
     blurb: 'Elevation relief, rivers, lakes, and open water.',
     palette: 'forest',
-    font: 'condensed',
+    font: 'editorial',
   },
   {
     id: 'atlas',
     name: 'Street Atlas',
     blurb: 'Roads, cities, and town names. No terrain or river layer.',
     palette: 'bone',
-    font: 'editorial',
+    font: 'condensed',
   },
 ];
 
@@ -57,9 +57,12 @@ function densityForBias(bias: DetailBias): Density {
 }
 
 export function hillshadeExaggeration(bias: DetailBias): number {
-  if (bias === -1) return 0.45;
-  if (bias === 1) return 1.15;
-  return 0.8;
+  // MapLibre constrains hillshade exaggeration to 0..1. Values above 1 are
+  // rejected, which made the old "More detailed" setting appear to do
+  // nothing. Keep all three steps legal and visibly distinct.
+  if (bias === -1) return 0.52;
+  if (bias === 1) return 1;
+  return 0.82;
 }
 
 /**

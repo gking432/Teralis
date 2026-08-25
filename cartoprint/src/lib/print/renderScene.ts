@@ -11,6 +11,7 @@ import {
   applyRegionMapLayers,
   applyPrintMapStyle,
   applyPrintMaskColor,
+  applyPrintRegionOutline,
 } from '@/lib/print/printRender';
 import { fetchDetailedCityRoads } from '@/lib/print/cityRoads';
 import { fetchDetailedStateFeatures } from '@/lib/print/stateDetails';
@@ -170,6 +171,7 @@ export async function renderScene(
               bbox: scene.viewport.bbox,
             });
             applyPrintMaskColor(map, scene.colors);
+            applyPrintRegionOutline(map, boundary, scene.colors, scale);
           } catch {}
         }
 
@@ -205,6 +207,7 @@ export async function renderScene(
               applyRegionMapLayers(map, scene.region, scene.detail, scene.detailBias, kind);
               try {
                 map.moveLayer('mask-layer');
+                map.moveLayer('selection-outline-layer');
                 map.moveLayer('print-state-detail-place-labels');
               } catch {}
             })
@@ -259,6 +262,23 @@ export async function renderScene(
       targetMapW,
       targetMapH,
     );
+
+    // A single quiet rule connects the map and title as one composed sheet.
+    // It replaces the old heavy ink frame without letting the footer float.
+    if (geo.titleBand) {
+      const y = Math.round((geo.titleBand.edge === 'top'
+        ? geo.titleBand.height
+        : 1 - geo.titleBand.height) * sheetH);
+      ctx.save();
+      ctx.strokeStyle = ink;
+      ctx.globalAlpha = 0.18;
+      ctx.lineWidth = Math.max(1, sheetW / 1200);
+      ctx.beginPath();
+      ctx.moveTo(sheetW * 0.055, y);
+      ctx.lineTo(sheetW * 0.945, y);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     // Personal story elements use sheet coordinates and are drawn after the
     // map, before the title. The live overlay uses the same scene objects, so

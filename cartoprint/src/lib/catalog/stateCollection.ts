@@ -2,6 +2,7 @@ import type { CatalogPrint } from '@/lib/catalog/prints';
 import { applyPalette, createPrintScene, normalizeScene, type PrintScene } from '@/lib/print/scene';
 import { getPalette } from '@/lib/print/palettes';
 import { defaultRegionDesign, REGION_THEMES, type RegionTheme } from '@/lib/print/regionDesign';
+import { rectForSlot } from '@/lib/print/title';
 
 /**
  * The editions a region print is sold in.
@@ -45,7 +46,16 @@ export function sceneForCollectionDesign(print: CatalogPrint, design: Collection
   const recolored = applyPalette(base, getPalette(design.palette));
   return normalizeScene({
     ...recolored,
+    layoutId: 'footer',
+    detailBias: design.id === 'topographic' ? -1 : 0,
     region: defaultRegionDesign(design.id),
-    title: { ...recolored.title, enabled: true, font: design.font },
+    detail: { ...recolored.detail, border: 'none' },
+    title: {
+      ...recolored.title,
+      enabled: true,
+      font: design.font,
+      slot: 'footer',
+      ...rectForSlot('footer'),
+    },
   });
 }

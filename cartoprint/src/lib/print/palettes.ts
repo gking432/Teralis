@@ -24,7 +24,6 @@ export interface Palette {
 }
 
 const PAPER_WHITE = '#ffffff';
-const PAPER_BONE = '#f7f3ea';
 const PAPER_INK = '#101820';
 const PAPER_NIGHT = '#0b0f14';
 
@@ -68,11 +67,11 @@ export const PALETTES: Palette[] = [
   {
     id: 'bone',
     name: 'Bone',
-    blurb: 'Charcoal on warm paper',
-    colors: { land: PAPER_BONE, water: '#5c574e', roads: '#3a352e' },
+    blurb: 'Charcoal and slate on warm paper',
+    colors: { land: '#f4f0e7', water: '#617784', roads: '#4b433a' },
     accents: ['#3a352e', '#4a4239', '#5c4a3a', '#43473c', '#54473f'],
     darkPaper: false,
-    strokeWeight: 0.9,
+    strokeWeight: 1,
   },
   {
     id: 'terracotta',
@@ -95,11 +94,11 @@ export const PALETTES: Palette[] = [
   {
     id: 'forest',
     name: 'Forest',
-    blurb: 'Deep green on white',
-    colors: { land: PAPER_WHITE, water: '#1f3d34', roads: '#25503f' },
+    blurb: 'Deep green on warm paper',
+    colors: { land: '#f0ede2', water: '#28584d', roads: '#315d50' },
     accents: ['#25503f', '#1f3d34', '#2f5c46', '#38553a', '#1a4438'],
     darkPaper: false,
-    strokeWeight: 1,
+    strokeWeight: 0.95,
   },
   {
     id: 'midnight',

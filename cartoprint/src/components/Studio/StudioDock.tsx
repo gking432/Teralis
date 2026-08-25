@@ -889,7 +889,7 @@ function TitlePanel({ scene, update }: PanelProps) {
                         onChange={(event) => updateDecoration(item.id, { font: event.target.value as DecorationFont }, 'personal-font')}
                         className="rounded-sm border border-[#d8d9d3] bg-white px-2 py-2 text-[10px]"
                       >
-                        <option value="hand">Hand</option>
+                        <option value="hand">Script</option>
                         <option value="atlas">Serif</option>
                         <option value="modern">Modern</option>
                         <option value="condensed">Atlas</option>

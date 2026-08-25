@@ -242,7 +242,12 @@ export function createPrintScene(
     size: 'medium',
     detailBias: 0,
     labelsAuto: true,
-    detail: detailForLayout(layout, print.kind),
+    detail: {
+      ...detailForLayout(layout, print.kind),
+      // Regional artwork starts as an open, paper-first composition. A heavy
+      // ink frame made the state read as a white cutout in a dark rectangle.
+      ...(print.kind === 'state' ? { border: 'none' as const } : {}),
+    },
     title: {
       ...applyLayoutToTitle(defaultTitleDesign(
         print.defaultTitle,
@@ -254,10 +259,10 @@ export function createPrintScene(
       // Framing and color come first. The label is introduced only when the
       // customer reaches the composition step.
       ...(print.kind === 'state'
-        ? { slot: 'footer-tall' as const, ...rectForSlot('footer-tall') }
+        ? { slot: 'footer' as const, ...rectForSlot('footer') }
         : {}),
       enabled: print.kind === 'state',
-      font: print.kind === 'state' ? 'hand' : 'editorial',
+      font: print.kind === 'state' ? 'condensed' : 'editorial',
     },
     region: defaultRegionDesign(print.kind === 'city' ? 'atlas' : 'atlas'),
     markers: [],

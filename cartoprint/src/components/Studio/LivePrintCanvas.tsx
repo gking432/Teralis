@@ -9,11 +9,13 @@ import {
   applyPrintDetail,
   applyPrintMapStyle,
   applyPrintMaskColor,
+  applyPrintRegionOutline,
   addDetailedCityRoads,
   addDetailedStateFeatures,
   applyRegionMapLayers,
   removeDetailedStateFeatures,
   setDetailedCityRoadsVisible,
+  styleDetailedStateFeatures,
 } from '@/lib/print/printRender';
 import { fetchDetailedCityRoads } from '@/lib/print/cityRoads';
 import { fetchDetailedStateFeatures } from '@/lib/print/stateDetails';
@@ -333,8 +335,9 @@ export function LivePrintCanvas({
         bbox: sceneRef.current.viewport.bbox,
       });
       applyPrintMaskColor(map, scene.colors);
+      applyPrintRegionOutline(map, geometry, scene.colors, currentScale());
     } catch {}
-  }, [geometry, kind, styleReady, scene.colors]);
+  }, [currentScale, geometry, kind, styleReady, scene.colors]);
 
   // State-scale base tiles are generalized differently at preview and export
   // sizes. Load one shared scale-aware geography pass for every state scene so
@@ -356,6 +359,7 @@ export function LivePrintCanvas({
         applyRegionMapLayers(map, active.region, active.detail, active.detailBias, kind);
         try {
           map.moveLayer('mask-layer');
+          map.moveLayer('selection-outline-layer');
           map.moveLayer('print-state-detail-place-labels');
         } catch {}
         // The state GeoJSON is already local at this point, so the next frame
@@ -426,11 +430,15 @@ export function LivePrintCanvas({
     const scale = strokeScaleFor(map.getCanvas().clientWidth || canvasWidth);
     applyPrintDetail(map, kind, active.detail, scale, active.strokeWeight);
     applyPrintColors(map, active.colors, scale);
+    if (kind === 'state') styleDetailedStateFeatures(map, scale, active.strokeWeight);
+    if (geometry && kind !== 'city') {
+      applyPrintRegionOutline(map, geometry, active.colors, scale);
+    }
     applyRegionMapLayers(map, active.region, active.detail, active.detailBias, active.place.kind);
     if (!active.freeViewport) fitViewport(active.viewport);
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();
-  }, [canvasWidth, canvasHeight, scene.orientation, kind, styleReady, fitViewport, reportMapPreview]);
+  }, [canvasWidth, canvasHeight, scene.orientation, currentScale, geometry, kind, styleReady, fitViewport, reportMapPreview]);
 
   // Framing is an explicit phase. Once styling begins, every MapLibre input
   // handler is disabled so a stray drag, wheel, or pinch cannot change the
@@ -510,6 +518,20 @@ export function LivePrintCanvas({
       </div>
 
       {children}
+
+      {geo.titleBand && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 z-20 h-px"
+          style={{
+            top: geo.titleBand.edge === 'top'
+              ? percent(geo.titleBand.height)
+              : percent(1 - geo.titleBand.height),
+            backgroundColor: ink,
+            opacity: 0.18,
+          }}
+        />
+      )}
 
       {!styleReady && !failed && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-live="polite">

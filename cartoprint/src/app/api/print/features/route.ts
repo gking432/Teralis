@@ -39,7 +39,11 @@ const ROAD_TILEJSON_URL = process.env.PRINT_ROAD_TILEJSON_URL || 'https://tiles.
 const ROAD_CLASSES = new Set([
   'tertiary', 'minor', 'service', 'track', 'street', 'street_limited',
 ]);
-const STATE_DETAIL_ROAD_CLASSES = new Set(['secondary', 'tertiary']);
+// A state poster needs hierarchy, not every line available in the source.
+// The base map already carries a generalized primary network; this pass adds
+// the complete secondary network at "More detailed" without turning the
+// state into a tertiary-road mesh.
+const STATE_DETAIL_ROAD_CLASSES = new Set(['secondary']);
 
 let roadTileTemplatePromise: Promise<string | null> | null = null;
 
@@ -309,7 +313,7 @@ function geometrySpan(geometry: GeoJSON.Geometry): number {
 
 function mergeStateDetailFeatures(features: GeoJSON.Feature[]): GeoJSON.Feature[] {
   const lines = new Map<string, GeoJSON.Position[][]>();
-  const polygons: GeoJSON.Position[][][] = [];
+  const polygons = new Map<string, GeoJSON.Position[][][]>();
   const points = new Map<string, GeoJSON.Feature<GeoJSON.Point>>();
 
   features.forEach((feature) => {
@@ -322,8 +326,11 @@ function mergeStateDetailFeatures(features: GeoJSON.Feature[]): GeoJSON.Feature[
       return;
     }
     if (kind === 'lake') {
-      if (feature.geometry.type === 'Polygon') polygons.push(feature.geometry.coordinates);
-      if (feature.geometry.type === 'MultiPolygon') polygons.push(...feature.geometry.coordinates);
+      const lakeClass = String(feature.properties?.class || 'small');
+      const collection = polygons.get(lakeClass) ?? [];
+      if (feature.geometry.type === 'Polygon') collection.push(feature.geometry.coordinates);
+      if (feature.geometry.type === 'MultiPolygon') collection.push(...feature.geometry.coordinates);
+      polygons.set(lakeClass, collection);
       return;
     }
     const key = kind === 'road' ? `${kind}:${roadClass}` : kind;
@@ -341,13 +348,13 @@ function mergeStateDetailFeatures(features: GeoJSON.Feature[]): GeoJSON.Feature[
       geometry: { type: 'MultiLineString' as const, coordinates },
     };
   });
-  if (polygons.length) {
+  polygons.forEach((coordinates, lakeClass) => {
     merged.push({
       type: 'Feature',
-      properties: { kind: 'lake', class: '' },
-      geometry: { type: 'MultiPolygon', coordinates: polygons },
+      properties: { kind: 'lake', class: lakeClass },
+      geometry: { type: 'MultiPolygon', coordinates },
     });
-  }
+  });
   merged.push(...points.values());
   return merged;
 }
@@ -412,7 +419,8 @@ async function getStateDetailFeatures(
             && !isPointInGeometry(geojson.geometry.coordinates as [number, number], boundary)
           ) continue;
           geojson.geometry = prepareStateGeometry(geojson.geometry);
-          if (kind === 'lake' && geometrySpan(geojson.geometry) < 0.012) continue;
+          const span = kind === 'lake' ? geometrySpan(geojson.geometry) : 0;
+          if (kind === 'lake' && span < 0.012) continue;
           geojson.properties = kind === 'place'
             ? {
                 kind,
@@ -420,7 +428,12 @@ async function getStateDetailFeatures(
                 name: String(feature.properties.name_en || feature.properties.name || ''),
                 rank: Number(feature.properties.rank || 99),
               }
-            : { kind, class: String(feature.properties.class || '') };
+            : {
+                kind,
+                class: kind === 'lake'
+                  ? span >= 0.08 ? 'major' : span >= 0.03 ? 'medium' : 'small'
+                  : String(feature.properties.class || ''),
+              };
           tileFeatures.push(geojson);
         }
       };
