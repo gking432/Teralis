@@ -1,4 +1,5 @@
 import type { MapSelection, MapViewState } from '@/types/map';
+import cityRecords from '@/data/us_cities.json';
 
 export type CatalogPrintKind = 'country' | 'state' | 'city';
 
@@ -143,74 +144,39 @@ const STATE_PRINTS = [
   }),
 ];
 
-const CITY_PRINTS = [
+/**
+ * The city catalog.
+ *
+ * City prints are the v1 product, so the catalog covers the major city of
+ * every state plus the large metros — the places worth advertising and the
+ * places people search for. Coordinates are generated from the bundled 2025
+ * US places dataset (scripts/gen-cities.mjs) rather than typed by hand, with
+ * downtown overrides where a consolidated city-county's centroid sits miles
+ * from the city itself.
+ */
+interface CityRecord {
+  slug: string;
+  name: string;
+  state: string;
+  postal: string;
+  center: [number, number];
+  bbox: [number, number, number, number];
+  radiusMiles: number;
+  anchor: string;
+}
+
+const CITY_PRINTS = (cityRecords as CityRecord[]).map((city) =>
   createCatalogPrint({
-    slug: 'madison-wi',
-    name: 'Madison',
+    slug: city.slug,
+    name: city.name,
     kind: 'city',
     placeType: 'city',
-    bbox: [42.9981494, 43.171916, -89.571661, -89.2320848],
-    center: [-89.3841663, 43.07469],
-    defaultZoom: 10.2,
-    defaultSubtitle: 'Wisconsin',
-    searchQuery: 'Madison, Wisconsin, United States',
-  }),
-  createCatalogPrint({
-    slug: 'milwaukee-wi',
-    name: 'Milwaukee',
-    kind: 'city',
-    placeType: 'city',
-    bbox: [42.9208, 43.1943, -88.0692, -87.8639],
-    center: [-87.9065, 43.0389],
-    defaultZoom: 10.1,
-    defaultSubtitle: 'Wisconsin',
-    searchQuery: 'Milwaukee, Wisconsin, United States',
-  }),
-  createCatalogPrint({
-    slug: 'chicago-il',
-    name: 'Chicago',
-    kind: 'city',
-    placeType: 'city',
-    bbox: [41.6445, 42.023, -87.9401, -87.5237],
-    center: [-87.6298, 41.8781],
-    defaultZoom: 9.5,
-    defaultSubtitle: 'Illinois',
-    searchQuery: 'Chicago, Illinois, United States',
-  }),
-  createCatalogPrint({
-    slug: 'austin-tx',
-    name: 'Austin',
-    kind: 'city',
-    placeType: 'city',
-    bbox: [30.0987, 30.5169, -97.9384, -97.5619],
-    center: [-97.7431, 30.2672],
-    defaultZoom: 9.6,
-    defaultSubtitle: 'Texas',
-    searchQuery: 'Austin, Texas, United States',
-  }),
-  createCatalogPrint({
-    slug: 'denver-co',
-    name: 'Denver',
-    kind: 'city',
-    placeType: 'city',
-    bbox: [39.6144, 39.9142, -105.1098, -104.5996],
-    center: [-104.9903, 39.7392],
-    defaultZoom: 9.5,
-    defaultSubtitle: 'Colorado',
-    searchQuery: 'Denver, Colorado, United States',
-  }),
-  createCatalogPrint({
-    slug: 'portland-or',
-    name: 'Portland',
-    kind: 'city',
-    placeType: 'city',
-    bbox: [45.4324, 45.6525, -122.8367, -122.472],
-    center: [-122.6765, 45.5231],
-    defaultZoom: 9.8,
-    defaultSubtitle: 'Oregon',
-    searchQuery: 'Portland, Oregon, United States',
-  }),
-];
+    bbox: city.bbox,
+    center: city.center,
+    defaultZoom: city.radiusMiles > 9 ? 9.5 : city.radiusMiles > 6 ? 10 : 10.6,
+    defaultSubtitle: city.state,
+    searchQuery: `${city.name}, ${city.state}, United States`,
+  }));
 
 export const CATALOG_PRINTS: CatalogPrint[] = [UNITED_STATES, ...STATE_PRINTS, ...CITY_PRINTS];
 
@@ -228,6 +194,18 @@ export function getStateCatalogPrints(): CatalogPrint[] {
 
 export function getCityCatalogPrints(): CatalogPrint[] {
   return CITY_PRINTS;
+}
+
+/** The handful shown on the homepage. Everything else is found by search. */
+export function getFeaturedCityPrints(limit = 12): CatalogPrint[] {
+  const featured = [
+    'new-york-ny', 'chicago-il', 'los-angeles-ca', 'austin-tx', 'denver-co', 'seattle-wa',
+    'boston-ma', 'nashville-tn', 'san-francisco-ca', 'portland-or', 'miami-fl', 'madison-wi',
+  ];
+  return featured
+    .map((slug) => CITY_PRINTS.find((print) => print.slug === slug))
+    .filter((print): print is CatalogPrint => Boolean(print))
+    .slice(0, limit);
 }
 
 export function getCityCatalogPrint(slug: string | null | undefined): CatalogPrint | null {

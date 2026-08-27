@@ -6,14 +6,17 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import { getCityCatalogPrints } from '@/lib/catalog/prints';
-import { CITY_PRODUCT_PALETTES, createCityProductScene } from '@/lib/catalog/cityProduct';
+import { createCityProductScene } from '@/lib/catalog/cityProduct';
 import { CityArtworkImage, useCityArtwork } from '@/components/Storefront/CityArtwork';
 import { StudioHeader } from '@/components/Storefront/StudioHeader';
 import { trackDemoEvent } from '@/lib/demoAnalytics';
 import { encodeDesign } from '@/lib/print/designUrl';
 import { getPalette } from '@/lib/print/palettes';
+import { CITY_PRODUCT_PALETTES } from '@/lib/catalog/cityProduct';
+import { makePrintable } from '@/lib/print/contrast';
+import { normalizeScene, storeScene } from '@/lib/print/scene';
 import { renderScene } from '@/lib/print/renderScene';
-import { storeScene } from '@/lib/print/scene';
+
 import { storeProof } from '@/lib/print/proof';
 import { formatPrice, getSizePrice } from '@/lib/print/sizeCatalog';
 
@@ -29,12 +32,24 @@ export function CityProductPage({
   canonical?: boolean;
 }) {
   const router = useRouter();
-  const [paletteId, setPaletteId] = useState('slate');
+  const [paletteId, setPaletteId] = useState<string>(CITY_PRODUCT_PALETTES[0]);
   const [previewMode, setPreviewMode] = useState<PreviewMode>('artwork');
   const [customizeHref, setCustomizeHref] = useState(customizeBaseHref);
   const [buying, setBuying] = useState(false);
-  const scene = useMemo(() => createCityProductScene(print, paletteId), [paletteId, print]);
-  const staticArtwork = canonical && paletteId === 'slate' ? `/thumbnails/${print.slug}.png` : null;
+  const [customActive, setCustomActive] = useState(false);
+  const [customColor, setCustomColor] = useState('#5b2d8a');
+  const scene = useMemo(() => {
+    const base = createCityProductScene(print, paletteId);
+    if (!customActive) return base;
+    return normalizeScene({
+      ...base,
+      paletteId: 'custom',
+      colors: { ...base.colors, roads: makePrintable(customColor, base.colors.land) },
+    });
+  }, [customActive, customColor, paletteId, print]);
+  // Thumbnails were pre-rendered for the old default colourway; the live
+  // renderer is the source of truth for every colour now.
+  const staticArtwork = null;
   const { image, status } = useCityArtwork(scene, 1100, !staticArtwork);
   const visibleArtwork = image || staticArtwork;
   const otherCities = getCityCatalogPrints().filter((city) => city.slug !== print.slug).slice(0, 4);
@@ -62,7 +77,15 @@ export function CityProductPage({
 
   function choosePalette(nextPalette: string) {
     setPaletteId(nextPalette);
+    setCustomActive(false);
     trackDemoEvent('product_palette_selected', { place: print.slug, palette: nextPalette });
+  }
+
+  /** Any colour the customer likes, kept print-safe against the paper. */
+  function chooseCustom(value: string) {
+    setCustomColor(value);
+    setCustomActive(true);
+    trackDemoEvent('product_palette_selected', { place: print.slug, palette: 'custom' });
   }
 
   function startCustomizing() {
@@ -152,8 +175,8 @@ export function CityProductPage({
             </div>
 
             <div className="px-6 py-6 sm:px-8">
-              <div className="text-[9px] uppercase tracking-[0.18em] text-[#69736e]">Choose a starting color</div>
-              <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              <div className="text-[9px] uppercase tracking-[0.18em] text-[#69736e]">Colour</div>
+              <div className="mt-4 flex flex-wrap gap-2.5">
                 {CITY_PRODUCT_PALETTES.map((id) => {
                   const palette = getPalette(id);
                   const selected = id === paletteId;
@@ -163,20 +186,33 @@ export function CityProductPage({
                       type="button"
                       onClick={() => choosePalette(id)}
                       aria-pressed={selected}
-                      className={`flex min-h-[62px] items-center gap-3 border px-3 text-left transition-all ${selected ? 'border-[#173f35] bg-[#e9eee9] shadow-[inset_0_0_0_1px_#173f35]' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'}`}
-                    >
-                      <span className="flex h-9 w-9 shrink-0 overflow-hidden rounded-full border border-black/10">
-                        <span className="h-full flex-1" style={{ backgroundColor: palette.colors.land }} />
-                        <span className="h-full flex-1" style={{ backgroundColor: palette.colors.roads }} />
-                        <span className="h-full flex-1" style={{ backgroundColor: palette.colors.water }} />
-                      </span>
-                      <span>
-                        <span className="block text-[10px] font-medium uppercase tracking-[0.13em]">{palette.name}</span>
-                        <span className="mt-1 block text-[9px] text-[#7b847f]">{palette.blurb}</span>
-                      </span>
-                    </button>
+                      aria-label={palette.name}
+                      title={palette.name}
+                      className={`h-12 w-12 rounded-full border-2 transition-transform hover:scale-105 ${selected ? 'border-[#173f35]' : 'border-transparent shadow-[0_0_0_1px_rgba(20,32,29,0.16)]'}`}
+                      style={{
+                        background: palette.darkPaper
+                          ? `linear-gradient(135deg, ${palette.colors.land} 55%, ${palette.colors.roads} 55%)`
+                          : `linear-gradient(135deg, ${palette.colors.roads} 55%, ${palette.colors.land} 55%)`,
+                      }}
+                    />
                   );
                 })}
+                <label
+                  title="Custom colour"
+                  className={`relative grid h-12 w-12 cursor-pointer place-items-center rounded-full border-2 text-[9px] uppercase tracking-[0.06em] transition-transform hover:scale-105 ${customActive ? 'border-[#173f35]' : 'border-transparent shadow-[0_0_0_1px_rgba(20,32,29,0.16)]'}`}
+                  style={{ background: customActive ? customColor : 'conic-gradient(#a52a1f,#8a6410,#1d4d38,#12365e,#a52a1f)' }}
+                >
+                  <input
+                    type="color"
+                    value={customColor}
+                    onChange={(event) => chooseCustom(event.target.value)}
+                    className="absolute inset-0 cursor-pointer opacity-0"
+                    aria-label="Custom colour"
+                  />
+                </label>
+              </div>
+              <div className="mt-3 text-[11px] text-[#68736d]">
+                {customActive ? 'Custom colour' : getPalette(paletteId).name}
               </div>
 
               <button

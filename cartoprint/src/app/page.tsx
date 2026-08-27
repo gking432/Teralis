@@ -5,10 +5,13 @@ import { useEffect } from 'react';
 import { LocationSearch } from '@/components/Storefront/LocationSearch';
 import { StudioHeader } from '@/components/Storefront/StudioHeader';
 import { CityArtworkImage } from '@/components/Storefront/CityArtwork';
-import { getCityCatalogPrints, getStateCatalogPrints } from '@/lib/catalog/prints';
+import { getCityCatalogPrints, getFeaturedCityPrints, getStateCatalogPrints } from '@/lib/catalog/prints';
 import { trackDemoEvent } from '@/lib/demoAnalytics';
 
-const CITIES = getCityCatalogPrints();
+// The homepage shows a handful; the catalog carries every major city and the
+// rest are reached by search. Advertising points at individual city pages.
+const CITIES = getFeaturedCityPrints(12);
+const CITY_COUNT = getCityCatalogPrints().length;
 const STATES = getStateCatalogPrints();
 const FEATURED_CITY = CITIES[0];
 
@@ -119,26 +122,22 @@ export default function StorefrontPage() {
       </section>
 
       <section className="border-t border-white/10">
-        <div className="mx-auto max-w-[1500px] px-5 py-12 sm:px-7 md:px-10 lg:px-16 lg:py-16">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <div className="studio-kicker">The state collection</div>
-              <h2 className="mt-4 font-display text-4xl font-light leading-none md:text-5xl">Every state, already composed.</h2>
-            </div>
-            <p className="max-w-sm text-[12px] leading-6 text-white/50">
-              Topographic and Street Atlas editions for all fifty states, built from the same production cartography used in the editor and final print.
+        <div className="mx-auto max-w-[1500px] px-5 py-10 sm:px-7 md:px-10 lg:px-16">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <p className="text-[12px] text-white/45">
+              Also available: state maps in topographic and street editions.
             </p>
-          </div>
-          <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2.5">
-            {STATES.map((state) => (
-              <Link
-                key={state.slug}
-                href={`/maps/${state.slug}`}
-                className="text-[13px] text-white/60 underline-offset-4 transition-colors hover:text-white hover:underline"
-              >
-                {state.name}
-              </Link>
-            ))}
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+              {STATES.slice(0, 8).map((state) => (
+                <Link
+                  key={state.slug}
+                  href={`/maps/${state.slug}`}
+                  className="text-[12px] text-white/50 underline-offset-4 transition-colors hover:text-white hover:underline"
+                >
+                  {state.name}
+                </Link>
+              ))}
+            </div>
           </div>
         </div>
       </section>
@@ -148,7 +147,7 @@ export default function StorefrontPage() {
           <div className="max-w-2xl">
             <div className="studio-kicker">Ready-made starting points</div>
             <h2 className="mt-4 font-display text-4xl font-light leading-none md:text-6xl">See your city before you design it.</h2>
-            <p className="mt-5 text-[13px] leading-6 text-white/55">These pages are real products, not templates. Each one starts with its own streets, water, title, and framing.</p>
+            <p className="mt-5 text-[13px] leading-6 text-white/55">Real products, not templates — every available street, in the colour you choose. {CITY_COUNT} cities have their own page, and anywhere else is one search away.</p>
           </div>
           <div className="mt-9 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
             {CITIES.map((city, index) => (

@@ -63,7 +63,7 @@ import {
 } from '@/lib/print/title';
 import { decorationSheetPosition } from '@/lib/print/decorations';
 import { buildPlaceCatalogPrint, placeFromSearchParams } from '@/lib/catalog/placeFromQuery';
-import { getCatalogPrint, getCityCatalogPrint, getStateCatalogPrints, getFeaturedCatalogPrint } from '@/lib/catalog/prints';
+import { getCatalogPrint, getCityCatalogPrint, getCityCatalogPrints, getStateCatalogPrints, getFeaturedCatalogPrint } from '@/lib/catalog/prints';
 import {
   STATE_COLLECTION_DESIGNS,
   designsForState,
@@ -72,6 +72,7 @@ import {
 import { applyLayout, applyPalette, applyRegionDesign } from '@/lib/print/scene';
 import { getLayout } from '@/lib/print/layouts';
 import { getPalette } from '@/lib/print/palettes';
+import { CITY_PRODUCT_PALETTES, createCityProductScene } from '@/lib/catalog/cityProduct';
 import { findWaterPlacement } from '@/lib/print/waterPlacement';
 import { splitCityRoadBbox } from '@/lib/print/cityRoads';
 import {
@@ -653,6 +654,62 @@ export default function SelfTest() {
     check('every state sells both finished editions',
       getStateCatalogPrints().every((statePrint) =>
         designsForState(statePrint.slug, statePrint.center).length === 2));
+
+    // --- the v1 city catalog and colourways ---
+    // City prints are the product we advertise, so the catalog has to cover
+    // the places ads point at, every page has to sit on the right ground, and
+    // every colour has to be printable. These run over the whole catalog.
+    const cityPrints = getCityCatalogPrints();
+    check('the catalog covers every state with at least one city',
+      new Set(cityPrints.map((print) => print.defaultSubtitle)).size >= 50,
+      `${cityPrints.length} cities · ${new Set(cityPrints.map((c) => c.defaultSubtitle)).size} states`);
+    check('every city page has a unique slug',
+      new Set(cityPrints.map((print) => print.slug)).size === cityPrints.length);
+
+    const cityProblems: string[] = [];
+    for (const cityPrint of cityPrints) {
+      const [south, north, west, east] = cityPrint.bbox.map(Number);
+      const [lng, lat] = cityPrint.center;
+      if (!(south < north && west < east)) cityProblems.push(`${cityPrint.slug}: inverted bbox`);
+      // A page whose frame does not contain its own centre is pointing at the
+      // wrong ground — the failure that ships a print of empty countryside.
+      if (lng < west || lng > east || lat < south || lat > north) {
+        cityProblems.push(`${cityPrint.slug}: centre outside frame`);
+      }
+      if (lng < -180 || lng > -60 || lat < 15 || lat > 72) cityProblems.push(`${cityPrint.slug}: outside the US`);
+      const cityScene = createCityProductScene(cityPrint, CITY_PRODUCT_PALETTES[0]);
+      if (!checkPrintReadiness(cityScene).ready) cityProblems.push(`${cityPrint.slug}: not print-ready`);
+      if (cityScene.detail.counties || cityScene.detail.labels.towns) {
+        cityProblems.push(`${cityPrint.slug}: carries region furniture`);
+      }
+    }
+    check('every city print is on real ground and ready to print',
+      cityProblems.length === 0, cityProblems.slice(0, 4).join(' · ') || `${cityPrints.length} cities clear`);
+
+    check('the storefront offers the six advertised colourways',
+      CITY_PRODUCT_PALETTES.length === 6);
+    const colorwayProblems: string[] = [];
+    for (const colorway of CITY_PRODUCT_PALETTES) {
+      const palette = getPalette(colorway);
+      if (palette.id !== colorway) { colorwayProblems.push(`${colorway}: missing`); continue; }
+      // Ink that does not separate from the paper prints as a blank sheet.
+      if (checkPalette(palette.colors).verdict === 'unprintable') {
+        colorwayProblems.push(`${colorway}: unprintable contrast`);
+      }
+      const themed = createCityProductScene(cityPrints[0], colorway);
+      if (themed.colors.roads.toLowerCase() === themed.colors.land.toLowerCase()) {
+        colorwayProblems.push(`${colorway}: ink matches paper`);
+      }
+    }
+    check('every advertised colourway is printable',
+      colorwayProblems.length === 0, colorwayProblems.join(' · ') || CITY_PRODUCT_PALETTES.join(', '));
+    check('the colourways are visually distinct from each other',
+      new Set(CITY_PRODUCT_PALETTES.map((id) => getPalette(id).colors.roads.toLowerCase())).size
+        === CITY_PRODUCT_PALETTES.length);
+    // The custom colour a customer picks is nudged to a printable value rather
+    // than accepted as-is, so a pale yellow on white cannot ship as blank paper.
+    check('a custom colour is made printable against the paper',
+      contrastRatio(makePrintable('#fdfdf5', '#ffffff'), '#ffffff') > 2);
 
     setLines(out);
   }, []);

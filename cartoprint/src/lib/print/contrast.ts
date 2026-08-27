@@ -69,6 +69,16 @@ export interface ContrastCheck {
  */
 const STRONG = 4.0;
 const MINIMUM = 2.2;
+/**
+ * Fills are judged more gently than strokes.
+ *
+ * A hairline road has to clear a high bar or it breaks up on paper, but water
+ * is a large continuous area: a light wash at 2.5:1 reads clearly in print and
+ * keeps its hue. Holding fills to the stroke threshold forced every water tint
+ * down into the same muddy grey, which is why coloured maps stopped looking
+ * coloured.
+ */
+const FILL_MINIMUM = 2.5;
 
 export function checkInkOnPaper(ink: string, paper: string, label: string): ContrastCheck {
   const ratio = contrastRatio(ink, paper);
@@ -95,10 +105,21 @@ export interface PaletteCheck {
 }
 
 /** Validate a whole land/water/roads palette the way it will actually print. */
+function checkFillOnPaper(fill: string, paper: string, label: string): ContrastCheck {
+  const ratio = contrastRatio(fill, paper);
+  if (ratio < FILL_MINIMUM * 0.8) {
+    return { verdict: 'unprintable', ratio, message: `${label} will disappear against the paper in print.` };
+  }
+  if (ratio < FILL_MINIMUM) {
+    return { verdict: 'weak', ratio, message: `${label} will look fainter on paper than on screen.` };
+  }
+  return { verdict: 'good', ratio };
+}
+
 export function checkPalette(colors: { land: string; water: string; roads: string }): PaletteCheck {
   const checks = [
     checkInkOnPaper(colors.roads, colors.land, 'Streets'),
-    checkInkOnPaper(colors.water, colors.land, 'Water'),
+    checkFillOnPaper(colors.water, colors.land, 'Water'),
   ];
 
   const issues = checks
@@ -142,12 +163,28 @@ export function makePrintable(color: string, paper: string): string {
   return best;
 }
 
+/** Nudge a large fill just far enough to stay visible, preserving its hue. */
+export function makeFillPrintable(color: string, paper: string): string {
+  if (contrastRatio(color, paper) >= FILL_MINIMUM) return color;
+  const paperIsDark = isDark(paper);
+  const { r, g, b } = parseHex(color);
+  let current = { r, g, b };
+  let best = color;
+  for (let i = 0; i < 60; i++) {
+    const factor = paperIsDark ? 1.06 : 0.94;
+    current = { r: current.r * factor, g: current.g * factor, b: current.b * factor };
+    best = toHex(current);
+    if (contrastRatio(best, paper) >= FILL_MINIMUM) break;
+  }
+  return best;
+}
+
 export function makePalettePrintable<T extends { land: string; water: string; roads: string }>(
   colors: T,
 ): T {
   return {
     ...colors,
-    water: makePrintable(colors.water, colors.land),
+    water: makeFillPrintable(colors.water, colors.land),
     roads: makePrintable(colors.roads, colors.land),
   };
 }

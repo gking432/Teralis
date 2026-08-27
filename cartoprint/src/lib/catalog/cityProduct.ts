@@ -7,12 +7,14 @@ import {
   type PrintScene,
 } from '@/lib/print/scene';
 
-export const CITY_PRODUCT_PALETTES = ['slate', 'blueprint', 'signal', 'forest', 'bone'] as const;
+import { CITY_COLORWAYS } from '@/lib/print/palettes';
+
+export const CITY_PRODUCT_PALETTES = CITY_COLORWAYS;
 
 /** A finished starting point for a product page, not a blank editor state. */
 export function createCityProductScene(
   print: CatalogPrint,
-  paletteId = 'slate',
+  paletteId: string = CITY_COLORWAYS[0],
 ): PrintScene {
   const layout = getLayout('poster');
   const scene = createPrintScene(print, 'portrait', getPalette(paletteId), layout);

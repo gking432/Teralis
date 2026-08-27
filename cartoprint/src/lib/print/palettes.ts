@@ -27,7 +27,76 @@ const PAPER_WHITE = '#ffffff';
 const PAPER_INK = '#101820';
 const PAPER_NIGHT = '#0b0f14';
 
+/**
+ * The v1 colourways.
+ *
+ * Colour is the only choice on a city product page, so these are the ones we
+ * advertise and the ones almost every order will use. Each is a single ink on
+ * paper — one confident colour reads better at print size than a scheme, and
+ * it keeps the storefront a row of swatches instead of a settings panel.
+ */
+export const CITY_COLORWAYS = ['charcoal', 'navy', 'crimson', 'forest-green', 'ochre-gold', 'paper-white'] as const;
+
+const V1_PALETTES: Palette[] = [
+  {
+    id: 'charcoal',
+    name: 'Charcoal',
+    blurb: 'Graphite on white',
+    colors: { land: PAPER_WHITE, water: '#8d949b', roads: '#242a2f' },
+    accents: ['#242a2f', '#3a4148', '#4d545b', '#5f676e', '#71797f'],
+    darkPaper: false,
+    strokeWeight: 1,
+  },
+  {
+    id: 'navy',
+    name: 'Blue',
+    blurb: 'Deep navy on white',
+    colors: { land: PAPER_WHITE, water: '#8aa4bb', roads: '#12365e' },
+    accents: ['#12365e', '#1c4a7a', '#2b5f92', '#3a74aa', '#4a89c2'],
+    darkPaper: false,
+    strokeWeight: 1,
+  },
+  {
+    id: 'crimson',
+    name: 'Red',
+    blurb: 'Crimson on white',
+    colors: { land: PAPER_WHITE, water: '#bd8f85', roads: '#a52a1f' },
+    accents: ['#a52a1f', '#bd3527', '#8f2118', '#c94a3a', '#7a1c15'],
+    darkPaper: false,
+    strokeWeight: 1,
+  },
+  {
+    id: 'forest-green',
+    name: 'Green',
+    blurb: 'Forest green on white',
+    colors: { land: PAPER_WHITE, water: '#86a396', roads: '#1d4d38' },
+    accents: ['#1d4d38', '#276548', '#317c59', '#153a2a', '#3b9269'],
+    darkPaper: false,
+    strokeWeight: 1,
+  },
+  {
+    id: 'ochre-gold',
+    name: 'Yellow',
+    blurb: 'Ochre gold on white',
+    colors: { land: PAPER_WHITE, water: '#b3a173', roads: '#8a6410' },
+    accents: ['#8a6410', '#a37814', '#6d4f0c', '#bb8c22', '#5a410a'],
+    darkPaper: false,
+    strokeWeight: 1.05,
+  },
+  {
+    id: 'paper-white',
+    name: 'White',
+    blurb: 'White linework on ink',
+    colors: { land: '#14181c', water: '#5d6c7d', roads: '#f2f0ea' },
+    accents: ['#f2f0ea', '#dcd8ce', '#c6c1b5', '#b0aa9c', '#9a9383'],
+    darkPaper: true,
+    strokeWeight: 1.12,
+  },
+];
+
 export const PALETTES: Palette[] = [
+  ...V1_PALETTES,
+
   {
     id: 'blueprint',
     name: 'Blueprint',
