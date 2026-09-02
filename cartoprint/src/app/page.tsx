@@ -39,9 +39,6 @@ export default function StorefrontPage() {
             <LocationSearch placeholder="Search for a city or town" />
             <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-[#dce2dd]/58">
               <span className="mr-1 text-[9px] uppercase tracking-[0.2em] text-[#c66b4e]">Popular</span>
-              <Link href="/maps/wisconsin" className="border-b border-transparent pb-0.5 font-medium text-[#e1b39e] transition-colors hover:border-[#e1b39e]">
-                Wisconsin collection
-              </Link>
               {CITIES.map((city) => (
                 <Link
                   key={city.slug}
@@ -73,51 +70,15 @@ export default function StorefrontPage() {
             <CityArtworkImage
               src={`/thumbnails/${FEATURED_CITY.slug}.png`}
               status="ready"
-              label="Madison street map"
-              alt="Madison, Wisconsin detailed street map print"
+              label={`${FEATURED_CITY.name} street map`}
+              alt={`${FEATURED_CITY.name} detailed street map print`}
               className="aspect-[3/4] w-full"
             />
             <div className="absolute -bottom-4 left-1/2 flex min-h-10 -translate-x-1/2 items-center whitespace-nowrap border border-[#14201d]/20 bg-[#f7f4eb] px-5 text-[8px] uppercase tracking-[0.18em] text-[#14201d] shadow-lg">
-              Explore Madison →
+              Explore {FEATURED_CITY.name} →
             </div>
           </div>
           <div className="absolute right-[2%] top-[18%] -z-10 hidden h-[470px] w-[350px] -rotate-[4deg] border border-white/12 bg-[#22342f] lg:block" />
-        </Link>
-      </section>
-
-      <section className="border-y border-white/10 bg-[#e9e1d3] text-[#14201d]">
-        <Link href="/maps/wisconsin" className="group mx-auto grid max-w-[1500px] gap-8 px-5 py-12 sm:px-7 md:px-10 lg:grid-cols-[0.78fr_1.22fr] lg:items-center lg:px-16 lg:py-20">
-          <div className="max-w-xl">
-            <div className="text-[9px] uppercase tracking-[0.22em] text-[#a45c45]">The state collection</div>
-            <h2 className="mt-5 font-display text-[clamp(3.7rem,6vw,6.5rem)] font-light leading-[0.82] tracking-[-0.04em]">Two ways to<br />read Wisconsin.</h2>
-            <p className="mt-6 max-w-lg text-[13px] leading-6 text-[#53605a]">
-              Choose the land itself—elevation, rivers, lakes, and open water—or a clean study of the road network.
-            </p>
-            <span className="mt-7 inline-flex min-h-12 items-center border border-[#173f35] bg-[#173f35] px-6 text-[9px] font-medium uppercase tracking-[0.19em] text-white transition-colors group-hover:bg-[#c66b4e]">
-              Explore Wisconsin →
-            </span>
-          </div>
-          <div className="grid min-h-[390px] gap-3 sm:min-h-[470px] sm:grid-cols-2">
-            <div className="relative overflow-hidden border border-[#14201d]/15 bg-[#173f35] p-7 text-[#f7f4eb] sm:p-9">
-              <div className="text-[8px] uppercase tracking-[0.2em] text-white/50">Edition 01</div>
-              <div className="absolute inset-x-0 top-1/4 grid gap-5 opacity-25" aria-hidden="true">
-                {[0, 1, 2, 3, 4, 5].map((line) => <span key={line} className="block h-px -rotate-3 bg-white" />)}
-              </div>
-              <div className="relative mt-24 font-condensed text-4xl uppercase tracking-[0.08em]">Topographic</div>
-              <p className="relative mt-3 text-[11px] leading-5 text-white/65">Elevation · rivers · lakes · water</p>
-            </div>
-            <div className="relative overflow-hidden border border-[#14201d]/15 bg-[#f8f3e9] p-7 sm:p-9">
-              <div className="text-[8px] uppercase tracking-[0.2em] text-[#758079]">Edition 02</div>
-              <div className="absolute inset-8 top-20 opacity-25" aria-hidden="true">
-                <span className="absolute left-1/2 h-full w-px rotate-12 bg-[#243f37]" />
-                <span className="absolute top-1/2 h-px w-full -rotate-12 bg-[#243f37]" />
-                <span className="absolute left-1/4 h-full w-px -rotate-6 bg-[#243f37]" />
-                <span className="absolute top-1/3 h-px w-full rotate-6 bg-[#243f37]" />
-              </div>
-              <div className="relative mt-24 font-display text-4xl">Street Atlas</div>
-              <p className="relative mt-3 text-[11px] leading-5 text-[#53605a]">Highways · main roads · secondary routes</p>
-            </div>
-          </div>
         </Link>
       </section>
 
