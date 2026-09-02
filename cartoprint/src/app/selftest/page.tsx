@@ -214,10 +214,10 @@ export default function SelfTest() {
     const scene = createPrintScene(print, 'portrait');
     check('new scene is not custom', scene.freeViewport === false);
     check('new scene starts without a label', scene.title.enabled === false);
-    check('new scene starts slate on white',
+    check('new scene starts with dark water and lighter slate streets',
       scene.colors.land === '#ffffff'
-      && scene.colors.roads === '#53616f'
-      && scene.colors.water === '#53616f');
+      && contrastRatio(scene.colors.water, scene.colors.land)
+        > contrastRatio(scene.colors.roads, scene.colors.land));
     check('new scene radius uses the whole-city preset',
       approx(scene.radiusMiles, framingPresets(scene.place.placeRadiusMiles, 'city')[1].miles));
 
@@ -698,6 +698,17 @@ export default function SelfTest() {
 
     check('the storefront offers the six advertised colourways',
       CITY_PRODUCT_PALETTES.length === 6);
+    const defaultCityColors = createCityProductScene(cityPrints[0], CITY_PRODUCT_PALETTES[0]).colors;
+    check('default city waterways are darker than streets',
+      contrastRatio(defaultCityColors.water, defaultCityColors.land)
+        > contrastRatio(defaultCityColors.roads, defaultCityColors.land));
+    const defaultAtlasColors = sceneForCollectionDesign(
+      getCatalogPrint('wisconsin')!,
+      designsForState('wisconsin').find((design) => design.id === 'atlas')!,
+    ).colors;
+    check('default state waterways are darker than streets',
+      contrastRatio(defaultAtlasColors.water, defaultAtlasColors.land)
+        > contrastRatio(defaultAtlasColors.roads, defaultAtlasColors.land));
     const colorwayProblems: string[] = [];
     for (const colorway of CITY_PRODUCT_PALETTES) {
       const palette = getPalette(colorway);
