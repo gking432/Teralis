@@ -28,6 +28,7 @@ import { measureWaterShare } from '@/lib/print/autoLook';
 import { supersampleFactor } from '@/lib/print/tileZoom';
 import { findWaterPlacement, mapRectToSheet } from '@/lib/print/waterPlacement';
 import type { NormalisedRect } from '@/lib/print/geometry';
+import { printColorSettingsKey, printDetailSettingsKey } from '@/lib/print/mapChangeKeys';
 
 /**
  * The live print canvas.
@@ -104,6 +105,13 @@ export function LivePrintCanvas({
 
   const kind = scene.place.kind === 'country' ? 'country' : scene.place.kind === 'state' ? 'state' : 'city';
   const bboxKey = scene.viewport.bbox.join(',');
+  // Scene normalization recreates nested objects after every edit. Depending
+  // on those object identities made a title-font click rerun the entire map
+  // styling pipeline even though no map setting changed. Scalar signatures
+  // keep title-only edits completely isolated from MapLibre.
+  const colorsKey = printColorSettingsKey(scene.colors);
+  const detailKey = printDetailSettingsKey(scene.detail);
+  const regionTheme = scene.region.theme;
   const geo = printGeometry(scene.orientation, scene.detail.border, scene.title);
 
   useEffect(() => {
@@ -292,30 +300,33 @@ export function LivePrintCanvas({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !styleReady) return;
-    applyPrintColors(map, scene.colors, currentScale());
-    applyPrintMaskColor(map, scene.colors);
+    const active = sceneRef.current;
+    applyPrintColors(map, active.colors, currentScale());
+    applyPrintMaskColor(map, active.colors);
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();
-  }, [scene.colors, styleReady, currentScale, reportMapPreview]);
+  }, [colorsKey, styleReady, currentScale, reportMapPreview]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !styleReady) return;
-    applyPrintDetail(map, kind, scene.detail, currentScale(), scene.strokeWeight);
+    const active = sceneRef.current;
+    applyPrintDetail(map, kind, active.detail, currentScale(), active.strokeWeight);
     // Detail changes reset paint properties on the layers they touch, so the
     // palette has to be re-applied on top of them.
-    applyPrintColors(map, scene.colors, currentScale());
+    applyPrintColors(map, active.colors, currentScale());
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();
-  }, [scene.detail, scene.strokeWeight, scene.colors, kind, styleReady, currentScale, reportMapPreview]);
+  }, [colorsKey, detailKey, scene.strokeWeight, kind, styleReady, currentScale, reportMapPreview]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !styleReady || kind !== 'state') return;
-    applyRegionMapLayers(map, scene.region, scene.detail, scene.detailBias, kind);
+    const active = sceneRef.current;
+    applyRegionMapLayers(map, active.region, active.detail, active.detailBias, kind);
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();
-  }, [kind, reportMapPreview, scene.detail, scene.detailBias, scene.region, styleReady]);
+  }, [detailKey, kind, reportMapPreview, regionTheme, scene.detailBias, styleReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -334,14 +345,15 @@ export function LivePrintCanvas({
         geojson: geometry,
         bbox: sceneRef.current.viewport.bbox,
       });
-      applyPrintMaskColor(map, scene.colors);
-      applyPrintRegionOutline(map, geometry, scene.colors, currentScale());
+      const active = sceneRef.current;
+      applyPrintMaskColor(map, active.colors);
+      applyPrintRegionOutline(map, geometry, active.colors, currentScale());
     } catch {}
-  }, [currentScale, geometry, kind, styleReady, scene.colors]);
+  }, [colorsKey, currentScale, geometry, kind, styleReady]);
 
   // State-scale base tiles are generalized differently at preview and export
   // sizes. Load one shared scale-aware geography pass for every state scene so
-  // lakes and rivers never disappear when the customer enters the personalizer;
+  // lakes and rivers never disappear when the customer enters the editor;
   // secondary routes and county structure are revealed only at maximum detail.
   useEffect(() => {
     const map = mapRef.current;
@@ -362,7 +374,7 @@ export function LivePrintCanvas({
           map.moveLayer('selection-outline-layer');
         } catch {}
         // The state GeoJSON is already local at this point, so the next frame
-        // contains the added linework and labels. Waiting for full map `idle`
+        // contains the added geography. Waiting for full map `idle`
         // can hang indefinitely while optional terrain tiles retry, leaving a
         // visibly finished print stuck behind a disabled purchase button.
         map.once('render', () => {

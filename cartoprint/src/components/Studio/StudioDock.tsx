@@ -12,7 +12,6 @@ import {
 import { getLayout } from '@/lib/print/layouts';
 import { PALETTES, getPalette, type Palette } from '@/lib/print/palettes';
 import { PaletteSwatch } from '@/components/Studio/DesignSwatch';
-import { MarkerGlyph } from '@/components/Studio/MarkerOverlay';
 import {
   formatRadius,
   framingPresets,
@@ -33,11 +32,6 @@ import { checkPalette, makePrintable } from '@/lib/print/contrast';
 import { applyStyleRecipe, styleRecipesFor, type StyleRecipe } from '@/lib/print/recipes';
 import type { DetailBias } from '@/lib/print/density';
 import { trackDemoEvent } from '@/lib/demoAnalytics';
-import {
-  createPersonalDecoration,
-  type DecorationFont,
-  type DecorationKind,
-} from '@/lib/print/decorations';
 import {
   applyRegionTheme,
   REGION_THEMES,
@@ -61,14 +55,14 @@ interface StudioDockProps {
 
 export const MOVES: Array<{ id: Move; label: string; question: string }> = [
   { id: 'view', label: 'Composition', question: 'Frame the place and choose how much map the print carries.' },
-  { id: 'title', label: 'Make it yours', question: 'Add your wording, places, and personal markers.' },
-  { id: 'style', label: 'Design', question: 'Swap the whole art direction. Everything personal stays.' },
+  { id: 'title', label: 'Title', question: 'Show or hide the map title and choose its lettering.' },
+  { id: 'style', label: 'Design', question: 'Change the map style and colors.' },
 ];
 
 /**
  * The two primary moves. The design itself is chosen on the product page;
  * changing it here is the secondary "Change design" action, not a main tab —
- * the personalizer must never re-ask a question the storefront already asked.
+ * the editor must never re-ask a question the storefront already asked.
  */
 export const PRIMARY_MOVES = MOVES.filter((move) => move.id !== 'style');
 
@@ -637,8 +631,8 @@ function StateStylePanel({ scene, update }: PanelProps) {
       </div>
 
       <div className="rounded-sm border border-[#cad4cd] bg-[#eef3ef] px-4 py-3 text-[11px] leading-5 text-[#44504b]">
-        Use <strong>Composition → Map detail</strong> to change road and town
-        density in Atlas, or relief and water detail in Topographic.
+        Use <strong>Composition → Map detail</strong> to change road density in
+        Atlas, or relief and water detail in Topographic.
       </div>
 
       <Field label="Paper and ink" help="Curated pairings keep fine linework printable.">
@@ -659,8 +653,6 @@ function StateStylePanel({ scene, update }: PanelProps) {
 
 function TitlePanel({ scene, update }: PanelProps) {
   const title = scene.title;
-  const [personalText, setPersonalText] = useState('Where We Met');
-  const personal = scene.markers;
 
   function setTitle(patch: Partial<PrintScene['title']>, label: string) {
     update((current) => ({
@@ -678,34 +670,6 @@ function TitlePanel({ scene, update }: PanelProps) {
       onWater: false,
       ...(slot === 'free' ? {} : rect),
     }, 'title-placement');
-  }
-
-  function addDecoration(kind: DecorationKind, text?: string) {
-    update((current) => ({
-      ...current,
-      markers: [
-        ...current.markers,
-        createPersonalDecoration(kind, current.markers.length, text),
-      ],
-      updatedAt: Date.now(),
-    }), `add-${kind}`);
-    trackDemoEvent('personal_element_added', { place: scene.place.slug, kind });
-  }
-
-  function updateDecoration(id: string, patch: Partial<PrintScene['markers'][number]>, label: string) {
-    update((current) => ({
-      ...current,
-      markers: current.markers.map((item) => (item.id === id ? { ...item, ...patch } : item)),
-      updatedAt: Date.now(),
-    }), label);
-  }
-
-  function removeDecoration(id: string) {
-    update((current) => ({
-      ...current,
-      markers: current.markers.filter((item) => item.id !== id),
-      updatedAt: Date.now(),
-    }), 'remove-decoration');
   }
 
   const titleBackdrop = title.panel === 'none'
@@ -727,14 +691,6 @@ function TitlePanel({ scene, update }: PanelProps) {
 
       {title.enabled && (
         <>
-          <Field label="Wording">
-            <div className="grid gap-2">
-              <TextField label="Title" value={title.text} onChange={(text) => setTitle({ text }, 'title-text')} />
-              <TextField label="Subtitle" value={title.subtitle} onChange={(subtitle) => setTitle({ subtitle }, 'title-subtitle')} />
-              <TextField label="Small line" value={title.detail} onChange={(detail) => setTitle({ detail }, 'title-detail')} />
-            </div>
-          </Field>
-
           <Field label="Title lettering">
             <div className="grid grid-cols-2 gap-2">
               {titleFontSamples(title.text || scene.place.name).map((option) => (
@@ -812,95 +768,6 @@ function TitlePanel({ scene, update }: PanelProps) {
         </>
       )}
 
-      <section className="border-t border-[#e0ddd4] pt-5">
-          <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#a35b3f]">Your story</div>
-          <h3 className="mt-1 font-display text-[25px] font-light leading-none">Add something personal</h3>
-          <p className="mt-2 text-[11px] leading-5 text-[#68726c]">Add it once, then drag it directly into place on the print.</p>
-
-          <div className="mt-4 flex gap-2">
-            <input
-              type="text"
-              value={personalText}
-              onChange={(event) => setPersonalText(event.target.value)}
-              placeholder="Where We Met"
-              className="min-w-0 flex-1 rounded-sm border border-[#d8d9d3] bg-white px-3 py-2.5 text-[12px] outline-none focus:border-[#173f35]"
-            />
-            <button
-              type="button"
-              disabled={!personalText.trim()}
-              onClick={() => addDecoration('text', personalText.trim())}
-              className="rounded-sm bg-[#173f35] px-4 text-[11px] font-medium text-white disabled:opacity-40"
-            >
-              Add label
-            </button>
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {([
-              ['star', 'Star'], ['heart', 'Heart'],
-            ] as Array<[DecorationKind, string]>).map(([kind, label]) => (
-              <button
-                key={kind}
-                type="button"
-                onClick={() => addDecoration(kind)}
-                className="grid min-h-[72px] place-items-center rounded-sm border border-[#d8d9d3] bg-white p-2 text-[#3a4a43] transition-colors hover:border-[#173f35] hover:bg-[#eef1ed]"
-                style={{ containerType: 'size' }}
-              >
-                <MarkerGlyph kind={kind as Exclude<DecorationKind, 'text'>} size={0.75} />
-                <span className="text-[9px]">{label}</span>
-              </button>
-            ))}
-          </div>
-
-          {personal.length > 0 && (
-            <div className="mt-4 grid gap-2">
-              {personal.map((item) => (
-                <div key={item.id} className="rounded-sm border border-[#d8d9d3] bg-white p-3">
-                  <div className="flex items-center gap-2">
-                    {item.kind === 'text' ? (
-                      <input
-                        type="text"
-                        value={item.text || ''}
-                        onChange={(event) => updateDecoration(item.id, { text: event.target.value }, 'personal-text')}
-                        className="min-w-0 flex-1 bg-transparent text-[12px] font-medium outline-none"
-                      />
-                    ) : (
-                      <span className="flex-1 text-[11px] font-medium capitalize">{item.kind}</span>
-                    )}
-                    <button type="button" onClick={() => removeDecoration(item.id)} className="text-[16px] text-[#9b5e48]" aria-label={`Remove ${item.text || item.kind}`}>×</button>
-                  </div>
-                  <div className="mt-3 grid grid-cols-[1fr_92px] items-center gap-3">
-                    <label className="text-[9px] uppercase tracking-[0.1em] text-[#7b837e]">
-                      Size
-                      <input
-                        type="range"
-                        min={0.45}
-                        max={1.6}
-                        step={0.05}
-                        value={item.size}
-                        onChange={(event) => updateDecoration(item.id, { size: Number(event.target.value) }, 'personal-size')}
-                        className="studio-range mt-2 w-full"
-                      />
-                    </label>
-                    {item.kind === 'text' ? (
-                      <select
-                        aria-label={`Font for ${item.text}`}
-                        value={item.font}
-                        onChange={(event) => updateDecoration(item.id, { font: event.target.value as DecorationFont }, 'personal-font')}
-                        className="rounded-sm border border-[#d8d9d3] bg-white px-2 py-2 text-[10px]"
-                      >
-                        <option value="hand">Script</option>
-                        <option value="atlas">Serif</option>
-                        <option value="modern">Modern</option>
-                        <option value="condensed">Atlas</option>
-                      </select>
-                    ) : <span className="text-right text-[9px] text-[#7b837e]">Drag to move</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
     </div>
   );
 }
@@ -1085,28 +952,6 @@ function Toggle({
         <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${active ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
       </span>
     </button>
-  );
-}
-
-function TextField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="grid grid-cols-[72px_1fr] items-center gap-2">
-      <span className="text-[10px] uppercase tracking-[0.1em] text-[#7b837e]">{label}</span>
-      <input
-        type="text"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="min-w-0 rounded-sm border border-[#d8d9d3] bg-white px-3 py-2 text-[12px] outline-none transition-colors focus:border-[#173f35]"
-      />
-    </label>
   );
 }
 

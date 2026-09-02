@@ -708,7 +708,7 @@ export function applyRegionMapLayers(
     try {
       if (kind === 'state' && (group === 'cities' || group === 'towns')) {
         // State editions are intentionally unlabelled. The only words on the
-        // map are the title and customer-added personal text.
+        // map are the title itself.
         map.setLayoutProperty(layer.id, 'visibility', 'none');
       } else if (kind === 'state' && group === 'allroads') {
         // The boundary-filtered detail source is the single controlled local

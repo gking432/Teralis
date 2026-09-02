@@ -366,7 +366,7 @@ export function SizePickerClient() {
                   <p className="text-center text-[8px] uppercase tracking-[0.14em] text-[#9aa09b]">Secure payment when commerce is connected</p>
                 </>
               )}
-              <Link href={backUrl} className="flex min-h-11 items-center justify-center text-[9px] uppercase tracking-[0.15em] text-[#637069] underline underline-offset-4">Keep personalizing</Link>
+              <Link href={backUrl} className="flex min-h-11 items-center justify-center text-[9px] uppercase tracking-[0.15em] text-[#637069] underline underline-offset-4">Keep editing</Link>
             </div>
           </aside>
         </main>

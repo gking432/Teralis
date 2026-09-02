@@ -267,7 +267,7 @@ export const BODY_FONT_STACK = BODY_FONT;
 
 export const TITLE_FONT_OPTIONS: Array<{ value: TitleFont; label: string; sample: string }> = [
   { value: 'editorial', label: 'Editorial', sample: 'Wisconsin' },
-  { value: 'hand', label: 'Script', sample: 'Where We Met' },
+  { value: 'hand', label: 'Script', sample: 'New York' },
   { value: 'modern', label: 'Modern', sample: 'WISCONSIN' },
   { value: 'condensed', label: 'Atlas', sample: 'WISCONSIN' },
 ];

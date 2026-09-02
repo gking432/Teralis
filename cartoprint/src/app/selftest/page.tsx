@@ -46,10 +46,9 @@ import {
   DENSE_ROAD_TILE_ZOOM,
 } from '@/lib/print/tileZoom';
 import { buildPrintLayerState } from '@/lib/print/printRender';
+import { printColorSettingsKey, printDetailSettingsKey } from '@/lib/print/mapChangeKeys';
 import { exportWidthForSize, type SizeLabel } from '@/lib/print/sizeCatalog';
-import { createPersonalDecoration, layoutDecorations } from '@/lib/print/decorations';
 import {
-  applyRegionTheme,
   hillshadeExaggeration,
   REGION_DETAIL_LEVELS,
 } from '@/lib/print/regionDesign';
@@ -61,7 +60,6 @@ import {
   titleTypography,
   defaultTitleDesign,
 } from '@/lib/print/title';
-import { decorationSheetPosition } from '@/lib/print/decorations';
 import { buildPlaceCatalogPrint, placeFromSearchParams } from '@/lib/catalog/placeFromQuery';
 import { getCatalogPrint, getCityCatalogPrint, getCityCatalogPrints, getStateCatalogPrints, getFeaturedCatalogPrint } from '@/lib/catalog/prints';
 import {
@@ -69,7 +67,7 @@ import {
   designsForState,
   sceneForCollectionDesign,
 } from '@/lib/catalog/stateCollection';
-import { applyLayout, applyPalette, applyRegionDesign } from '@/lib/print/scene';
+import { applyLayout, applyPalette } from '@/lib/print/scene';
 import { getLayout } from '@/lib/print/layouts';
 import { getPalette } from '@/lib/print/palettes';
 import { CITY_PRODUCT_PALETTES, createCityProductScene } from '@/lib/catalog/cityProduct';
@@ -478,6 +476,22 @@ export default function SelfTest() {
     check('each edition carries its own typography and palette',
       atlasScene.title.font !== topoScene.title.font && atlasScene.paletteId !== topoScene.paletteId);
 
+    const mapInputs = (candidate: typeof topoScene) => [
+      printColorSettingsKey(candidate.colors),
+      printDetailSettingsKey(candidate.detail),
+      candidate.region.theme,
+      candidate.detailBias,
+      candidate.strokeWeight,
+      candidate.viewport.bbox.join(','),
+    ].join(':');
+    const titleOnlyMapInputs = (['editorial', 'hand', 'modern', 'condensed'] as const).map((font) =>
+      mapInputs(normalizeScene({
+        ...topoScene,
+        title: { ...topoScene.title, font, text: `Wisconsin ${font}` },
+      })));
+    check('every title font preserves all map-rendering inputs',
+      new Set(titleOnlyMapInputs).size === 1);
+
     // A graded control that does not change the map is a control that lies.
     check('every Street Atlas detail level keeps place names off',
       REGION_DETAIL_LEVELS.every((detailBias) => {
@@ -498,7 +512,11 @@ export default function SelfTest() {
     // county lines or a town-name gazetteer.
     const cityAuditScene = createPrintScene(getCityCatalogPrint('madison-wi')!, 'portrait');
     check('city prints stay street-first, with no region furniture',
-      !cityAuditScene.detail.counties && !cityAuditScene.detail.labels.towns && cityAuditScene.markers.length === 0);
+      !cityAuditScene.detail.counties && !cityAuditScene.detail.labels.towns);
+    check('city artwork uses only the city name',
+      cityAuditScene.title.text === 'Madison'
+        && cityAuditScene.title.subtitle === ''
+        && cityAuditScene.title.detail === '');
 
     // State detail is selected by physical extent, not by a state-specific
     // recipe. Every state stays within the bounded vector-tile budget.
@@ -519,8 +537,8 @@ export default function SelfTest() {
       Object.entries(stateBboxes).every(([name, bbox]) =>
         stateDetailTileCount(bbox, stateZooms[name]) <= MAX_STATE_DETAIL_TILES));
 
-    // --- the storefront-to-personalizer seam ---
-    // The product page sells finished designs; the personalizer opens the
+    // --- the storefront-to-editor seam ---
+    // The product page sells finished designs; the editor opens the
     // exact same scene. One source of truth, so the transition cannot drift:
     // same wording, same fonts, same geography, and no second styling step.
     const wisconsinPrint = getCatalogPrint('wisconsin')!;
@@ -537,17 +555,15 @@ export default function SelfTest() {
       new Set(collectionScenes.map(([, scene]) => scene.title.font)).size === collectionScenes.length);
     check('each collection design carries its own palette',
       new Set(collectionScenes.map(([, scene]) => scene.paletteId)).size === collectionScenes.length);
-    check('no edition ships markers the customer did not place',
-      collectionScenes.every(([, scene]) => scene.markers.length === 0));
     const seamEncoded = encodeDesign(leadScene);
     const seamDecoded = decodeDesign(seamEncoded);
-    check('personalize link restores the exact storefront design',
+    check('edit link restores the exact storefront design',
       seamDecoded?.region.theme === leadDesign.id
         && seamDecoded?.title.font === leadDesign.font
         && seamDecoded?.paletteId === leadDesign.palette
         && seamDecoded?.title.subtitle === leadScene.title.subtitle
         && seamDecoded?.viewport.bbox.join() === leadScene.viewport.bbox.join());
-    check('the personalize link round-trips edition and detail',
+    check('the edit link round-trips edition and detail',
       seamDecoded?.region.theme === leadScene.region.theme
         && seamDecoded?.detailBias === leadScene.detailBias);
 
@@ -584,8 +600,6 @@ export default function SelfTest() {
         if (regionScene.title.text !== regionPrint.name) regionProblems.push(`${label}: wrong title`);
         if (design.id === 'atlas' && regionScene.detail.roads === 'none') regionProblems.push(`${label}: no roads`);
         if (design.id === 'topographic' && !regionScene.detail.rivers) regionProblems.push(`${label}: no rivers`);
-        // Markers belong to the customer; nothing may be placed for them.
-        if (regionScene.markers.length > 0) regionProblems.push(`${label}: ships unrequested markers`);
       }
     }
     check('every region renders both editions correctly',
@@ -638,18 +652,14 @@ export default function SelfTest() {
         && searchedScene.detail.roads === catalogColorado.detail.roads
         && searchedScene.title.subtitle === catalogColorado.title.subtitle);
 
-    // Markers a customer places must survive an edition change: switching
-    // from atlas to topographic is choosing a different map, not discarding
-    // their work.
-    const withMarker = normalizeScene({
+    // Old shared URLs may still contain the retired decoration payload. It is
+    // discarded at the normalization boundary and can never reach artwork.
+    const legacyScene = normalizeScene({
       ...atlasScene,
-      markers: [createPersonalDecoration('heart', 0)],
-    });
-    const switched = applyRegionDesign(withMarker, applyRegionTheme(withMarker.region, 'topographic'));
-    check('switching edition keeps the customer’s markers',
-      switched.markers.length === 1 && switched.region.theme === 'topographic');
-    check('a placed marker actually reaches the page',
-      layoutDecorations(withMarker).length === 1);
+      markers: [{ id: 'retired-decoration' }],
+    } as typeof atlasScene & { markers: Array<{ id: string }> });
+    check('legacy decorations are stripped from saved designs',
+      !('markers' in legacyScene));
 
     check('every state sells both finished editions',
       getStateCatalogPrints().every((statePrint) =>

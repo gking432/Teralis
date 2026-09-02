@@ -71,7 +71,7 @@ export function DesignPageClient() {
           </h1>
           <p className="mx-auto mt-7 max-w-xl text-[15px] font-light leading-7 text-[#dce2dd]/72">
             Start with the place. We draw a finished print from real streets, water, and terrain —
-            then you change the wording, colors, and details that make it yours.
+            then you can adjust its color, title, or composition.
           </p>
         </div>
 
@@ -107,7 +107,7 @@ export function DesignPageClient() {
 
         <div className="mx-auto mt-16 grid max-w-3xl gap-8 border-t border-white/10 pt-10 sm:grid-cols-3">
           <Step number="01" title="Pick a place">Any city, town, state, island, or park. We find its real geography.</Step>
-          <Step number="02" title="Make it yours">Wording, dates, markers, colors — drag anything directly on the print.</Step>
+          <Step number="02" title="Adjust the print">Choose the color, title treatment, and composition.</Step>
           <Step number="03" title="See it framed">Choose the size and finish, and see it on a wall before you buy.</Step>
         </div>
       </section>

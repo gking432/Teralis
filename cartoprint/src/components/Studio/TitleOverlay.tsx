@@ -62,7 +62,6 @@ export function TitleOverlay({
 }: TitleOverlayProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState(false);
-  const [editing, setEditing] = useState<null | 'text' | 'subtitle' | 'detail'>(null);
   const [box, setBox] = useState({ width: 0, height: 0 });
   // Type fitting measures text on a canvas, which the server cannot do, so the
   // first server pass would disagree with the client and trip hydration. The
@@ -100,7 +99,6 @@ export function TitleOverlay({
     function onPointerDown(event: PointerEvent) {
       if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
         setSelected(false);
-        setEditing(null);
       }
     }
     document.addEventListener('pointerdown', onPointerDown);
@@ -117,7 +115,7 @@ export function TitleOverlay({
   }
 
   function beginDrag(handle: Handle, event: ReactPointerEvent) {
-    if (!editable || editing) return;
+    if (!editable) return;
     event.stopPropagation();
     event.preventDefault();
     // Select and start dragging on the SAME press. Requiring a separate
@@ -212,9 +210,9 @@ export function TitleOverlay({
   }
 
   const type = titleTypography(design, box.width || 1, box.height || 1);
-  const showTitle = design.text.trim().length > 0 || editing === 'text';
-  const showSubtitle = design.subtitle.trim().length > 0 || editing === 'subtitle';
-  const showDetail = design.detail.trim().length > 0 || editing === 'detail';
+  const showTitle = design.text.trim().length > 0;
+  const showSubtitle = design.subtitle.trim().length > 0;
+  const showDetail = design.detail.trim().length > 0;
 
   const lineStyle = (size: number, tracking: number, font: string, weight: number): CSSProperties => ({
     color: colorsResolved.text,
@@ -230,34 +228,6 @@ export function TitleOverlay({
     transformOrigin: design.align === 'left' ? 'left center' : 'center',
     outline: 'none',
   });
-
-  function editableProps(field: 'text' | 'subtitle' | 'detail') {
-    if (!editable) return {};
-    return {
-      contentEditable: editing === field,
-      suppressContentEditableWarning: true,
-      onDoubleClick: (event: React.MouseEvent) => {
-        event.stopPropagation();
-        setSelected(true);
-        setEditing(field);
-      },
-      onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
-        setEditing(null);
-        const value = event.currentTarget.textContent ?? '';
-        if (value !== design[field]) onChange({ ...design, [field]: value });
-      },
-      onKeyDown: (event: React.KeyboardEvent) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          (event.currentTarget as HTMLElement).blur();
-        }
-        if (event.key === 'Escape') {
-          (event.currentTarget as HTMLElement).textContent = design[field];
-          (event.currentTarget as HTMLElement).blur();
-        }
-      },
-    };
-  }
 
   if (!design.enabled || !mounted) return null;
 
@@ -280,8 +250,8 @@ export function TitleOverlay({
         transformOrigin: 'center',
         containerType: 'size',
         touchAction: 'none',
-        cursor: !editable ? 'default' : editing ? 'text' : selected ? 'move' : 'pointer',
-        userSelect: editing ? 'text' : 'none',
+        cursor: !editable ? 'default' : selected ? 'move' : 'pointer',
+        userSelect: 'none',
       } as CSSProperties}
     >
       {!colorsResolved.transparent && (
@@ -303,7 +273,6 @@ export function TitleOverlay({
       >
         {showTitle && (
           <div
-            {...editableProps('text')}
             style={lineStyle(
               type.titleSize,
               type.titleTracking,
@@ -316,7 +285,6 @@ export function TitleOverlay({
         )}
         {showSubtitle && (
           <div
-            {...editableProps('subtitle')}
             style={lineStyle(type.subtitleSize, type.subtitleTracking, BODY_FONT_STACK, 400)}
           >
             {design.subtitle.trim().toUpperCase()}
@@ -324,7 +292,6 @@ export function TitleOverlay({
         )}
         {showDetail && (
           <div
-            {...editableProps('detail')}
             style={lineStyle(type.detailSize, type.detailTracking, BODY_FONT_STACK, 400)}
           >
             {design.detail.trim().toUpperCase()}
@@ -332,7 +299,7 @@ export function TitleOverlay({
         )}
       </div>
 
-      {editable && selected && !editing && (
+      {editable && selected && (
         <>
           <div className="pointer-events-none absolute -inset-px border border-dashed border-current opacity-40" />
           {([

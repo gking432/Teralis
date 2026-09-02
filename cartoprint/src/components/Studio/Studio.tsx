@@ -7,7 +7,6 @@ import type maplibregl from 'maplibre-gl';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import { LivePrintCanvas } from '@/components/Studio/LivePrintCanvas';
 import { TitleOverlay } from '@/components/Studio/TitleOverlay';
-import { MarkerOverlay } from '@/components/Studio/MarkerOverlay';
 import { MOVES, MoveTabs, StudioDock, StudioPanels, type Move } from '@/components/Studio/StudioDock';
 import { useSceneHistory } from '@/hooks/useSceneHistory';
 import {
@@ -35,14 +34,14 @@ import { SIZE_CATALOG, formatPrice, getSizePrice } from '@/lib/print/sizeCatalog
 import type { Orientation } from '@/lib/print/orientation';
 
 /**
- * The personalizer.
+ * The print editor.
  *
  * The customer arrives here from a product page with a finished design already
  * chosen, so the art direction is settled the moment the studio opens: the
  * exact storefront scene is decoded from the URL and rendered unchanged.
  *
  * The studio therefore asks only two primary questions — how the place is
- * framed (Composition) and what makes it personal (Make it yours) — and keeps
+ * framed (Composition) and how its title is treated — and keeps
  * the purchase visible at all times. Changing the whole art direction remains
  * possible, but as a secondary "Change design" action, never as a second
  * styling step: the flow must not re-ask what the storefront already asked.
@@ -118,7 +117,6 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
         detail: decoded.detail,
         title: decoded.title,
         region: decoded.region ?? base.region,
-        markers: decoded.markers ?? [],
       });
       arrivalScene.current = restoredScene;
       reset(restoredScene);
@@ -373,14 +371,6 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
               interactive={!viewLocked && scene.place.kind !== 'state'}
               className="h-full w-full"
             >
-              <MarkerOverlay
-                scene={scene}
-                containerRef={sheetRef}
-                onChange={(markers) => touchedUpdate((current) => ({
-                  ...current,
-                  markers,
-                }), 'marker-drag')}
-              />
               <TitleOverlay
                 design={scene.title}
                 colors={scene.colors}
@@ -499,7 +489,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
                 <div className="text-[9px] uppercase tracking-[0.16em] text-[#a35b3f]">Change design</div>
                 <h2 className="mt-1 font-display text-[24px] font-light leading-none">{designLabel}</h2>
                 <p className="mt-2 text-[12px] leading-5 text-[#68726c]">
-                  Your framing, wording, and personal markers stay exactly where you put them.
+                  Your framing and title treatment stay exactly where you put them.
                 </p>
               </div>
               <button

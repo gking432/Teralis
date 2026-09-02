@@ -16,7 +16,6 @@ export type DemoEventName =
   | 'demo_order_created'
   | 'demo_order_failed'
   | 'checkout_started'
-  | 'personal_element_added'
   | 'region_theme_selected'
   | 'region_detail_changed'
   | 'design_landing_viewed'

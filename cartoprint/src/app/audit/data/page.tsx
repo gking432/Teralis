@@ -16,7 +16,6 @@ import { buildPlaceCatalogPrint } from '@/lib/catalog/placeFromQuery';
 import { createCityProductScene } from '@/lib/catalog/cityProduct';
 import { designsForState, sceneForCollectionDesign } from '@/lib/catalog/stateCollection';
 import { createPrintScene, sceneDensity } from '@/lib/print/scene';
-import { layoutDecorations } from '@/lib/print/decorations';
 import { checkPrintReadiness } from '@/lib/print/readiness';
 
 export default function AuditDataPage() {
@@ -26,10 +25,9 @@ export default function AuditDataPage() {
     const out: string[] = [];
     const states = getStateCatalogPrints();
 
-    out.push('REGION\tKIND\tEDITION\tROADS\tPLACES\tRIVERS\tCOUNTIES\tCITY_LBL\tTOWN_LBL\tMARKERS\tDESIGNS\tSUBTITLE\tREADY\tSEARCH_MATCH');
+    out.push('REGION\tKIND\tEDITION\tROADS\tPLACES\tRIVERS\tCOUNTIES\tCITY_LBL\tTOWN_LBL\tDESIGNS\tSUBTITLE\tREADY\tSEARCH_MATCH');
     for (const print of [...states, getFeaturedCatalogPrint()]) {
       const scene = createPrintScene(print, 'portrait');
-      const drawn = layoutDecorations(scene);
       const designs = designsForState(print.slug, print.center).map((d) => d.id[0]).join('');
       const ready = checkPrintReadiness(scene).ready ? 'y' : 'NO';
 
@@ -51,18 +49,18 @@ export default function AuditDataPage() {
         print.slug, print.kind, scene.region.theme, scene.detail.roads, scene.detail.places,
         scene.detail.rivers ? 'y' : 'n', scene.detail.counties ? 'y' : 'n',
         scene.detail.labels.cities ? 'y' : 'n', scene.detail.labels.towns ? 'y' : 'n',
-        drawn.length, designs, scene.title.subtitle, ready, same ? 'y' : 'MISMATCH',
+        designs, scene.title.subtitle, ready, same ? 'y' : 'MISMATCH',
       ].join('\t'));
     }
 
     out.push('');
-    out.push('CITY\tSTATE\tROADS\tPLACES\tEVERY_STREET\tDECOR\tREADY');
+    out.push('CITY\tSTATE\tROADS\tPLACES\tEVERY_STREET\tREADY');
     for (const print of getCityCatalogPrints()) {
       const scene = createCityProductScene(print, 'slate');
       const density = sceneDensity(scene);
       out.push([
         print.slug, print.defaultSubtitle, scene.detail.roads, scene.detail.places,
-        density.everyStreet ? 'y' : 'n', scene.markers.length,
+        density.everyStreet ? 'y' : 'n',
         checkPrintReadiness(scene).ready ? 'y' : 'NO',
       ].join('\t'));
     }

@@ -32,7 +32,7 @@ export default function StorefrontPage() {
             <span className="block italic text-[#cbd4cc]">Your story.</span>
           </h1>
           <p className="mt-8 max-w-xl text-[15px] font-light leading-7 text-[#dce2dd]/72 md:text-[17px]">
-            Start with a finished city map, a state Street Atlas, or a Topographic edition. Change the color, wording, and personal markers only if you want to.
+            Start with a finished city map, a state Street Atlas, or a Topographic edition. Adjust the color, title, or composition only if you want to.
           </p>
 
           <div className="mt-8 max-w-2xl">
@@ -53,7 +53,7 @@ export default function StorefrontPage() {
 
           <div className="mt-9 hidden max-w-xl grid-cols-3 border-y border-white/12 py-4 text-[8px] uppercase leading-4 tracking-[0.17em] text-white/45 sm:grid">
             <span>1. Pick a place</span>
-            <span className="border-x border-white/12 px-4">2. Make it yours</span>
+            <span className="border-x border-white/12 px-4">2. Adjust the print</span>
             <span className="pl-4">3. See it framed</span>
           </div>
         </div>

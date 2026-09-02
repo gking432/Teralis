@@ -39,8 +39,8 @@ interface PackedDesign {
   la: 0 | 1;              // place labels still following the resolver
   /** Cartographic edition and feature levels. */
   rg: PrintScene['region'];
-  /** Markers the customer placed. */
-  mk: PrintScene['markers'];
+  /** Legacy decoration payload. Accepted and ignored when decoding old links. */
+  mk?: unknown;
 }
 
 // Bumped when the packed shape changes; older links decode to null and fall
@@ -113,7 +113,6 @@ export function encodeDesign(scene: PrintScene): string | null {
       db: scene.detailBias,
       la: scene.labelsAuto ? 1 : 0,
       rg: scene.region,
-      mk: scene.markers,
     };
     return encodeBase64Url(JSON.stringify(packed));
   } catch {
@@ -136,7 +135,6 @@ export interface DecodedDesign {
   detail: PrintScene['detail'];
   title: TitleDesign;
   region: PrintScene['region'];
-  markers: PrintScene['markers'];
 }
 
 export function decodeDesign(encoded: string | null): DecodedDesign | null {
@@ -193,7 +191,6 @@ export function decodeDesign(encoded: string | null): DecodedDesign | null {
         rotation: packed.tr[4],
       },
       region: packed.rg,
-      markers: packed.mk ?? [],
     };
   } catch {
     return null;

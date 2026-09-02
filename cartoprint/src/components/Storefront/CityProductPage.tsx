@@ -228,9 +228,9 @@ export function CityProductPage({
                 onClick={startCustomizing}
                 className="mt-3 flex min-h-12 w-full items-center justify-center border border-[#173f35] px-6 text-[10px] font-medium uppercase tracking-[0.18em] text-[#173f35] transition-colors hover:bg-[#e9eee9]"
               >
-                Personalize this map
+                Edit this print
               </Link>
-              <p className="mt-3 text-center text-[9px] leading-4 text-[#7a847e]">Add your wording, a heart where it happened, and the places that matter.</p>
+              <p className="mt-3 text-center text-[9px] leading-4 text-[#7a847e]">Adjust the color, title treatment, or composition.</p>
               <Link href="/" className="mt-4 flex min-h-11 items-center justify-center text-[9px] uppercase tracking-[0.16em] text-[#68736d] underline underline-offset-4">
                 Choose another place
               </Link>

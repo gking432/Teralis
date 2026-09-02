@@ -25,7 +25,7 @@ import { displayTitleText, titleFontCss } from '@/lib/print/title';
  *
  * The customer is choosing between complete pieces of art — never between
  * abstract style settings. Whichever design is on the easel can be bought as
- * shown or personalized, and the personalizer opens that exact scene: the
+ * shown or edited, and the editor opens that exact scene: the
  * design encoded here is the single source of truth, so nothing gets re-asked
  * and nothing visually resets across the transition.
  */
@@ -211,9 +211,9 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
                 {buying ? 'Preparing the print…' : 'Buy as shown'}
               </button>
               <Link href={customizeHref} onClick={() => trackDemoEvent('product_customize_started', { place: print.slug, palette: scene.region.theme })} className="mt-3 flex min-h-12 w-full items-center justify-center border border-[#173f35] px-6 text-[10px] font-medium uppercase tracking-[0.18em] text-[#173f35] transition-colors hover:bg-[#e9eee9]">
-                Personalize this design
+                Edit this print
               </Link>
-              <p className="mt-3 text-center text-[9px] leading-4 text-[#7a847e]">Change the wording and lettering, or add your own labels, stars, and hearts.</p>
+              <p className="mt-3 text-center text-[9px] leading-4 text-[#7a847e]">Adjust the title, colors, or composition.</p>
             </div>
           </aside>
         </section>
@@ -221,22 +221,11 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
         <section className="border-y border-white/10 bg-[#0f1917]/55">
           <div className="mx-auto grid max-w-[1320px] gap-8 px-6 py-14 md:grid-cols-3 md:px-10">
             <Story number="01" title="Geography first">Every edition uses real boundaries, roads, water, place data, and elevation appropriate to its purpose.</Story>
-            <Story number="02" title="Make it yours">What you see is what you personalize — the exact design carries into the studio, lakes, fonts, and all.</Story>
+            <Story number="02" title="Simple adjustments">The exact design carries into the editor, where you can change its title, colors, or composition.</Story>
             <Story number="03" title="Made for print">Vector-like linework, guarded contrast, and a shared export model keep the final artwork crisp at full size.</Story>
           </div>
         </section>
 
-        <section className="mx-auto grid max-w-[1320px] gap-8 px-6 py-16 md:grid-cols-[0.8fr_1.2fr] md:px-10 lg:py-24">
-          <div>
-            <div className="studio-kicker">Made for somewhere</div>
-            <h2 className="mt-4 font-display text-5xl font-light leading-[0.95]">Not just where.<br /><span className="font-hand text-[#d9b09d]">What happened there.</span></h2>
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {['Where We Met', 'Our First Home', 'Home', 'Since 2018', 'Every Summer', 'Always Here'].map((label) => (
-              <div key={label} className="grid min-h-32 place-items-center border border-white/12 bg-white/[0.035] p-4 text-center font-hand text-3xl text-[#e7ded2]">{label}</div>
-            ))}
-          </div>
-        </section>
       </main>
       <div className="fixed inset-x-0 bottom-0 z-50 border-t border-[#14201d]/15 bg-[#f7f5ef]/95 px-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] text-[#14201d] shadow-[0_-12px_35px_rgba(0,0,0,0.2)] backdrop-blur lg:hidden">
         <div className="grid grid-cols-[auto_1fr] items-center gap-2">
@@ -246,7 +235,7 @@ export function StateProductPage({ print }: { print: CatalogPrint }) {
           </button>
         </div>
         <Link href={customizeHref} className="mt-1.5 block text-center text-[10px] text-[#68736d] underline underline-offset-4">
-          or personalize it first
+          or edit it first
         </Link>
       </div>
     </div>

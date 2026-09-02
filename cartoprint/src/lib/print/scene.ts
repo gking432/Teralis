@@ -17,7 +17,6 @@ import { printGeometry } from '@/lib/print/geometry';
 import { resolveDensity, type DetailBias, type ResolvedDensity } from '@/lib/print/density';
 import type { SizeLabel } from '@/lib/print/sizeCatalog';
 import { makePalettePrintable } from '@/lib/print/contrast';
-import { markerCacheTag, type PrintDecoration } from '@/lib/print/decorations';
 import {
   defaultRegionDesign,
   detailForRegion,
@@ -81,8 +80,6 @@ export interface PrintScene {
   title: TitleDesign;
   /** Which cartographic edition this is, and how dense each feature runs. */
   region: RegionDesign;
-  /** Markers the customer placed themselves. */
-  markers: PrintDecoration[];
   updatedAt: number;
 }
 
@@ -265,7 +262,6 @@ export function createPrintScene(
       font: print.kind === 'state' ? 'condensed' : 'editorial',
     },
     region: defaultRegionDesign(print.kind === 'city' ? 'atlas' : 'atlas'),
-    markers: [],
     updatedAt: Date.now(),
   };
 
@@ -278,15 +274,27 @@ export function createPrintScene(
  * this so no control can leave the scene in a state that contradicts itself.
  */
 export function normalizeScene(scene: PrintScene): PrintScene {
+  // Designs saved before the simplified editor may still carry a `markers`
+  // field. Drop it at the normalization boundary so legacy links remain
+  // loadable without ever restoring decorations to the artwork.
+  const { markers: _legacyMarkers, ...withoutMarkers } = scene as PrintScene & { markers?: unknown };
   return syncDetail(syncViewport(constrainStateFraming({
-    ...scene,
+    ...withoutMarkers,
     place: {
       ...scene.place,
       placeType: scene.place.placeType || scene.place.kind,
     },
     region: scene.region ?? defaultRegionDesign(),
-    markers: scene.markers ?? [],
-    title: { ...scene.title, font: scene.title.font ?? 'editorial' },
+    title: {
+      ...scene.title,
+      // Map titles are fixed product labels, not freeform personalization.
+      text: scene.place.name,
+      subtitle: scene.place.kind === 'city' ? '' : scene.place.subtitle,
+      detail: scene.place.kind === 'city'
+        ? ''
+        : scene.place.establishedYear ? `EST. ${scene.place.establishedYear}` : '',
+      font: scene.title.font ?? 'editorial',
+    },
     colors: makePalettePrintable(scene.colors),
   })));
 }
@@ -441,11 +449,10 @@ export function sceneCacheTag(scene: PrintScene): string {
     labels.water ? 'lw1' : 'lw0',
     labels.rivers ? 'lrv1' : 'lrv0',
     titleCacheTag(scene.title),
-    markerCacheTag(scene.region, scene.markers),
   ].join(':');
 }
 
-/** Switch cartographic edition, keeping framing, wording, and markers. */
+/** Switch cartographic edition while keeping framing and title treatment. */
 export function applyRegionDesign(scene: PrintScene, region: RegionDesign): PrintScene {
   return normalizeScene({ ...scene, region, updatedAt: Date.now() });
 }

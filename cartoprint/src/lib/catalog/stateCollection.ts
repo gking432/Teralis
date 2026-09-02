@@ -37,9 +37,9 @@ export function designsForState(_slug?: string, _center?: [number, number] | nul
 }
 
 /**
- * A finished edition is the personalizer's own default scene wearing one of
+ * A finished edition is the editor's own default scene wearing one of
  * the collection's designs — the same construction the studio uses, so the
- * storefront-to-personalizer handoff cannot drift.
+ * storefront-to-editor handoff cannot drift.
  */
 export function sceneForCollectionDesign(print: CatalogPrint, design: CollectionDesign): PrintScene {
   const base = createPrintScene(print, 'portrait', getPalette(design.palette));

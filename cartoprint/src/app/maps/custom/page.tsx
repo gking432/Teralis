@@ -5,7 +5,7 @@ import { placeFromSearchParams } from '@/lib/catalog/placeFromQuery';
 
 export const metadata: Metadata = {
   title: 'Your Custom City Map | Terralis',
-  description: 'Preview a detailed street map of your city or town, then personalize its color, title, border, and print format.',
+  description: 'Preview a detailed street map of your city or town, then adjust its color, title, border, and print format.',
   robots: { index: false, follow: false },
 };
 

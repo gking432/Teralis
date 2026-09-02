@@ -21,7 +21,6 @@ import { printGeometry } from '@/lib/print/geometry';
 import { supersampleFactor } from '@/lib/print/tileZoom';
 import { bakeTitle } from '@/lib/print/bakeTitle';
 import type { PrintScene } from '@/lib/print/scene';
-import { drawDecorations } from '@/lib/print/decorations';
 
 /**
  * The high-resolution renderer.
@@ -279,10 +278,6 @@ export async function renderScene(
       ctx.restore();
     }
 
-    // Personal story elements use sheet coordinates and are drawn after the
-    // map, before the title. The live overlay uses the same scene objects, so
-    // none of the customer's additions disappear when the print is exported.
-    drawDecorations(ctx, scene, sheetW, sheetH);
     bakeTitle(ctx, scene.title, scene.colors, sheetW, sheetH);
 
     return canvas.toDataURL('image/png');
