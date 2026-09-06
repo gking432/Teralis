@@ -90,10 +90,10 @@ export function PlaceOptions({ print, scene, update, boundary, waterAvailable, m
             {edition.id === 'illustrated' ? art ? <img src={art.src} alt="" className="aspect-[3/4] w-full bg-[#f5f0e5] object-contain" /> : <div className="flex aspect-[3/4] items-center justify-center bg-[#eeeae0] px-2 text-center text-xs text-[#7b827b]">New places in progress</div> : <StateEditionPreview print={print} edition={edition.id} boundary={boundary} />}
             <span className="mt-2 block text-sm font-medium leading-tight">{edition.name}</span><span className="mt-1 block text-xs leading-4 text-[#657167]">{unavailable ? 'Not yet illustrated' : edition.description}</span>
           </button>;
-        }) : CITY_VERSIONS.map((version) => <button key={version.id} className="place-choice" disabled={version.id === 'on-water' && waterAvailable !== true} aria-pressed={!illustrated && scene.layoutId === version.id} onClick={() => update((current) => applyLayout(illustrated ? chooseEdition(current, 'atlas') : current, getLayout(version.id)), 'version')}>
-          <CityVersionPreview scene={scene} mapPreview={mapPreview} layout={version.id} />
+        }) : CITY_VERSIONS.map((version) => <button key={version.id} className="place-choice" disabled={!illustrated && version.id === 'on-water' && waterAvailable !== true} aria-pressed={!illustrated && scene.layoutId === version.id} onClick={() => update((current) => applyLayout(illustrated ? chooseEdition(current, 'atlas') : current, getLayout(version.id)), 'version')}>
+          {!illustrated && <CityVersionPreview scene={scene} mapPreview={mapPreview} layout={version.id} />}
           <span className="mt-2 block text-sm font-medium">{version.name}</span>
-          {version.id === 'on-water' && waterAvailable !== true && <span className="mt-1 block text-xs leading-4 text-[#657167]">{waterAvailable === false ? 'Needs a wider water view' : 'Checking shoreline…'}</span>}
+          {!illustrated && version.id === 'on-water' && waterAvailable !== true && <span className="mt-1 block text-xs leading-4 text-[#657167]">{waterAvailable === false ? 'Needs a wider water view' : 'Checking shoreline…'}</span>}
         </button>)}
       </div>
       {!state && art && <button className="place-choice mt-3 flex w-full items-center gap-4 text-left" aria-pressed={illustrated} onClick={() => update((current) => chooseEdition(current, 'illustrated'), 'edition')}><img src={art.src} alt="" className="h-24 w-32 object-contain" /><span><span className="block font-medium">Illustrated Atlas</span><span className="mt-1 block text-sm text-[#657167]">Lakes, landmarks & little discoveries</span></span></button>}
