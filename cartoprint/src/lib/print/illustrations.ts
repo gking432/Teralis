@@ -5,7 +5,6 @@ import { printGeometry } from './geometry';
 export const ILLUSTRATIONS: Record<string, { src: string; width: number; height: number; paper: string; orientation: 'portrait' | 'landscape' }> = {
   tennessee: { src: '/illustrations/tennessee-atlas.png', width: 1693, height: 929, paper: '#f5f0e5', orientation: 'landscape' },
   wisconsin: { src: '/illustrations/wisconsin-atlas.png', width: 1024, height: 1536, paper: '#f5f0e5', orientation: 'portrait' },
-  'madison-wi': { src: '/illustrations/madison-atlas.png', width: 1448, height: 1086, paper: '#f5f0e5', orientation: 'landscape' },
 };
 
 export function illustrationFor(scene: Pick<PrintScene, 'place'>) {

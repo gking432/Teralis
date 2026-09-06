@@ -70,6 +70,11 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
   const [waterNotice, setWaterNotice] = useState(false);
   const [waterPlacementAvailable, setWaterPlacementAvailable] = useState<boolean | undefined>(undefined);
   const [mapReady, setMapReady] = useState(false);
+  const [previewSeen, setPreviewSeen] = useState(false);
+  const reportReady = useCallback((ready: boolean) => {
+    setMapReady(ready);
+    if (ready) setPreviewSeen(true);
+  }, []);
   const [viewLocked, setViewLocked] = useState(true);
   const [continuing, setContinuing] = useState(false);
   const [shared, setShared] = useState(false);
@@ -139,7 +144,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
       const coastal = ['chicago-il', 'madison-wi', 'miami-fl', 'seattle-wa', 'san-francisco-ca'].includes(print.slug);
       initial = applyLayout(initial, getLayout(look || (coastal ? 'on-water' : 'footer')));
     }
-    if (print.kind === 'city' && edition === 'illustrated') initial = chooseEdition(initial, 'illustrated');
+    if (print.kind === 'city' && (edition === 'illustrated' || edition === 'landmarks')) initial = chooseEdition(initial, 'landmarks');
     const palette = searchParams.get('palette');
     if (palette && initial.region.theme !== 'illustrated') initial = normalizeScene({ ...initial, paletteId: getPalette(palette).id, colors: getPalette(palette).colors });
     arrivalScene.current = initial;
@@ -237,7 +242,9 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
   }
 
   async function handleContinue(target: PrintScene = scene) {
-    if (continuing || !mapReady || !checkPrintReadiness(target).ready) return;
+    // The enabled button gates preview readiness. Export renders its own scene;
+    // a late live-map readiness event must not silently discard this click.
+    if (continuing || !checkPrintReadiness(target).ready) return;
     setContinuing(true);
     setExportError(null);
     try {
@@ -279,7 +286,8 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
 
   const designLabel = designLabelFor(scene);
   const readiness = checkPrintReadiness(scene);
-  const canContinue = mapReady && readiness.ready;
+  // Preserve a stable click target while palette/edition changes repaint the live map.
+  const canContinue = (mapReady || previewSeen) && readiness.ready;
   const readinessLabel = !mapReady
     ? 'Loading map'
     : readiness.ready
@@ -309,9 +317,9 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
           <div ref={sheetRef} className="place-sheet" style={{ '--sheet-ratio': scene.orientation === 'portrait' ? 4 / 3 : scene.orientation === 'landscape' ? 3 / 4 : 1, aspectRatio: `1 / ${scene.orientation === 'portrait' ? 4 / 3 : scene.orientation === 'landscape' ? 3 / 4 : 1}` } as CSSProperties}>
             {illustrated && art && artRect ? <div className="relative h-full w-full" style={{ background: art.paper }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={art.src} alt={`Illustrated ${print.name} with local landscapes and landmarks`} onLoad={() => setMapReady(true)} onError={() => { setMapReady(false); setExportError('The illustration could not load. Try another edition or reload.'); }} style={{ position: 'absolute', left: percent(artRect.x), top: percent(artRect.y), width: percent(artRect.w), height: percent(artRect.h) }} />
+              <img src={art.src} alt={`Illustrated ${print.name} with local landscapes and landmarks`} onLoad={() => reportReady(true)} onError={() => { setMapReady(false); setExportError('The illustration could not load. Try another edition or reload.'); }} style={{ position: 'absolute', left: percent(artRect.x), top: percent(artRect.y), width: percent(artRect.w), height: percent(artRect.h) }} />
               <TitleOverlay design={scene.title} colors={scene.colors} containerRef={sheetRef} onChange={() => {}} editable={false} />
-            </div> : <LivePrintCanvas scene={scene} geometry={boundary} onViewportChange={handleViewportChange} onReady={(map) => { mapRef.current = map; }} onReadyStateChange={setMapReady} onMapPreview={setMapPreview} onWaterPlacement={handleWaterPlacement} interactive={!viewLocked && scene.place.kind === 'city'} className="h-full w-full">
+            </div> : <LivePrintCanvas scene={scene} geometry={boundary} onViewportChange={handleViewportChange} onReady={(map) => { mapRef.current = map; }} onReadyStateChange={reportReady} onMapPreview={setMapPreview} onWaterPlacement={handleWaterPlacement} interactive={!viewLocked && scene.place.kind === 'city'} className="h-full w-full">
               <TitleOverlay design={scene.title} colors={scene.colors} containerRef={sheetRef} onChange={() => {}} editable={false} />
             </LivePrintCanvas>}
           </div>

@@ -1,6 +1,7 @@
-import { applyLayout, applyPalette, normalizeScene, type PrintScene } from './scene';
+import { reframe, applyLayout, applyPalette, normalizeScene, type PrintScene } from './scene';
 import { getLayout } from './layouts';
 import { getPalette } from './palettes';
+import { hasCityLandmarks } from './cityLandmarks';
 import { ILLUSTRATIONS } from './illustrations';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import type { Orientation } from './orientation';
@@ -18,6 +19,11 @@ export const STATE_EDITIONS = [
 ];
 
 export function chooseEdition(scene: PrintScene, theme: RegionTheme): PrintScene {
+  if (theme === 'landmarks') {
+    if (!hasCityLandmarks(scene.place.slug)) return scene;
+    const next = applyLayout(applyPalette(scene, getPalette('navy')), getLayout('footer'));
+    return reframe(normalizeScene({ ...next, region: { theme }, orientation: 'portrait', focus: [-89.390, 43.078], title: { ...next.title, font: 'editorial' } }), 2);
+  }
   if (theme === 'illustrated' && !ILLUSTRATIONS[scene.place.slug]) return scene;
   const palette = getPalette(theme === 'topographic' || theme === 'detailed' ? 'forest' : 'bone');
   const next = applyLayout(applyPalette(scene, palette), getLayout('footer'));

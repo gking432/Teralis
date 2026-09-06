@@ -1,5 +1,6 @@
 'use client';
 
+import { applyCityLandmarks } from '@/lib/print/cityLandmarks';
 import { addWisconsinAtlasLabels } from '@/lib/print/wisconsinAtlas';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import maplibregl from 'maplibre-gl';
@@ -304,6 +305,10 @@ export function LivePrintCanvas({
     mapRef.current.triggerRepaint();
   }, [styleReady, colorsKey, detailKey, regionTheme, scene.detailBias, bboxKey, canvasWidth, canvasHeight]);
 
+  useEffect(() => {
+    if (styleReady && mapRef.current) applyCityLandmarks(mapRef.current, sceneRef.current);
+  }, [styleReady, regionTheme, colorsKey, canvasWidth]);
+
   // --- Targeted updates. Each of these is paint-only: no re-render, no fetch.
 
   useEffect(() => {
@@ -313,6 +318,7 @@ export function LivePrintCanvas({
     applyPrintColors(map, active.colors, currentScale());
     if (kind === 'state') addWisconsinAtlasLabels(map, active.colors, currentScale());
     applyPrintMaskColor(map, active.colors);
+    applyCityLandmarks(map, active);
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();
   }, [colorsKey, kind, styleReady, currentScale, reportMapPreview]);
@@ -326,6 +332,7 @@ export function LivePrintCanvas({
     // palette has to be re-applied on top of them.
     applyPrintColors(map, active.colors, currentScale());
     if (kind === 'state') addWisconsinAtlasLabels(map, active.colors, currentScale());
+    applyCityLandmarks(map, active);
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();
   }, [colorsKey, detailKey, scene.strokeWeight, kind, styleReady, currentScale, reportMapPreview]);
@@ -335,6 +342,7 @@ export function LivePrintCanvas({
     if (!map || !styleReady || kind !== 'state') return;
     const active = sceneRef.current;
     applyRegionMapLayers(map, active.region, active.detail, active.detailBias, kind);
+    applyCityLandmarks(map, active);
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();
   }, [detailKey, kind, reportMapPreview, regionTheme, scene.detailBias, styleReady]);
@@ -459,6 +467,7 @@ export function LivePrintCanvas({
     }
     applyRegionMapLayers(map, active.region, active.detail, active.detailBias, active.place.kind);
     if (!active.freeViewport) fitViewport(active.viewport);
+    applyCityLandmarks(map, active);
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();
   }, [canvasWidth, canvasHeight, scene.orientation, currentScale, geometry, kind, styleReady, fitViewport, reportMapPreview]);

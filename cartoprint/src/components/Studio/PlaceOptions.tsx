@@ -10,6 +10,7 @@ import type { CatalogPrint } from '@/lib/catalog/prints';
 import { getLayout } from '@/lib/print/layouts';
 import { CITY_COLORWAYS, getPalette } from '@/lib/print/palettes';
 import { CITY_VERSIONS, STATE_EDITIONS, chooseEdition, recommendedOrientation } from '@/lib/print/editions';
+import { hasCityLandmarks } from '@/lib/print/cityLandmarks';
 import { illustrationFor } from '@/lib/print/illustrations';
 import { renderScene } from '@/lib/print/renderScene';
 import { StudioPanels } from './StudioDock';
@@ -78,6 +79,7 @@ function StateEditionPreview({ print, edition, boundary }: { print: CatalogPrint
 export function PlaceOptions({ print, scene, update, boundary, waterAvailable, mapPreview, onAdjustArea }: Props) {
   const state = print.kind !== 'city';
   const illustrated = scene.region.theme === 'illustrated';
+  const landmarks = scene.region.theme === 'landmarks';
   const art = illustrationFor(scene);
   const palettes = (state ? ['bone', 'forest', 'blueprint', 'terracotta', 'slate', 'midnight'] : [...CITY_COLORWAYS]).map(getPalette);
   return <>
@@ -90,13 +92,14 @@ export function PlaceOptions({ print, scene, update, boundary, waterAvailable, m
             {edition.id === 'illustrated' ? art ? <img src={art.src} alt="" className="aspect-[3/4] w-full bg-[#f5f0e5] object-contain" /> : <div className="flex aspect-[3/4] items-center justify-center bg-[#eeeae0] px-2 text-center text-xs text-[#7b827b]">New places in progress</div> : <StateEditionPreview print={print} edition={edition.id} boundary={boundary} />}
             <span className="mt-2 block text-sm font-medium leading-tight">{edition.name}</span><span className="mt-1 block text-xs leading-4 text-[#657167]">{unavailable ? 'Not yet illustrated' : edition.description}</span>
           </button>;
-        }) : CITY_VERSIONS.map((version) => <button key={version.id} className="place-choice" disabled={!illustrated && version.id === 'on-water' && waterAvailable !== true} aria-pressed={!illustrated && scene.layoutId === version.id} onClick={() => update((current) => applyLayout(illustrated ? chooseEdition(current, 'atlas') : current, getLayout(version.id)), 'version')}>
-          {!illustrated && <CityVersionPreview scene={scene} mapPreview={mapPreview} layout={version.id} />}
+        }) : CITY_VERSIONS.map((version) => <button key={version.id} className="place-choice" disabled={!illustrated && version.id === 'on-water' && waterAvailable !== true} aria-pressed={!illustrated && !landmarks && scene.layoutId === version.id} onClick={() => update((current) => applyLayout(illustrated || landmarks ? chooseEdition(current, 'atlas') : current, getLayout(version.id)), 'version')}>
+          {!illustrated && !landmarks && <CityVersionPreview scene={scene} mapPreview={mapPreview} layout={version.id} />}
           <span className="mt-2 block text-sm font-medium">{version.name}</span>
           {!illustrated && version.id === 'on-water' && waterAvailable !== true && <span className="mt-1 block text-xs leading-4 text-[#657167]">{waterAvailable === false ? 'Needs a wider water view' : 'Checking shoreline…'}</span>}
         </button>)}
       </div>
-      {!state && art && <button className="place-choice mt-3 flex w-full items-center gap-4 text-left" aria-pressed={illustrated} onClick={() => update((current) => chooseEdition(current, 'illustrated'), 'edition')}><img src={art.src} alt="" className="h-24 w-32 object-contain" /><span><span className="block font-medium">Illustrated Atlas</span><span className="mt-1 block text-sm text-[#657167]">Lakes, landmarks & little discoveries</span></span></button>}
+      {!state && hasCityLandmarks(print.slug) && <button className="place-choice mt-3 flex w-full items-center gap-4 text-left" aria-pressed={landmarks} onClick={() => update((current) => chooseEdition(current, 'landmarks'), 'edition')}><img src="/thumbnails/madison-landmarks.png" alt="" className="h-24 w-24 object-contain" /><span><span className="block font-medium">Landmark Map</span><span className="mt-1 block text-sm text-[#657167]">Real streets & shores, little local illustrations</span></span></button>}
+      {landmarks && <p className="mt-3 text-sm leading-6 text-[#687267]">A top-down map with small drawings marking the Capitol, Memorial Union Terrace and James Madison Park. The drawings mark locations; they are not building footprints.</p>}
       {print.slug === 'wisconsin' && <button className="place-choice mt-3 w-full text-left" aria-pressed={scene.region.theme === 'detailed'} onClick={() => update((current) => chooseEdition(current, 'detailed'), 'edition')}><span className="block font-medium">Landscape Atlas</span><span className="mt-1 block text-sm text-[#657167]">Terrain, waterways, roads & Wisconsin place names</span></button>}
       {scene.region.theme === 'detailed' && <p className="mt-3 text-sm leading-6 text-[#687267]">Made for a closer look. Wisconsin cities, villages and towns over shaded terrain. Names are spaced to stay readable; some appear only in the enlarged proof.</p>}
       {state && !art && <p className="mt-3 text-sm text-[#687267]">Curious about the illustrated edition? <Link href="/maps/tennessee?edition=illustrated" className="underline underline-offset-4">Explore Tennessee →</Link></p>}

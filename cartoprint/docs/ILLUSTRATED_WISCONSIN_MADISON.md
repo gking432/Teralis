@@ -1,3 +1,5 @@
+> Madison bird’s-eye artwork is retired. See CITY_LANDMARK_MAPS.md for its geographic replacement. State illustrations remain available.
+
 # New illustrated editions
 
 Generated with the built-in image_gen tool. Saved assets:

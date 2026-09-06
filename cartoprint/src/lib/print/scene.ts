@@ -287,7 +287,7 @@ export function normalizeScene(scene: PrintScene): PrintScene {
       ...scene.place,
       placeType: scene.place.placeType || scene.place.kind,
     },
-    region: scene.region?.theme === 'illustrated' && !ILLUSTRATIONS[scene.place.slug] ? defaultRegionDesign() : scene.region ?? defaultRegionDesign(),
+    region: scene.region?.theme === 'illustrated' && scene.place.slug === 'madison-wi' ? { theme: 'landmarks' } : scene.region?.theme === 'illustrated' && !ILLUSTRATIONS[scene.place.slug] ? defaultRegionDesign() : scene.region ?? defaultRegionDesign(),
     title: {
       ...scene.title,
       text: (scene.title.text ?? scene.place.name).slice(0, 48),

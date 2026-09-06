@@ -11,7 +11,7 @@ import type { Density, PrintDetailSettings } from '@/lib/print/printRender';
  * geography inside either edition. There are no duplicate per-layer controls.
  */
 
-export type RegionTheme = 'topographic' | 'atlas' | 'illustrated' | 'detailed';
+export type RegionTheme = 'topographic' | 'atlas' | 'illustrated' | 'detailed' | 'landmarks';
 
 export interface RegionDesign {
   theme: RegionTheme;

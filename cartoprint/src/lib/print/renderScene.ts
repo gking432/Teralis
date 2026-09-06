@@ -1,5 +1,6 @@
 'use client';
 
+import { applyCityLandmarks } from './cityLandmarks';
 import { renderIllustration } from './illustrations';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -183,6 +184,7 @@ export async function renderScene(
         const [south, north, west, east] = scene.viewport.bbox.map(Number);
         map.fitBounds([[west, south], [east, north]], { padding: 0, animate: false, duration: 0 });
 
+        applyCityLandmarks(map, scene);
         const finish = () => {
           if (settled) return;
           settled = true;
@@ -216,6 +218,7 @@ export async function renderScene(
 
         if (featureTasks.length) {
           Promise.all(featureTasks).finally(() => {
+            if (!settled) applyCityLandmarks(map, scene);
             if (settled) return;
             map.once('idle', finish);
             map.triggerRepaint();
