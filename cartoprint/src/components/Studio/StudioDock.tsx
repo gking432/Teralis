@@ -350,6 +350,10 @@ function ViewPanel({ scene, update }: PanelProps) {
         </Field>
       )}
 
+      {isState && scene.region.theme === 'atlas' && <Field label="Place names" help="Names are spaced automatically so they stay legible.">
+        <Segmented options={[{ value: 'none', label: 'None' }, { value: 'cities', label: 'Cities' }, { value: 'towns', label: 'Cities & towns' }]} value={scene.detail.labels.towns ? 'towns' : scene.detail.labels.cities ? 'cities' : 'none'} onChange={(value) => update((current) => ({ ...current, labelsAuto: false, detail: { ...current.detail, labels: { ...current.detail.labels, cities: value !== 'none', towns: value === 'towns' } } }), 'place-labels')} />
+      </Field>}
+
     </div>
   );
 }
@@ -652,124 +656,22 @@ function StateStylePanel({ scene, update }: PanelProps) {
 }
 
 function TitlePanel({ scene, update }: PanelProps) {
-  const title = scene.title;
-
-  function setTitle(patch: Partial<PrintScene['title']>, label: string) {
-    update((current) => ({
-      ...current,
-      title: { ...current.title, ...patch },
-    }), label);
+  function patchTitle(patch: Partial<PrintScene['title']>, label: string) {
+    update((current) => {
+      const base = patch.enabled === true && current.layoutId === 'bare' ? applyStyleRecipe(current, { id: 'gallery', name: 'Gallery', blurb: '', layoutId: 'footer', paletteId: current.paletteId, kinds: [current.place.kind] }) : current;
+      return { ...base, title: { ...base.title, ...patch } };
+    }, label);
   }
-
-  function chooseSlot(slot: TitleSlot, align: TitleAlign) {
-    const rect = rectForSlot(slot);
-    setTitle({
-      slot,
-      align,
-      autoPlaced: false,
-      onWater: false,
-      ...(slot === 'free' ? {} : rect),
-    }, 'title-placement');
-  }
-
-  const titleBackdrop = title.panel === 'none'
-    ? title.onWater ? scene.colors.water : scene.colors.land
-    : title.panelColor || (title.onWater ? scene.colors.water : scene.colors.land);
-
-  return (
-    <div className="grid gap-5">
-      <div className="flex items-center justify-between gap-4">
-        <Toggle
-          label="Show a title"
-          active={title.enabled}
-          onChange={() => setTitle({ enabled: !title.enabled }, 'title-enabled')}
-        />
-        <p className="max-w-[190px] text-right text-[11px] leading-4 text-[#68726c]">
-          Drag the title on the print. It snaps into print-safe positions.
-        </p>
-      </div>
-
-      {title.enabled && (
-        <>
-          <Field label="Title lettering">
-            <div className="grid grid-cols-2 gap-2">
-              {titleFontSamples(title.text || scene.place.name).map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={title.font === option.value}
-                  onClick={() => setTitle({ font: option.value }, 'title-font')}
-                  className={`rounded-sm border px-3 py-3 text-left transition-colors ${title.font === option.value ? 'border-[#173f35] bg-[#eaf0ec]' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'}`}
-                >
-                  <span
-                    className="block truncate text-[20px] leading-none"
-                    style={{
-                      fontFamily: option.value === 'hand'
-                        ? 'var(--font-hand), cursive'
-                        : option.value === 'condensed'
-                          ? 'var(--font-condensed), sans-serif'
-                          : option.value === 'modern'
-                            ? 'var(--font-body), sans-serif'
-                            : 'var(--font-display), serif',
-                      textTransform: option.value === 'condensed' || option.value === 'modern' ? 'uppercase' : undefined,
-                    }}
-                  >
-                    {option.sample}
-                  </span>
-                  <span className="mt-2 block text-[9px] uppercase tracking-[0.12em] text-[#68726c]">{option.label}</span>
-                </button>
-              ))}
-            </div>
-          </Field>
-
-          <details className="group border-t border-[#e0ddd4] pt-4">
-            <summary className="cursor-pointer list-none text-[12px] text-[#68726c] underline underline-offset-4">
-              Advanced title placement
-            </summary>
-            <div className="mt-4 grid gap-4">
-              <Field label="Snap position">
-                <div className="grid grid-cols-3 gap-2">
-                  {SLOT_OPTIONS.map((option) => (
-                    <Choice
-                      key={option.slot}
-                      active={title.slot === option.slot}
-                      onClick={() => chooseSlot(option.slot, option.align)}
-                    >
-                      <span className="block text-[11px]">{option.label}</span>
-                    </Choice>
-                  ))}
-                </div>
-                {title.slot === 'free' && (
-                  <p className="mt-2 text-[11px] text-[#68726c]">
-                    Custom position. Pick a snap position to return to a designed layout.
-                  </p>
-                )}
-              </Field>
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Backing">
-                  <Segmented
-                    options={PANELS.map((panel) => ({ value: panel.value, label: panel.label }))}
-                    value={title.panel}
-                    onChange={(value) => setTitle({ panel: value as TitlePanel }, 'title-panel')}
-                  />
-                </Field>
-                <Field label="Title color">
-                  <ColorField
-                    label="Ink"
-                    value={title.textColor ?? makePrintable(scene.colors.roads, titleBackdrop)}
-                    onChange={(textColor) => setTitle({
-                      textColor: makePrintable(textColor, titleBackdrop),
-                    }, 'title-color')}
-                  />
-                </Field>
-              </div>
-            </div>
-          </details>
-        </>
-      )}
-
-    </div>
-  );
+  return <div className="grid gap-4">
+    <Toggle label="Show a title" active={scene.title.enabled} onChange={() => patchTitle({ enabled: !scene.title.enabled }, 'title-enabled')} />
+    {scene.title.enabled && <>
+      <label className="grid gap-2 text-sm">Title<input type="text" value={scene.title.text} maxLength={48} onChange={(event) => patchTitle({ text: event.target.value }, 'title-text')} placeholder={scene.place.name} /></label>
+      <label className="grid gap-2 text-sm">Dedication or subtitle <span className="text-xs text-[#657167]">Optional · A few words that make it yours</span><input type="text" value={scene.title.subtitle} maxLength={70} onChange={(event) => patchTitle({ subtitle: event.target.value }, 'title-subtitle')} placeholder="The place we call home" /></label>
+      <label className="grid gap-2 text-sm">Date or detail <span className="text-xs text-[#657167]">Optional</span><input type="text" value={scene.title.detail} maxLength={70} onChange={(event) => patchTitle({ detail: event.target.value }, 'title-detail')} placeholder="Since 2020" /></label>
+      <div><p className="mb-2 text-sm">Lettering</p><div className="grid grid-cols-3 gap-2">{titleFontSamples(scene.title.text || scene.place.name).filter((option) => option.value !== 'condensed').map((option) => <button type="button" key={option.value} className="place-choice" aria-pressed={scene.title.font === option.value} onClick={() => patchTitle({ font: option.value }, 'title-font')}><span className="block truncate text-xl" style={{ fontFamily: option.value === 'hand' ? 'var(--font-hand)' : option.value === 'modern' ? 'var(--font-body)' : 'var(--font-display)' }}>Aa</span><span className="mt-1 block text-xs">{option.label}</span></button>)}</div></div>
+      <p className="text-xs leading-5 text-[#657167]">Lettering fits automatically within your chosen composition.</p>
+    </>}
+  </div>;
 }
 
 interface PanelProps {

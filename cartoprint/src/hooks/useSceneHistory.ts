@@ -59,6 +59,7 @@ export function useSceneHistory(initial: PrintScene | (() => PrintScene)): Scene
       setPast((entries) => [...entries, current].slice(-MAX_ENTRIES));
     }
     setFuture([]);
+    sceneRef.current = resolved;
     setScene(resolved);
   }, []);
 
@@ -66,6 +67,7 @@ export function useSceneHistory(initial: PrintScene | (() => PrintScene)): Scene
     lastLabel.current = null;
     setPast([]);
     setFuture([]);
+    sceneRef.current = next;
     setScene(next);
   }, []);
 

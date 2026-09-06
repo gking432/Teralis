@@ -8,6 +8,7 @@ import { StudioHeader } from '@/components/Storefront/StudioHeader';
 import { getCatalogPrint } from '@/lib/catalog/prints';
 import { placeFromSearchParams } from '@/lib/catalog/placeFromQuery';
 import { trackDemoEvent } from '@/lib/demoAnalytics';
+import { encodeDesign, DESIGN_PARAM } from '@/lib/print/designUrl';
 import { getLayout } from '@/lib/print/layouts';
 import { isValidOrientation, ORIENTATION_RATIO, type Orientation } from '@/lib/print/orientation';
 import { getPalette } from '@/lib/print/palettes';
@@ -211,7 +212,9 @@ export function SizePickerClient() {
   const palette = printScene ? getPalette(printScene.paletteId) : null;
   const layout = printScene ? getLayout(printScene.layoutId) : null;
   const backParams = new URLSearchParams(searchParams.toString());
-  const backUrl = `/customize?${backParams.toString()}`;
+  const currentDesign = printScene ? encodeDesign(printScene) : null;
+  if (currentDesign) backParams.set(DESIGN_PARAM, currentDesign);
+  const backUrl = `${catalogPrint ? `/maps/${catalogPrint.slug}` : '/maps/custom'}?${backParams.toString()}`;
 
   function handleSizeChange(nextSize: SizeLabel) {
     setSize(nextSize);

@@ -33,7 +33,7 @@ const condensed = Barlow_Condensed({
 export const metadata: Metadata = {
   title: 'Terralis — Custom Map Prints',
   description:
-    'Design your perfect map and order a museum-quality print. Minimalist, greyscale cartographic art for your walls.',
+    'Find a city, town, or state and make it yours. Discover street maps, topographic maps, and illustrated atlases with personal wording and curated colors.',
 };
 
 export default function RootLayout({

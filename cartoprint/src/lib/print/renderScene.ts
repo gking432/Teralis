@@ -1,5 +1,6 @@
 'use client';
 
+import { renderIllustration } from './illustrations';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { STYLE_URL } from '@/lib/map/style';
@@ -83,6 +84,7 @@ export async function renderScene(
   { width, signal }: RenderSceneOptions,
 ): Promise<string> {
   if (signal?.aborted) throw new Error('aborted');
+  if (scene.region.theme === 'illustrated') return renderIllustration(scene, width);
 
   const geo = printGeometry(scene.orientation, scene.detail.border, scene.title);
   const sheetW = Math.round(width);

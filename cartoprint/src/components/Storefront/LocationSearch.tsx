@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { inferKind, placeTypeLabel } from '@/lib/catalog/placeFromQuery';
-import { findCityCatalogPrint, type CatalogPrintKind } from '@/lib/catalog/prints';
+import { findCityCatalogPrint, getCityCatalogPrints, getStateCatalogPrints, type CatalogPrintKind } from '@/lib/catalog/prints';
 import { trackDemoEvent } from '@/lib/demoAnalytics';
 
 interface NominatimResult {
@@ -21,6 +21,7 @@ interface NominatimResult {
 
 interface DisplayResult {
   key: string;
+  slug?: string;
   primary: string;
   secondary: string;
   kind: CatalogPrintKind;
@@ -62,6 +63,11 @@ function toDisplay(result: NominatimResult): DisplayResult {
 }
 
 function navigateUrl(result: DisplayResult): string {
+  if (result.slug) return `/maps/${result.slug}`;
+  if (result.kind === 'state') {
+    const state = getStateCatalogPrints().find((p) => p.name.toLowerCase() === result.primary.toLowerCase());
+    if (state && /united states/i.test(result.displayName)) return `/maps/${state.slug}`;
+  }
   const params = new URLSearchParams({
     place: result.primary,
     kind: result.kind,
@@ -74,7 +80,7 @@ function navigateUrl(result: DisplayResult): string {
     const catalogCity = findCityCatalogPrint(result.primary, result.displayName);
     return catalogCity ? `/maps/${catalogCity.slug}` : `/maps/custom?${params.toString()}`;
   }
-  return `/customize?${params.toString()}`;
+  return `/maps/custom?${params.toString()}`;
 }
 
 function readRecents(): DisplayResult[] {
@@ -100,12 +106,13 @@ function rememberPlace(result: DisplayResult): void {
 
 export function LocationSearch({
   autoFocus = false,
-  placeholder = 'Search any city, town, county, island, park…',
+  placeholder = 'City, town, or state',
 }: {
   autoFocus?: boolean;
   placeholder?: string;
 }) {
   const router = useRouter();
+  const resultsId = useId();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<DisplayResult[]>([]);
   const [recents, setRecents] = useState<DisplayResult[]>([]);
@@ -132,6 +139,11 @@ export function LocationSearch({
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    const catalog = [...getStateCatalogPrints(), ...getCityCatalogPrints()]
+      .filter((place) => `${place.name} ${place.defaultSubtitle}`.toLowerCase().includes(trimmed.toLowerCase()))
+      .slice(0, 6).map((place): DisplayResult => ({ key: `catalog-${place.slug}`, slug: place.slug, primary: place.name, secondary: place.kind === 'state' ? 'United States' : place.defaultSubtitle, kind: place.kind, placeType: place.kind, typeLabel: place.kind === 'state' ? 'State' : 'City', bbox: place.bbox.map(Number) as DisplayResult['bbox'], center: place.center, displayName: `${place.name}, ${place.defaultSubtitle}, United States` }));
+    setResults(catalog);
+    setActiveIndex(0);
     setLoading(true);
     setError(null);
 
@@ -151,13 +163,12 @@ export function LocationSearch({
         })
         .then((data) => {
           if (controller.signal.aborted) return;
-          setResults(data.map(toDisplay));
+          setResults([...catalog, ...data.map(toDisplay).filter((result) => !catalog.some((local) => local.primary.toLowerCase() === result.primary.toLowerCase() && Math.abs(local.center[0] - result.center[0]) < 1 && Math.abs(local.center[1] - result.center[1]) < 1))].slice(0, 9));
           setActiveIndex(0);
         })
         .catch((err) => {
           if (err?.name === 'AbortError' || controller.signal.aborted) return;
-          setResults([]);
-          setError(err instanceof Error ? err.message : 'Place search failed.');
+          if (!catalog.length) setError(err instanceof Error ? err.message : 'Place search failed.');
         })
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     }, SEARCH_DEBOUNCE_MS);
@@ -224,7 +235,7 @@ export function LocationSearch({
       setActiveIndex((index) => Math.max(0, index - 1));
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      pick(list[activeIndex]);
+      if (list[activeIndex]) pick(list[activeIndex]);
     } else if (event.key === 'Escape') {
       setOpen(false);
     }
@@ -252,9 +263,11 @@ export function LocationSearch({
           placeholder={placeholder}
           role="combobox"
           aria-expanded={showResults || showRecents}
-          aria-controls="location-results"
+          aria-controls={resultsId}
+          aria-label="Search a city, town, or state"
+          aria-activedescendant={(showResults || showRecents) && list[activeIndex] ? `${resultsId}-${activeIndex}` : undefined}
           aria-autocomplete="list"
-          onChange={(event) => { setQuery(event.target.value); setOpen(true); }}
+          onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
           className="w-full rounded-sm border border-white/25 bg-[#f8f6ef] py-[19px] pl-14 pr-5 text-[16px] text-[#14201d] shadow-[0_18px_50px_rgba(0,0,0,0.16)] outline-none transition-all placeholder:text-[#77817b] focus:border-[#c66b4e] focus:shadow-[0_22px_60px_rgba(0,0,0,0.26)] sm:pr-[132px]"
@@ -287,7 +300,7 @@ export function LocationSearch({
 
       {(showResults || showRecents) && (
         <ul
-          id="location-results"
+          id={resultsId}
           role="listbox"
           className="absolute left-0 right-0 top-full z-30 mt-2 max-h-[420px] overflow-y-auto rounded-sm border border-[#c9cec8] bg-[#fbfaf6] text-[#14201d] shadow-[0_24px_70px_rgba(0,0,0,0.3)]"
         >
@@ -295,10 +308,10 @@ export function LocationSearch({
             <li className="px-5 pb-1 pt-3 text-[11px] uppercase tracking-[0.14em] text-[#8a918d]">Recent</li>
           )}
           {list.map((result, index) => (
-            <li key={result.key} role="option" aria-selected={index === activeIndex}>
+            <li id={`${resultsId}-${index}`} key={result.key} role="option" aria-selected={index === activeIndex}>
               <button
                 type="button"
-                onPointerDown={(event) => { event.preventDefault(); pick(result); }}
+                onClick={() => pick(result)}
                 onMouseEnter={() => setActiveIndex(index)}
                 className={`flex w-full items-baseline justify-between gap-4 border-b border-[#e4e5df] px-5 py-3.5 text-left last:border-b-0 ${
                   index === activeIndex ? 'bg-[#e9ede8]' : 'bg-transparent'

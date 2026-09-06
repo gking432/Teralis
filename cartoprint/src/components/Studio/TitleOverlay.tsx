@@ -92,7 +92,7 @@ export function TitleOverlay({
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [rect.w, rect.h]);
+  }, [rect.w, rect.h, mounted, design.enabled]);
 
   useEffect(() => {
     if (!editable) return;

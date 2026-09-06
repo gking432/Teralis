@@ -213,7 +213,7 @@ export default function SelfTest() {
     });
     const scene = createPrintScene(print, 'portrait');
     check('new scene is not custom', scene.freeViewport === false);
-    check('new scene starts without a label', scene.title.enabled === false);
+    check('new scene starts with a composed title', scene.title.enabled === true);
     check('new scene starts with dark water and lighter slate streets',
       scene.colors.land === '#ffffff'
       && contrastRatio(scene.colors.water, scene.colors.land)
@@ -267,8 +267,8 @@ export default function SelfTest() {
       places: 'more',
       labels: { ...scene.detail.labels, cities: true, towns: true },
     });
-    check('state layer gate always suppresses city and town labels',
-      !stateLayers.capitals && !stateLayers.cities && !stateLayers.towns && !stateLayers.statelabels);
+    check('state layer gate respects selected city and town labels',
+      !stateLayers.capitals && stateLayers.cities && stateLayers.towns && !stateLayers.statelabels);
     check('state more detailed layer increases road density',
       buildPrintLayerState('state', { ...scene.detail, roads: 'more' }).allroads === true);
 
@@ -547,10 +547,10 @@ export default function SelfTest() {
     const [leadDesign, leadScene] = collectionScenes[0];
     check('collection sells the two cartographic editions',
       STATE_COLLECTION_DESIGNS.map((design) => design.id).join() === 'topographic,atlas');
-    check('storefront scene uses the real state wording',
+    check('state starts with its name and optional personal lines empty',
       leadScene.title.text === 'Wisconsin'
-        && leadScene.title.subtitle === "America's Dairyland"
-        && leadScene.title.detail === 'EST. 1848');
+        && leadScene.title.subtitle === ''
+        && leadScene.title.detail === '');
     check('each collection design carries its own typography',
       new Set(collectionScenes.map(([, scene]) => scene.title.font)).size === collectionScenes.length);
     check('each collection design carries its own palette',
@@ -580,7 +580,7 @@ export default function SelfTest() {
       stateScenes.every((scene, index) =>
         scene.title.enabled
           && scene.title.text === statePrints[index].name
-          && scene.title.subtitle === statePrints[index].defaultSubtitle),
+          && scene.title.subtitle === ''),
       `${statePrints.length} states`);
     check('every state storefront scene keeps the whole state on the sheet',
       stateScenes.every((scene) => !scene.freeViewport
@@ -732,6 +732,10 @@ export default function SelfTest() {
     check('a custom colour is made printable against the paper',
       contrastRatio(makePrintable('#fdfdf5', '#ffffff'), '#ffffff') > 2);
 
+    const personalized = normalizeScene({ ...atlasScene, title: { ...atlasScene.title, text: 'Our Wisconsin', subtitle: 'Home by the lake', detail: 'Since 2020' }, detail: { ...atlasScene.detail, labels: { ...atlasScene.detail.labels, cities: true, towns: true } } });
+    check('personal wording survives normalization', personalized.title.text === 'Our Wisconsin' && personalized.title.subtitle === 'Home by the lake' && personalized.title.detail === 'Since 2020');
+    check('selected state labels survive density changes', normalizeScene({ ...personalized, detailBias: -1 }).detail.labels.towns);
+    check('shared links preserve personal wording and label choices', decodeDesign(encodeDesign(personalized))?.title.text === 'Our Wisconsin' && decodeDesign(encodeDesign(personalized))?.detail.labels.towns === true);
     setLines(out);
   }, []);
 

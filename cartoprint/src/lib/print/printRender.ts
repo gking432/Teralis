@@ -397,13 +397,12 @@ export function buildPrintLayerState(
     };
   }
 
-  // Region editions keep place labels off; customer-added text remains the
-  // only wording inside the map itself.
+  // Region editions respect the chosen place-label level.
   return {
     ...STATE_PRINT_LAYER_STATE,
     capitals: false,
-    cities: false,
-    towns: false,
+    cities,
+    towns,
     highways,
     mainroads,
     allroads,
@@ -707,9 +706,8 @@ export function applyRegionMapLayers(
     const isDetailedCounty = layer.id === 'print-state-detail-county-boundaries';
     try {
       if (kind === 'state' && (group === 'cities' || group === 'towns')) {
-        // State editions are intentionally unlabelled. The only words on the
-        // map are the title itself.
-        map.setLayoutProperty(layer.id, 'visibility', 'none');
+        const visible = design.theme === 'atlas' && (group === 'cities' ? detail.labels.cities : detail.labels.towns);
+        map.setLayoutProperty(layer.id, 'visibility', visible ? 'visible' : 'none');
       } else if (kind === 'state' && group === 'allroads') {
         // The boundary-filtered detail source is the single controlled local
         // road pass for states. Keeping Liberty's local-road layers as well

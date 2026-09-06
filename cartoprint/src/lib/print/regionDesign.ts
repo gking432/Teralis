@@ -11,7 +11,7 @@ import type { Density, PrintDetailSettings } from '@/lib/print/printRender';
  * geography inside either edition. There are no duplicate per-layer controls.
  */
 
-export type RegionTheme = 'topographic' | 'atlas';
+export type RegionTheme = 'topographic' | 'atlas' | 'illustrated';
 
 export interface RegionDesign {
   theme: RegionTheme;
@@ -36,7 +36,7 @@ export const REGION_THEMES: Array<{
   {
     id: 'atlas',
     name: 'Street Atlas',
-    blurb: 'Road hierarchy without terrain, rivers, or place names.',
+    blurb: 'Streets and lakes, with optional cities and towns.',
     palette: 'bone',
     font: 'condensed',
   },
@@ -82,14 +82,14 @@ export function detailForRegion(
   return {
     ...base,
     roads: atlas ? density : 'none',
-    places: 'none',
+    places: atlas && base.labels.towns ? 'neutral' : atlas && base.labels.cities ? 'less' : 'none',
     rivers: !atlas,
     counties: false,
     states: kind === 'country',
     labels: {
       ...base.labels,
-      cities: false,
-      towns: false,
+      cities: atlas && base.labels.cities,
+      towns: atlas && base.labels.towns,
       roads: false,
       water: false,
       rivers: false,
@@ -98,5 +98,6 @@ export function detailForRegion(
 }
 
 export function regionThemeName(theme: RegionTheme): string {
+  if (theme === 'illustrated') return 'Illustrated Atlas';
   return REGION_THEMES.find((entry) => entry.id === theme)?.name ?? 'Street Atlas';
 }

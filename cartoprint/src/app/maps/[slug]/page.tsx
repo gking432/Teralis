@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { CityProductPage } from '@/components/Storefront/CityProductPage';
-import { StateProductPage } from '@/components/Storefront/StateProductPage';
+import { Suspense } from 'react';
+import { Studio } from '@/components/Studio/Studio';
 import { getCatalogPrint, getCityCatalogPrints, getStateCatalogPrints } from '@/lib/catalog/prints';
-import { designsForState } from '@/lib/catalog/stateCollection';
+import { ILLUSTRATIONS } from '@/lib/print/illustrations';
 
 export function generateStaticParams() {
   return [
@@ -17,8 +17,8 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   if (!print || print.kind === 'country') return {};
 
   if (print.kind === 'state') {
-    const title = `${print.name} Map Print | Topographic & Street Atlas Editions | Terralis`;
-    const description = `Shop finished ${print.name} map prints — a Topographic edition with elevation relief and rivers, and a Street Atlas edition with a clean road hierarchy — then adjust the title, color, and framing if needed.`;
+    const title = `${print.name} Map Print | ${ILLUSTRATIONS[print.slug] ? 'Illustrated, Topographic & Street Atlas' : 'Topographic & Street Atlas'} | Terralis`;
+    const description = `Explore ${print.name} through elevation, rivers and lakes, or streets with cities and towns. Choose your edition, colors, and personal wording.`;
     return {
       title,
       description,
@@ -46,14 +46,5 @@ export default function MapProductPage({ params }: { params: { slug: string } })
   const print = getCatalogPrint(params.slug);
   if (!print || print.kind === 'country') notFound();
 
-  if (print.kind === 'state') {
-    return <StateProductPage print={print} />;
-  }
-
-  return (
-    <CityProductPage
-      print={print}
-      customizeBaseHref={`/customize?print=${encodeURIComponent(print.slug)}`}
-    />
-  );
+  return <Suspense fallback={<div className="min-h-screen bg-[#14201d]" />}><Studio key={print.slug} print={print} /></Suspense>;
 }

@@ -295,6 +295,14 @@ export function LivePrintCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // An edition/color/camera edit invalidates the previous ready frame. The
+  // existing idle listener publishes readiness only after the new frame settles.
+  useEffect(() => {
+    if (!styleReady || !mapRef.current) return;
+    onReadyStateChangeRef.current?.(false);
+    mapRef.current.triggerRepaint();
+  }, [styleReady, colorsKey, detailKey, regionTheme, scene.detailBias, bboxKey, canvasWidth, canvasHeight]);
+
   // --- Targeted updates. Each of these is paint-only: no re-render, no fetch.
 
   useEffect(() => {

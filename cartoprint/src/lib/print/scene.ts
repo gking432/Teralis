@@ -1,3 +1,4 @@
+import { ILLUSTRATIONS } from './illustrations';
 import type { CatalogPrint, CatalogPrintKind } from '@/lib/catalog/prints';
 import type { PreviewColorSettings } from '@/lib/print/colorSchemes';
 import { defaultTitleDesign, rectForSlot, titleCacheTag, type TitleDesign } from '@/lib/print/title';
@@ -24,7 +25,7 @@ import {
   type RegionTheme,
 } from '@/lib/print/regionDesign';
 
-export const PRINT_SCENE_VERSION = 16;
+export const PRINT_SCENE_VERSION = 17;
 export const SESSION_SCENE_KEY = 'teralis:print-scene';
 
 export type PrintViewport = Viewport;
@@ -258,8 +259,10 @@ export function createPrintScene(
       ...(print.kind === 'state'
         ? { slot: 'footer' as const, ...rectForSlot('footer') }
         : {}),
-      enabled: print.kind === 'state',
-      font: print.kind === 'state' ? 'condensed' : 'editorial',
+      enabled: true,
+      font: 'editorial',
+      subtitle: '',
+      detail: '',
     },
     region: defaultRegionDesign(print.kind === 'city' ? 'atlas' : 'atlas'),
     updatedAt: Date.now(),
@@ -284,15 +287,12 @@ export function normalizeScene(scene: PrintScene): PrintScene {
       ...scene.place,
       placeType: scene.place.placeType || scene.place.kind,
     },
-    region: scene.region ?? defaultRegionDesign(),
+    region: scene.region?.theme === 'illustrated' && !ILLUSTRATIONS[scene.place.slug] ? defaultRegionDesign() : scene.region ?? defaultRegionDesign(),
     title: {
       ...scene.title,
-      // Map titles are fixed product labels, not freeform personalization.
-      text: scene.place.name,
-      subtitle: scene.place.kind === 'city' ? '' : scene.place.subtitle,
-      detail: scene.place.kind === 'city'
-        ? ''
-        : scene.place.establishedYear ? `EST. ${scene.place.establishedYear}` : '',
+      text: (scene.title.text ?? scene.place.name).slice(0, 48),
+      subtitle: (scene.title.subtitle ?? '').slice(0, 70),
+      detail: (scene.title.detail ?? '').slice(0, 70),
       font: scene.title.font ?? 'editorial',
     },
     colors: makePalettePrintable(scene.colors),
@@ -431,6 +431,7 @@ export function sceneCacheTag(scene: PrintScene): string {
   return [
     `v${scene.version}`,
     scene.place.slug,
+    scene.region.theme,
     scene.orientation,
     scene.size,
     scene.detailBias,

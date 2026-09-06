@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
-import { CityProductPage } from '@/components/Storefront/CityProductPage';
+import { Suspense } from 'react';
+import { Studio } from '@/components/Studio/Studio';
 import { placeFromSearchParams } from '@/lib/catalog/placeFromQuery';
 
 export const metadata: Metadata = {
@@ -25,15 +26,5 @@ export default function CustomCityProductPage({ searchParams }: { searchParams: 
   const print = placeFromSearchParams(params);
   if (!print) notFound();
 
-  if (print.kind !== 'city') {
-    redirect(`/customize?${params.toString()}`);
-  }
-
-  return (
-    <CityProductPage
-      print={print}
-      customizeBaseHref={`/customize?${params.toString()}`}
-      canonical={false}
-    />
-  );
+  return <Suspense fallback={<div className="min-h-screen bg-[#14201d]" />}><Studio key={print.slug} print={print} /></Suspense>;
 }

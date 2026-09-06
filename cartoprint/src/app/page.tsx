@@ -1,132 +1,57 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect } from 'react';
+import Image from 'next/image';
+import { useState } from 'react';
 import { LocationSearch } from '@/components/Storefront/LocationSearch';
 import { StudioHeader } from '@/components/Storefront/StudioHeader';
-import { CityArtworkImage } from '@/components/Storefront/CityArtwork';
-import { getCityCatalogPrints, getFeaturedCityPrints, getStateCatalogPrints } from '@/lib/catalog/prints';
-import { trackDemoEvent } from '@/lib/demoAnalytics';
+import { getFeaturedCityPrints, getStateCatalogPrints } from '@/lib/catalog/prints';
 
-// The homepage shows a handful; the catalog carries every major city and the
-// rest are reached by search. Advertising points at individual city pages.
-const CITIES = getFeaturedCityPrints(12);
-const CITY_COUNT = getCityCatalogPrints().length;
-const STATES = getStateCatalogPrints();
-const FEATURED_CITY = CITIES[0];
+const cities = getFeaturedCityPrints(12);
+const states = getStateCatalogPrints();
 
 export default function StorefrontPage() {
-  useEffect(() => { trackDemoEvent('home_viewed'); }, []);
-
+  const [collection, setCollection] = useState<'city' | 'state'>('city');
   return (
-    <main className="studio-topography min-h-screen overflow-x-hidden bg-[#14201d] text-[#f7f4eb]">
+    <main className="discovery-page min-h-screen bg-[#14201d] text-[#f7f4eb]">
       <StudioHeader />
-
-      <section className="relative mx-auto grid max-w-[1500px] grid-cols-1 items-center gap-10 px-5 py-10 sm:px-7 md:px-10 lg:min-h-[calc(100vh-70px)] lg:grid-cols-[minmax(0,0.92fr)_minmax(440px,1.08fr)] lg:gap-20 lg:px-16 lg:py-14">
-        <div className="pointer-events-none absolute -left-40 bottom-[-280px] h-[620px] w-[620px] rounded-full bg-[#29443c]/45 blur-3xl" aria-hidden />
-
-        <div className="relative z-10 max-w-2xl">
-          <div className="studio-kicker">Custom city &amp; state map prints</div>
-          <h1 className="mt-7 font-display text-[clamp(4rem,7.6vw,8rem)] font-light leading-[0.79] tracking-[-0.045em]">
-            Every place.
-            <span className="block italic text-[#cbd4cc]">Your story.</span>
-          </h1>
-          <p className="mt-8 max-w-xl text-[15px] font-light leading-7 text-[#dce2dd]/72 md:text-[17px]">
-            Start with a finished city map, a state Street Atlas, or a Topographic edition. Adjust the color, title, or composition only if you want to.
-          </p>
-
-          <div className="mt-8 max-w-2xl">
-            <LocationSearch placeholder="Search for a city or town" />
-            <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-[#dce2dd]/58">
-              <span className="mr-1 text-[9px] uppercase tracking-[0.2em] text-[#c66b4e]">Popular</span>
-              {CITIES.map((city) => (
-                <Link
-                  key={city.slug}
-                  href={`/maps/${city.slug}`}
-                  className="border-b border-transparent pb-0.5 transition-colors hover:border-[#dce2dd]/50 hover:text-[#f7f4eb]"
-                >
-                  {city.name}
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-9 hidden max-w-xl grid-cols-3 border-y border-white/12 py-4 text-[8px] uppercase leading-4 tracking-[0.17em] text-white/45 sm:grid">
-            <span>1. Pick a place</span>
-            <span className="border-x border-white/12 px-4">2. Adjust the print</span>
-            <span className="pl-4">3. See it framed</span>
+      <section className="mx-auto grid max-w-[1440px] items-center gap-10 px-6 py-10 md:px-12 lg:grid-cols-[1.1fr_0.9fr] lg:gap-20 lg:py-16">
+        <div className="relative z-20">
+          <p className="text-xs uppercase tracking-[0.2em] text-[#d7a38a]">A place worth keeping</p>
+          <h1 className="mt-5 max-w-xl font-display text-6xl leading-[0.95] tracking-tight md:text-8xl">Somewhere,<br /><em>made yours.</em></h1>
+          <p className="mb-7 mt-6 max-w-lg text-base leading-7 text-[#dce2dd]/80">Your first city. Your home state. The place you always return to. Find it, choose a map, and make it yours.</p>
+          <LocationSearch placeholder="City, town, or state" />
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3 text-sm text-[#dce2dd]/80">
+            <span className="text-[#d7a38a]">Try</span>
+            <Link href="/maps/chicago-il?look=on-water&palette=navy">Chicago ↗</Link>
+            <Link href="/maps/madison-wi?look=on-water&palette=navy">Madison ↗</Link>
+            <Link href="/maps/wisconsin?edition=topographic">Wisconsin ↗</Link>
+            <Link href="/maps/tennessee?edition=illustrated">Tennessee ↗</Link>
           </div>
         </div>
-
-        <Link
-          href={`/maps/${FEATURED_CITY.slug}`}
-          className="group relative flex min-h-[470px] items-center justify-center sm:min-h-[650px]"
-          aria-label={`View the ${FEATURED_CITY.name} map print`}
-        >
-          <div className="absolute left-[3%] top-[7%] hidden text-[8px] uppercase tracking-[0.22em] text-white/30 sm:block">
-            Actual rendered artwork
+        <Link href="/maps/chicago-il?look=on-water&palette=navy" className="group relative mx-auto block w-full max-w-[420px]" aria-label="Explore Chicago's Open Water print">
+          <div className="bg-[#f7f4eb] p-4 shadow-[0_30px_80px_#0005] transition-transform duration-500 group-hover:-rotate-1">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <Image width={1200} height={1600} src="/thumbnails/chicago-open-water.png" alt="Chicago's street network beside Lake Michigan" className="aspect-[3/4] w-full object-cover" />
           </div>
-          <div className="relative w-[min(82vw,458px)] rotate-[1deg] bg-[#fbfaf6] p-3 shadow-[0_48px_110px_rgba(0,0,0,0.42)] transition-transform duration-500 group-hover:rotate-0 group-hover:scale-[1.015] sm:p-5">
-            <CityArtworkImage
-              src={`/thumbnails/${FEATURED_CITY.slug}.png`}
-              status="ready"
-              label={`${FEATURED_CITY.name} street map`}
-              alt={`${FEATURED_CITY.name} detailed street map print`}
-              className="aspect-[3/4] w-full"
-            />
-            <div className="absolute -bottom-4 left-1/2 flex min-h-10 -translate-x-1/2 items-center whitespace-nowrap border border-[#14201d]/20 bg-[#f7f4eb] px-5 text-[8px] uppercase tracking-[0.18em] text-[#14201d] shadow-lg">
-              Explore {FEATURED_CITY.name} →
-            </div>
-          </div>
-          <div className="absolute right-[2%] top-[18%] -z-10 hidden h-[470px] w-[350px] -rotate-[4deg] border border-white/12 bg-[#22342f] lg:block" />
+          <div className="mt-4 flex items-center justify-between text-sm"><span>Chicago, Illinois</span><span className="text-[#d7a38a]">Find your version ↗</span></div>
         </Link>
       </section>
-
-      <section className="border-t border-white/10">
-        <div className="mx-auto max-w-[1500px] px-5 py-10 sm:px-7 md:px-10 lg:px-16">
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <p className="text-[12px] text-white/45">
-              Also available: state maps in topographic and street editions.
-            </p>
-            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-              {STATES.slice(0, 8).map((state) => (
-                <Link
-                  key={state.slug}
-                  href={`/maps/${state.slug}`}
-                  className="text-[12px] text-white/50 underline-offset-4 transition-colors hover:text-white hover:underline"
-                >
-                  {state.name}
-                </Link>
-              ))}
+      <section id="explore" className="border-t border-white/15 bg-[#f7f4eb] text-[#14201d]">
+        <div className="mx-auto max-w-[1440px] px-6 py-10 md:px-12 md:py-14">
+          <div className="flex flex-wrap items-end justify-between gap-6">
+            <div><p className="text-xs uppercase tracking-[0.18em] text-[#986147]">Or follow your curiosity</p><h2 className="mt-3 font-display text-4xl md:text-5xl">Two ways to see your place.</h2></div>
+            <div className="flex rounded-full border border-[#14201d]/25 p-1" role="group" aria-label="Explore places">
+              {(['city', 'state'] as const).map((kind) => <button key={kind} onClick={() => setCollection(kind)} aria-pressed={collection === kind} className={`rounded-full px-7 py-3 text-sm ${collection === kind ? 'bg-[#173f35] text-white' : ''}`}>{kind === 'city' ? 'Cities & towns' : 'States'}</button>)}
             </div>
           </div>
-        </div>
-      </section>
-
-      <section className="border-t border-white/10 bg-[#0f1917]/55">
-        <div className="mx-auto max-w-[1320px] px-5 py-12 sm:px-7 md:px-10 lg:py-20">
-          <div className="max-w-2xl">
-            <div className="studio-kicker">Ready-made starting points</div>
-            <h2 className="mt-4 font-display text-4xl font-light leading-none md:text-6xl">See your city before you design it.</h2>
-            <p className="mt-5 text-[13px] leading-6 text-white/55">Real products, not templates — every available street, in the colour you choose. {CITY_COUNT} cities have their own page, and anywhere else is one search away.</p>
+          <div className="mt-8 grid gap-4 md:grid-cols-2">
+            <button onClick={() => setCollection('city')} aria-pressed={collection === 'city'} className={`discovery-collection text-left ${collection === 'city' ? 'is-selected' : ''}`}><Image width={1200} height={1600} src="/thumbnails/chicago-open-water.png" alt="Chicago Open Water map" className="float-right ml-5 hidden h-40 w-28 object-cover sm:block" /><span className="text-xs uppercase tracking-widest">01 / Cities & towns</span><span className="mt-4 block font-display text-4xl">The streets you know.</span><span className="mt-3 block text-base leading-6 opacity-75">Neighborhoods, city grids, and shorelines. Find your favorite view.</span><span className="mt-5 block text-sm">Explore cities →</span></button>
+            <button onClick={() => setCollection('state')} aria-pressed={collection === 'state'} className={`discovery-collection text-left ${collection === 'state' ? 'is-selected' : ''}`}><Image width={1693} height={929} src="/illustrations/tennessee-atlas.png" alt="Tennessee illustrated with forests, mountains, and settlements" className="mb-5 aspect-[3/1] w-full object-cover" /><span className="text-xs uppercase tracking-widest">02 / States</span><span className="mt-4 block font-display text-4xl">A whole state of belonging.</span><span className="mt-3 block text-base leading-6 opacity-75">Relief, rivers and lakes. Roads and towns. Or an illustrated atlas.</span><span className="mt-5 block text-sm">Explore states →</span></button>
           </div>
-          <div className="mt-9 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-            {CITIES.map((city, index) => (
-              <Link
-                key={city.slug}
-                href={`/maps/${city.slug}`}
-                className="group flex min-h-[180px] flex-col justify-between border border-white/12 bg-white/[0.035] p-4 transition-all hover:-translate-y-1 hover:bg-white/[0.08]"
-              >
-                <div className="flex items-center justify-between text-[8px] uppercase tracking-[0.16em] text-white/32">
-                  <span>City {String(index + 1).padStart(2, '0')}</span>
-                  <span>↗</span>
-                </div>
-                <div>
-                  <div className="font-display text-3xl font-light group-hover:text-[#dce6df]">{city.name}</div>
-                  <div className="mt-2 text-[8px] uppercase tracking-[0.17em] text-white/42">{city.defaultSubtitle}</div>
-                </div>
-              </Link>
-            ))}
+          <p className="mt-8 text-sm text-[#58665d]">{collection === 'city' ? 'A few places to begin. Search above for any city or town.' : 'Topographic and Street Atlas maps for every state. The first Illustrated Atlas is Tennessee.'}</p>
+          <div className="mt-4 grid grid-cols-2 gap-x-6 md:grid-cols-4 lg:grid-cols-6">
+            {(collection === 'city' ? cities : states).map((place) => <Link key={place.slug} href={`/maps/${place.slug}`} className="border-b border-[#14201d]/15 py-4 text-base hover:text-[#a35b3f]">{place.name}<span className="float-right opacity-40">↗</span></Link>)}
           </div>
         </div>
       </section>
