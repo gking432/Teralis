@@ -57,7 +57,7 @@ function CityVersionPreview({ scene, mapPreview, layout }: { scene: PrintScene; 
 }
 
 const editionCache = new Map<string, string>();
-function StateEditionPreview({ print, edition, boundary }: { print: CatalogPrint; edition: 'atlas' | 'topographic'; boundary: GeoJSON.Geometry | null }) {
+function StateEditionPreview({ print, edition, boundary }: { print: CatalogPrint; edition: 'detailed' | 'topographic'; boundary: GeoJSON.Geometry | null }) {
   const key = `${print.slug}:${edition}`;
   const [src, setSrc] = useState(editionCache.get(key));
   const [failed, setFailed] = useState(false);
@@ -80,7 +80,7 @@ export function PlaceOptions({ print, scene, update, boundary, waterAvailable, m
   const illustrated = scene.region.theme === 'illustrated';
   const landmarks = scene.region.theme === 'landmarks';
   const art = illustrationFor(scene);
-  const palettes = (state ? ['bone', 'forest', 'blueprint', 'terracotta', 'slate', 'midnight'] : [...CITY_COLORWAYS]).map(getPalette);
+  const palettes = (state ? ['bone', 'forest', 'blueprint', 'terracotta'] : [...CITY_COLORWAYS]).map(getPalette);
   return <>
     <section aria-label={state ? 'State editions' : 'City versions'}>
       <h2 className="mb-3 text-base font-medium">{state ? 'Choose your edition' : 'Choose your version'}</h2>
@@ -98,8 +98,7 @@ export function PlaceOptions({ print, scene, update, boundary, waterAvailable, m
         </button>)}
       </div>
       {!state && art && <button className="place-choice mt-3 flex w-full items-center gap-4 text-left" aria-pressed={illustrated} onClick={() => update((current) => chooseEdition(current, 'illustrated'), 'edition')}><img src={art.src} alt="" className="h-24 w-32 object-contain" /><span><span className="block font-medium">Illustrated City</span><span className="mt-1 block text-sm text-[#657167]">An aerial portrait of the places you know</span></span></button>}
-      {print.slug === 'wisconsin' && <button className="place-choice mt-3 w-full text-left" aria-pressed={scene.region.theme === 'detailed'} onClick={() => update((current) => chooseEdition(current, 'detailed'), 'edition')}><span className="block font-medium">Landscape Atlas</span><span className="mt-1 block text-sm text-[#657167]">Terrain, waterways, roads & Wisconsin place names</span></button>}
-      {scene.region.theme === 'detailed' && <p className="mt-3 text-sm leading-6 text-[#687267]">Made for a closer look. Wisconsin cities, villages and towns over shaded terrain. Names are spaced to stay readable; some appear only in the enlarged proof.</p>}
+      {state && scene.region.theme === 'detailed' && <><p className="mt-3 text-sm leading-6 text-[#687267]">Cities, villages and small towns over quiet terrain and waterways. Labels are spaced for readability, so crowded names may be omitted. Open the enlarged proof to explore. Best enjoyed as a larger print.</p><HometownPicker slug={print.slug} scene={scene} update={update} /></>}
       {state && !art && <p className="mt-3 text-sm text-[#687267]">Curious about the illustrated edition? <Link href="/maps/tennessee?edition=illustrated" className="underline underline-offset-4">Explore Tennessee →</Link></p>}
       {illustrated && <p className="mt-3 text-sm leading-6 text-[#687267]">{state ? `A pictorial interpretation of ${print.name}, with fixed illustrated landmarks.` : 'The lakes, the Capitol, the campus, game day. Familiar landmarks drawn into an imagined aerial view.'} Personalize the caption below.</p>}
     </section>
@@ -109,8 +108,29 @@ export function PlaceOptions({ print, scene, update, boundary, waterAvailable, m
     </section>}
     <div className="mt-6">
       <details><summary>Edit wording</summary><div><StudioPanels scene={scene} update={update} active="title" /></div></details>
-      {!illustrated && <details onToggle={(event) => onAdjustArea(event.currentTarget.open)}><summary>{state ? 'Map detail & shape' : 'Adjust map area & shape'}</summary><div><StudioPanels scene={scene} update={update} active="view" /></div></details>}
+      {!illustrated && !state && <details onToggle={(event) => onAdjustArea(event.currentTarget.open)}><summary>{state ? 'Map detail & shape' : 'Adjust map area & shape'}</summary><div><StudioPanels scene={scene} update={update} active="view" /></div></details>}
       {illustrated && <p className="mt-4 text-sm text-[#687267]">{art?.orientation === 'portrait' ? 'Portrait' : 'Landscape'} composition · Warm paper & rust lettering</p>}
     </div>
   </>;
+}
+
+function HometownPicker({ slug, scene, update }: { slug: string; scene: PrintScene; update: Props['update'] }) {
+  const [query, setQuery] = useState('');
+  const [places, setPlaces] = useState<Array<GeoJSON.Feature<GeoJSON.Point, { name: string; kind: string }>>>([]);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    const abort = new AbortController();
+    setError(false); setPlaces([]);
+    fetch(`/atlas-places/${slug}.json`, { signal: abort.signal }).then(r => { if (!r.ok) throw new Error(); return r.json(); }).then(data => setPlaces(data.features)).catch(() => { if (!abort.signal.aborted) setError(true); });
+    return () => abort.abort();
+  }, [slug]);
+  const matches = query.trim().length > 1 ? places.filter(p => p.properties.name.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 8) : [];
+  return <div className="mt-5 rounded border border-[#d8d9d3] p-3">
+    <label className="block text-sm font-medium" htmlFor="hometown-search">Highlight your hometown</label>
+    <p className="mt-1 text-xs leading-5 text-[#657167]">Optional · A small marker for your place in the state.</p>
+    {scene.region.hometown && <div className="my-2 flex items-center justify-between text-sm"><span>{scene.region.hometown.name}</span><button className="underline" onClick={() => update(c => ({ ...c, region: { ...c.region, hometown: undefined } }), 'hometown')}>Remove highlight</button></div>}
+    <input id="hometown-search" type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search your city or town" className="mt-2 w-full" />
+    {error ? <p className="mt-2 text-xs">Place search could not load. Reload to try again.</p> : query.trim().length > 1 && !places.length ? <p className="mt-2 text-xs">Loading places…</p> : query.trim().length > 1 && !matches.length ? <p className="mt-2 text-xs">No matching place in this state.</p> : null}
+    <ul className="mt-2">{matches.map(p => <li key={`${p.properties.name}:${p.geometry.coordinates}`}><button className="w-full rounded px-2 py-2 text-left text-sm hover:bg-[#eef1ed]" onClick={() => { update(c => ({ ...c, region: { ...c.region, hometown: { name: p.properties.name, coordinates: p.geometry.coordinates as [number, number] } } }), 'hometown'); setQuery(''); }}>{p.properties.name}{' '}<span className="ml-2 text-xs text-[#657167]">{p.properties.kind}{matches.filter(m => m.properties.name === p.properties.name && m.properties.kind === p.properties.kind).length > 1 ? ` · ${p.geometry.coordinates[1].toFixed(2)}° N, ${Math.abs(p.geometry.coordinates[0]).toFixed(2)}° W` : ''}</span></button></li>)}</ul>
+  </div>;
 }

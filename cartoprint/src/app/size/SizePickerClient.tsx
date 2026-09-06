@@ -112,7 +112,7 @@ export function SizePickerClient() {
           mat?: boolean;
         };
         if (finish.slug === print?.slug) {
-          if (finish.size && SIZE_LABELS.includes(finish.size)) setSize(finish.size);
+          if (finish.size && SIZE_LABELS.includes(finish.size)) setSize(storedScene?.place.kind === 'state' && storedScene.region.theme === 'detailed' && finish.size === 'small' ? 'medium' : finish.size);
           if (finish.frame && FRAME_OPTIONS.some((option) => option.value === finish.frame)) {
             setFrame(finish.frame);
           }
@@ -324,9 +324,9 @@ export function SizePickerClient() {
 
             <div className="space-y-7 px-6 py-6">
               <div>
-                <div className="studio-control-title">Size</div>
+                <div className="studio-control-title">Size</div>{printScene?.place.kind === 'state' && printScene.region.theme === 'detailed' && <p className="mt-2 text-xs text-[#657167]">Towns & Terrain starts at Medium to give the place names room. Choose Large or Extra Large for a closer look.</p>}
                 <div className="mt-3 grid grid-cols-4 gap-1.5">
-                  {SIZE_LABELS.map((option) => (
+                  {SIZE_LABELS.filter(option => !(printScene?.place.kind === 'state' && printScene.region.theme === 'detailed' && option === 'small')).map((option) => (
                     <button key={option} type="button" onClick={() => handleSizeChange(option)} aria-pressed={size === option} className={`min-h-[58px] border px-1.5 text-center transition-colors ${size === option ? 'border-[#173f35] bg-[#e9eee9] shadow-[inset_0_0_0_1px_#173f35]' : 'border-[#d8d9d3] bg-white hover:border-[#849587]'}`}>
                       <span className="block text-[8px] font-medium uppercase tracking-[0.1em]">{sizes[option].displayLabel}</span>
                       <span className="mt-1 block text-[8px] text-[#8a918d]">{sizes[option].dimensionStr.replace('"', '')}</span>

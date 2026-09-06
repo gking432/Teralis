@@ -1,4 +1,4 @@
-import { addWisconsinAtlasLabels, WISCONSIN_LABELS } from './wisconsinAtlas';
+import { addStateAtlasLabels, STATE_ATLAS_LABELS, updateStateAtlas } from './stateAtlas';
 import type maplibregl from 'maplibre-gl';
 import type { LayerState } from '@/types/map';
 import { addTerrain, applyGreyscale, applyStyleOverrides } from '@/lib/map/style';
@@ -628,7 +628,7 @@ export function applyPrintColors(
         map.setPaintProperty(id, 'background-color', land);
         return;
       }
-      if (layer.type === 'fill' && /water/.test(id)) {
+      if (layer.type === 'fill' && (/water/.test(id) || id === 'print-state-detail-lakes')) {
         map.setPaintProperty(id, 'fill-color', water);
         map.setPaintProperty(id, 'fill-outline-color', water);
         map.setPaintProperty(id, 'fill-opacity', 1);
@@ -639,7 +639,7 @@ export function applyPrintColors(
         map.setPaintProperty(id, 'fill-outline-color', land);
         return;
       }
-      if (layer.type === 'line' && /^waterway|water/.test(id)) {
+      if (layer.type === 'line' && (/^waterway|water/.test(id) || id === 'print-state-detail-rivers')) {
         map.setPaintProperty(id, 'line-color', water);
         return;
       }
@@ -692,7 +692,9 @@ export function applyRegionMapLayers(
   detail: PrintDetailSettings,
   detailBias: DetailBias,
   kind: 'country' | 'state' | 'city',
+  slug?: string,
 ): void {
+  if (kind === 'state' && slug) updateStateAtlas(map, slug, design);
   const style = map.getStyle();
   if (!style) return;
   const showTerrain = design.theme === 'topographic' || design.theme === 'detailed';
@@ -706,9 +708,9 @@ export function applyRegionMapLayers(
     const isDetailedRoad = layer.id === 'print-state-detail-roads';
     const isDetailedCounty = layer.id === 'print-state-detail-county-boundaries';
     try {
-      if (layer.id === WISCONSIN_LABELS) {
+      if (layer.id === STATE_ATLAS_LABELS) {
         map.setLayoutProperty(layer.id, 'visibility', design.theme === 'detailed' && detail.labels.cities ? 'visible' : 'none');
-        map.setFilter(layer.id, detail.labels.towns ? null : ['==', ['get', 'rank'], 0]);
+
       } else if (kind === 'state' && (group === 'cities' || group === 'towns')) {
         const visible = design.theme === 'atlas' && (group === 'cities' ? detail.labels.cities : detail.labels.towns);
         map.setLayoutProperty(layer.id, 'visibility', visible ? 'visible' : 'none');
@@ -759,7 +761,7 @@ export function applyRegionMapLayers(
       } else if (layer.id === 'hillshade-layer') {
         map.setLayoutProperty(layer.id, 'visibility', showTerrain ? 'visible' : 'none');
         if (showTerrain) {
-          map.setPaintProperty(layer.id, 'hillshade-exaggeration', hillshadeExaggeration(detailBias));
+          map.setPaintProperty(layer.id, 'hillshade-exaggeration', design.theme === 'detailed' ? 0.35 : hillshadeExaggeration(detailBias) * (['florida', 'illinois', 'indiana', 'iowa', 'kansas', 'louisiana', 'minnesota', 'mississippi', 'nebraska', 'north-dakota', 'ohio', 'south-dakota', 'wisconsin'].includes(slug || '') ? 0.6 : 1));
         }
       }
     } catch {}
@@ -790,7 +792,7 @@ export function applyPrintMapStyle(
   applyStyleOverrides(map);
   applyPrintDetail(map, kind, detail, scale, weight);
   applyPrintColors(map, colors, scale);
-  if (kind === 'state') addWisconsinAtlasLabels(map, colors, scale);
+  if (kind === 'state') addStateAtlasLabels(map, colors, scale);
 }
 
 /** Sets the isolation mask to paper, clipping neighboring geography quietly. */

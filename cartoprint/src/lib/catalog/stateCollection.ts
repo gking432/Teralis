@@ -1,16 +1,10 @@
 import type { CatalogPrint } from '@/lib/catalog/prints';
-import { applyPalette, createPrintScene, normalizeScene, type PrintScene } from '@/lib/print/scene';
-import { getPalette } from '@/lib/print/palettes';
-import { defaultRegionDesign, REGION_THEMES, type RegionTheme } from '@/lib/print/regionDesign';
-import { rectForSlot } from '@/lib/print/title';
+import { createPrintScene, type PrintScene } from '@/lib/print/scene';
+import { REGION_THEMES, type RegionTheme } from '@/lib/print/regionDesign';
+import { chooseEdition, recommendedOrientation } from '@/lib/print/editions';
+import { ILLUSTRATIONS } from '@/lib/print/illustrations';
 
-/**
- * The editions a region print is sold in.
- *
- * Two, deliberately: the land (topographic) and the road network (street atlas). Both
- * are real cartography that holds up at any scale and needs no per-state
- * curation, so every state and country ships the same complete pair.
- */
+/** Collection cards use the same editions as the print workspace. */
 export interface CollectionDesign {
   id: RegionTheme;
   name: string;
@@ -26,36 +20,16 @@ export const STATE_COLLECTION_DESIGNS: CollectionDesign[] = REGION_THEMES.map((t
   note: theme.blurb,
   description: theme.id === 'topographic'
     ? 'The shape of the land: elevation relief, rivers, and open water, drawn as a quiet study in contour.'
-    : 'The road network as a clean hierarchy, without terrain, river linework, or place-name clutter.',
+    : 'Cities and small towns over restrained terrain, rivers and lakes.',
   palette: theme.palette,
   font: theme.font,
 }));
 
-/** Every region sells both editions; neither needs curation to look right. */
-export function designsForState(_slug?: string, _center?: [number, number] | null): CollectionDesign[] {
-  return STATE_COLLECTION_DESIGNS;
+/** Prepared illustrations are offered only where artwork exists. */
+export function designsForState(slug?: string, _center?: [number, number] | null): CollectionDesign[] {
+  return [...STATE_COLLECTION_DESIGNS, ...(slug && ILLUSTRATIONS[slug] ? [{ id: 'illustrated' as const, name: 'Illustrated', note: 'Hand-drawn places and landscapes', description: 'A finished illustrated state portrait with your own caption.', palette: 'bone', font: 'editorial' as const }] : [])];
 }
 
-/**
- * A finished edition is the editor's own default scene wearing one of
- * the collection's designs — the same construction the studio uses, so the
- * storefront-to-editor handoff cannot drift.
- */
 export function sceneForCollectionDesign(print: CatalogPrint, design: CollectionDesign): PrintScene {
-  const base = createPrintScene(print, 'portrait', getPalette(design.palette));
-  const recolored = applyPalette(base, getPalette(design.palette));
-  return normalizeScene({
-    ...recolored,
-    layoutId: 'footer',
-    detailBias: design.id === 'topographic' ? -1 : 0,
-    region: defaultRegionDesign(design.id),
-    detail: { ...recolored.detail, border: 'none' },
-    title: {
-      ...recolored.title,
-      enabled: true,
-      font: design.font,
-      slot: 'footer',
-      ...rectForSlot('footer'),
-    },
-  });
+  return chooseEdition(createPrintScene(print, recommendedOrientation(print)), design.id);
 }

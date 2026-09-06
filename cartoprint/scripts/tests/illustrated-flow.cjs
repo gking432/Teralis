@@ -22,7 +22,7 @@ const fs=require('node:fs');
  const proof=await img.getAttribute('src');fs.writeFileSync('/tmp/wisconsin-detailed-proof.png',Buffer.from(proof.split(',')[1],'base64'));
  if(process.env.UPDATE_MARKETING_ART==='1')fs.writeFileSync('public/thumbnails/wisconsin-landscape-atlas.png',Buffer.from(proof.split(',')[1],'base64'));
  await page.getByRole('button',{name:'Close',exact:true}).click();await page.screenshot({path:'/tmp/wisconsin-detailed.png'});
- await page.getByRole('button',{name:/Street Atlas Roads/}).click();await ready();assert.equal((await scene()).region.theme,'atlas');
+ await page.getByRole('button',{name:/^Terrain Elevation/}).click();await ready();assert.equal((await scene()).region.theme,'topographic');
  await page.setViewportSize({width:390,height:844});await page.goto(base);await page.getByRole('link',{name:/Wisconsin in ink/}).click();await ready();assert.equal((await scene()).region.theme,'illustrated');assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await page.screenshot({path:'/tmp/wisconsin-illustrated-mobile.png',fullPage:true});assert.deepEqual(errors,[]);console.log('PASS Landscape Atlas, edition switching, homepage entry and mobile layout');await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});

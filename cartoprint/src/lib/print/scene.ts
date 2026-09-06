@@ -277,6 +277,8 @@ export function createPrintScene(
  * this so no control can leave the scene in a state that contradicts itself.
  */
 export function normalizeScene(scene: PrintScene): PrintScene {
+  if (scene.place.kind === 'state' && scene.region?.theme === 'atlas') scene = { ...scene, region: { ...scene.region, theme: 'detailed' } };
+  if (scene.place.kind === 'state' && scene.region?.theme === 'detailed') scene = { ...scene, detailBias: 0, size: scene.size === 'small' ? 'medium' : scene.size };
   if (scene.place.slug === 'madison-wi' && scene.region?.theme === 'landmarks') {
     scene = { ...scene, region: { theme: 'illustrated' }, orientation: 'landscape',
       detail: { ...scene.detail, border: 'none' },
@@ -284,6 +286,8 @@ export function normalizeScene(scene: PrintScene): PrintScene {
       title: { ...applyLayoutToTitle(scene.title, getLayout('footer')), textColor: undefined, panelColor: undefined, font: 'editorial' },
     };
   }
+  const hometown = scene.region?.hometown;
+  if (hometown && (typeof hometown.name !== 'string' || !Array.isArray(hometown.coordinates) || hometown.coordinates.length !== 2 || !hometown.coordinates.every(Number.isFinite) || Math.abs(hometown.coordinates[0]) > 180 || Math.abs(hometown.coordinates[1]) > 90)) scene = { ...scene, region: { ...scene.region, hometown: undefined } };
   // Designs saved before the simplified editor may still carry a `markers`
   // field. Drop it at the normalization boundary so legacy links remain
   // loadable without ever restoring decorations to the artwork.
@@ -439,6 +443,7 @@ export function sceneCacheTag(scene: PrintScene): string {
     `v${scene.version}`,
     scene.place.slug,
     scene.region.theme,
+    JSON.stringify(scene.region.hometown ?? null),
     scene.orientation,
     scene.size,
     scene.detailBias,

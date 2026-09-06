@@ -1,20 +1,13 @@
 import type { DetailBias } from '@/lib/print/density';
 import type { Density, PrintDetailSettings } from '@/lib/print/printRender';
 
-/**
- * State and country prints come in two honest cartographic editions:
- *
- *   Topographic — elevation, rivers, lakes, and open water.
- *   Atlas       — the road network, without place-name clutter.
- *
- * The Composition panel's single Map detail control changes the amount of
- * geography inside either edition. There are no duplicate per-layer controls.
- */
+/** Curated state editions; atlas and landmarks remain readable legacy IDs. */
 
 export type RegionTheme = 'topographic' | 'atlas' | 'illustrated' | 'detailed' | 'landmarks';
 
 export interface RegionDesign {
   theme: RegionTheme;
+  hometown?: { name: string; coordinates: [number, number] };
 }
 
 export const REGION_DETAIL_LEVELS: DetailBias[] = [-1, 0, 1];
@@ -28,15 +21,15 @@ export const REGION_THEMES: Array<{
 }> = [
   {
     id: 'topographic',
-    name: 'Topographic',
+    name: 'Terrain',
     blurb: 'Elevation relief, rivers, lakes, and open water.',
     palette: 'forest',
     font: 'editorial',
   },
   {
-    id: 'atlas',
-    name: 'Street Atlas',
-    blurb: 'Streets and lakes, with optional cities and towns.',
+    id: 'detailed',
+    name: 'Towns & Terrain',
+    blurb: 'Cities and small towns over shaded terrain and waterways.',
     palette: 'bone',
     font: 'condensed',
   },
@@ -81,15 +74,15 @@ export function detailForRegion(
 
   return {
     ...base,
-    roads: design.theme === 'detailed' ? 'neutral' : atlas ? density : 'none',
-    places: design.theme === 'detailed' && base.labels.towns ? 'more' : atlas && base.labels.towns ? 'neutral' : atlas && base.labels.cities ? 'less' : 'none',
+    roads: design.theme === 'detailed' ? 'none' : atlas ? density : 'none',
+    places: design.theme === 'detailed' ? 'more' : atlas && base.labels.towns ? 'neutral' : atlas && base.labels.cities ? 'less' : 'none',
     rivers: !atlas || design.theme === 'detailed',
     counties: false,
     states: kind === 'country',
     labels: {
       ...base.labels,
-      cities: atlas && base.labels.cities,
-      towns: atlas && base.labels.towns,
+      cities: design.theme === 'detailed' || atlas && base.labels.cities,
+      towns: design.theme === 'detailed' || atlas && base.labels.towns,
       roads: false,
       water: false,
       rivers: false,
@@ -98,7 +91,7 @@ export function detailForRegion(
 }
 
 export function regionThemeName(theme: RegionTheme): string {
-  if (theme === 'detailed') return 'Landscape Atlas';
-  if (theme === 'illustrated') return 'Illustrated Atlas';
+  if (theme === 'detailed') return 'Towns & Terrain';
+  if (theme === 'illustrated') return 'Illustrated';
   return REGION_THEMES.find((entry) => entry.id === theme)?.name ?? 'Street Atlas';
 }

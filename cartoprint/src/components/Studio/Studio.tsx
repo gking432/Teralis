@@ -9,7 +9,7 @@ import { LivePrintCanvas } from '@/components/Studio/LivePrintCanvas';
 import { TitleOverlay } from '@/components/Studio/TitleOverlay';
 import { ProofInspector } from './ProofInspector';
 import { PlaceOptions } from './PlaceOptions';
-import { chooseEdition, recommendedOrientation } from '@/lib/print/editions';
+import { chooseEdition, recommendedOrientation, recommendedStateEdition } from '@/lib/print/editions';
 import { illustrationFor, illustrationRect } from '@/lib/print/illustrations';
 import { percent } from '@/lib/print/geometry';
 import { LocationSearch } from '@/components/Storefront/LocationSearch';
@@ -138,7 +138,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     }
     let initial = createPrintScene(print, searchParams.has('o') ? orientation : recommendedOrientation(print));
     const edition = searchParams.get('edition');
-    if (print.kind !== 'city') initial = chooseEdition(initial, edition === 'atlas' || edition === 'illustrated' || (edition === 'detailed' && print.slug === 'wisconsin') ? edition : 'topographic');
+    if (print.kind !== 'city') initial = chooseEdition(initial, edition === 'atlas' || edition === 'illustrated' || edition === 'detailed' || edition === 'topographic' ? edition : recommendedStateEdition(print.slug));
     if (print.kind === 'city') {
       const look = searchParams.get('look');
       const coastal = ['chicago-il', 'madison-wi', 'miami-fl', 'seattle-wa', 'san-francisco-ca'].includes(print.slug);
@@ -323,7 +323,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
               <TitleOverlay design={scene.title} colors={scene.colors} containerRef={sheetRef} onChange={() => {}} editable={false} />
             </LivePrintCanvas>}
           </div>
-          <button disabled={!mapReady} onClick={() => setInspect(true)} className="absolute right-4 top-4 rounded-full bg-[#f7f4eb] px-4 py-2 text-sm text-[#173f35] shadow disabled:opacity-50">Inspect print ↗</button>
+          <button disabled={!mapReady && !previewSeen} onClick={() => setInspect(true)} className="absolute right-4 top-4 rounded-full bg-[#f7f4eb] px-4 py-2 text-sm text-[#173f35] shadow disabled:opacity-50">Inspect print ↗</button>
           {exportError && <div role="alert" className="absolute inset-x-4 top-4 z-30 rounded bg-[#552b21] px-4 py-3 text-sm text-white">{exportError}<button onClick={() => setExportError(null)} aria-label="Dismiss error" className="ml-3">×</button></div>}
           <span className="pointer-events-none absolute bottom-1 text-xs text-white/60">{illustrated ? 'Illustrated Atlas' : scene.place.kind === 'city' ? 'Your city, your view' : designLabel}</span>
         </main>
@@ -332,7 +332,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
             <div className="mb-6">
               <p className="text-xs uppercase tracking-[0.16em] text-[#9b6045]">{print.kind === 'city' ? 'City & town maps' : 'State maps'}</p>
               <h1 className="mt-2 font-display text-5xl leading-none">{print.name}</h1>
-              <p className="mt-3 text-sm leading-6 text-[#657167]">{print.kind === 'city' ? 'Find your favorite version. Make a few changes, or keep it just as it is.' : 'The shape of the land, the roads through it, or a world drawn in ink.'}</p>
+              <p className="mt-3 text-sm leading-6 text-[#657167]">{print.kind === 'city' ? 'Find your favorite version. Make a few changes, or keep it just as it is.' : 'The landscape, the towns you know, or a world drawn in ink.'}</p>
             </div>
             {waterNotice && scene.layoutId !== 'on-water' && <p role="status" className="mb-4 rounded bg-[#f1eadc] p-3 text-sm text-[#695237]">This view doesn’t have enough open water for the title. We’ve used Gallery; widen the map area to explore the shoreline.</p>}
             <PlaceOptions print={print} scene={scene} update={touchedUpdate} boundary={boundary} waterAvailable={waterPlacementAvailable} mapPreview={mapPreview} onAdjustArea={(active) => setViewLocked(!active)} />

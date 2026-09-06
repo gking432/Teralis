@@ -12,12 +12,13 @@ export const CITY_VERSIONS = [
   { id: 'bare', name: 'Map Only', description: 'Let the geography speak for itself.' },
 ];
 export const STATE_EDITIONS = [
-  { id: 'topographic' as const, name: 'Topographic', description: 'Elevation, rivers & lakes' },
-  { id: 'atlas' as const, name: 'Street Atlas', description: 'Roads, cities & towns' },
-  { id: 'illustrated' as const, name: 'Illustrated Atlas', description: 'Hand-drawn places & landscapes' },
+  { id: 'topographic' as const, name: 'Terrain', description: 'Elevation, rivers & lakes' },
+  { id: 'detailed' as const, name: 'Towns & Terrain', description: 'Cities & small towns over shaded land' },
+  { id: 'illustrated' as const, name: 'Illustrated', description: 'Hand-drawn places & landscapes' },
 ];
 
 export function chooseEdition(scene: PrintScene, theme: RegionTheme): PrintScene {
+  if (scene.place.kind === 'state' && theme === 'atlas') theme = 'detailed';
   if (theme === 'landmarks') {
     if (scene.place.slug !== 'madison-wi') return scene;
     theme = 'illustrated';
@@ -27,10 +28,11 @@ export function chooseEdition(scene: PrintScene, theme: RegionTheme): PrintScene
   const next = applyLayout(applyPalette(scene, palette), getLayout('footer'));
   return normalizeScene({
     ...next,
-    region: { theme },
+    region: { ...scene.region, theme },
     // Each saved illustration carries its own designed paper orientation.
     orientation: theme === 'illustrated' ? ILLUSTRATIONS[scene.place.slug].orientation : scene.orientation,
-    detailBias: theme === 'detailed' ? 1 : 0,
+    detailBias: 0,
+    size: theme === 'detailed' && scene.size === 'small' ? 'medium' : scene.size,
     detail: { ...next.detail, border: 'none', labels: { ...next.detail.labels, cities: theme === 'atlas' || theme === 'detailed', towns: theme === 'detailed' } },
     ...(theme === 'illustrated' ? { colors: { land: ILLUSTRATIONS[scene.place.slug].paper, water: '#8b3c25', roads: '#302b24' } } : {}),
     title: { ...next.title, font: 'editorial', rotation: 0 },
@@ -43,4 +45,10 @@ export function recommendedOrientation(print: CatalogPrint): Orientation {
   const [south, north, west, east] = print.bbox.map(Number);
   const physicalWidth = (east - west) * Math.cos((north + south) / 2 * Math.PI / 180);
   return physicalWidth > (north - south) * 1.3 ? 'landscape' : 'portrait';
+}
+
+/** Lead with prepared artwork, mountain relief, or the place-name atlas. */
+export function recommendedStateEdition(slug: string): RegionTheme {
+  if (ILLUSTRATIONS[slug]) return 'illustrated';
+  return ['alaska', 'arizona', 'california', 'colorado', 'hawaii', 'idaho', 'montana', 'nevada', 'new-mexico', 'oregon', 'utah', 'washington', 'west-virginia', 'wyoming'].includes(slug) ? 'topographic' : 'detailed';
 }

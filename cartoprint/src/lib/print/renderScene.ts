@@ -161,7 +161,7 @@ export async function renderScene(
         try { initIsolationLayers(map); } catch {}
 
         applyPrintMapStyle(map, scene.colors, kind, scene.detail, scale, scene.strokeWeight);
-        applyRegionMapLayers(map, scene.region, scene.detail, scene.detailBias, kind);
+        applyRegionMapLayers(map, scene.region, scene.detail, scene.detailBias, kind, scene.place.slug);
 
         if (boundary && kind !== 'city') {
           try {
@@ -207,7 +207,7 @@ export async function renderScene(
           featureTasks.push(fetchDetailedStateFeatures(scene.viewport.bbox, boundary, signal)
             .then((fc) => {
               addDetailedStateFeatures(map, fc, scene.colors, scale, scene.strokeWeight);
-              applyRegionMapLayers(map, scene.region, scene.detail, scene.detailBias, kind);
+              applyRegionMapLayers(map, scene.region, scene.detail, scene.detailBias, kind, scene.place.slug);
               try {
                 map.moveLayer('mask-layer');
                 map.moveLayer('selection-outline-layer');

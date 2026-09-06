@@ -1,7 +1,7 @@
 'use client';
 
 import { applyCityLandmarks } from '@/lib/print/cityLandmarks';
-import { addWisconsinAtlasLabels } from '@/lib/print/wisconsinAtlas';
+import { addStateAtlasLabels } from '@/lib/print/stateAtlas';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -229,7 +229,7 @@ export function LivePrintCanvas({
         strokeScaleFor(map.getCanvas().clientWidth || 900),
         active.strokeWeight,
       );
-      applyRegionMapLayers(map, active.region, active.detail, active.detailBias, active.place.kind);
+      applyRegionMapLayers(map, active.region, active.detail, active.detailBias, active.place.kind, active.place.slug);
       applyPrintMaskColor(map, active.colors);
       setStyleReady(true);
       fitViewport(active.viewport);
@@ -309,6 +309,8 @@ export function LivePrintCanvas({
     if (styleReady && mapRef.current) applyCityLandmarks(mapRef.current, sceneRef.current);
   }, [styleReady, regionTheme, colorsKey, canvasWidth]);
 
+  const hometownKey = JSON.stringify(scene.region.hometown);
+
   // --- Targeted updates. Each of these is paint-only: no re-render, no fetch.
 
   useEffect(() => {
@@ -316,7 +318,7 @@ export function LivePrintCanvas({
     if (!map || !styleReady) return;
     const active = sceneRef.current;
     applyPrintColors(map, active.colors, currentScale());
-    if (kind === 'state') addWisconsinAtlasLabels(map, active.colors, currentScale());
+    if (kind === 'state') addStateAtlasLabels(map, active.colors, currentScale());
     applyPrintMaskColor(map, active.colors);
     applyCityLandmarks(map, active);
     map.once('render', () => reportMapPreview(map));
@@ -331,7 +333,7 @@ export function LivePrintCanvas({
     // Detail changes reset paint properties on the layers they touch, so the
     // palette has to be re-applied on top of them.
     applyPrintColors(map, active.colors, currentScale());
-    if (kind === 'state') addWisconsinAtlasLabels(map, active.colors, currentScale());
+    if (kind === 'state') addStateAtlasLabels(map, active.colors, currentScale());
     applyCityLandmarks(map, active);
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();
@@ -341,11 +343,11 @@ export function LivePrintCanvas({
     const map = mapRef.current;
     if (!map || !styleReady || kind !== 'state') return;
     const active = sceneRef.current;
-    applyRegionMapLayers(map, active.region, active.detail, active.detailBias, kind);
+    applyRegionMapLayers(map, active.region, active.detail, active.detailBias, kind, active.place.slug);
     applyCityLandmarks(map, active);
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();
-  }, [detailKey, kind, reportMapPreview, regionTheme, scene.detailBias, styleReady]);
+  }, [detailKey, kind, reportMapPreview, regionTheme, scene.detailBias, styleReady, hometownKey, colorsKey, currentScale]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -387,7 +389,7 @@ export function LivePrintCanvas({
         const active = sceneRef.current;
         const added = addDetailedStateFeatures(map, collection, active.colors, currentScale(), active.strokeWeight);
         setStateDetailLoaded(added);
-        applyRegionMapLayers(map, active.region, active.detail, active.detailBias, kind);
+        applyRegionMapLayers(map, active.region, active.detail, active.detailBias, kind, active.place.slug);
         try {
           map.moveLayer('mask-layer');
           map.moveLayer('selection-outline-layer');
@@ -460,12 +462,12 @@ export function LivePrintCanvas({
     const scale = strokeScaleFor(map.getCanvas().clientWidth || canvasWidth);
     applyPrintDetail(map, kind, active.detail, scale, active.strokeWeight);
     applyPrintColors(map, active.colors, scale);
-    if (kind === 'state') addWisconsinAtlasLabels(map, active.colors, scale);
+    if (kind === 'state') addStateAtlasLabels(map, active.colors, scale);
     if (kind === 'state') styleDetailedStateFeatures(map, scale, active.strokeWeight);
     if (geometry && kind !== 'city') {
       applyPrintRegionOutline(map, geometry, active.colors, scale);
     }
-    applyRegionMapLayers(map, active.region, active.detail, active.detailBias, active.place.kind);
+    applyRegionMapLayers(map, active.region, active.detail, active.detailBias, active.place.kind, active.place.slug);
     if (!active.freeViewport) fitViewport(active.viewport);
     applyCityLandmarks(map, active);
     map.once('render', () => reportMapPreview(map));
