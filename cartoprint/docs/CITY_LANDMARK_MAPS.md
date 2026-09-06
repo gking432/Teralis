@@ -1,3 +1,5 @@
+> Superseded by the illustrated aerial composition in MADISON_AERIAL_ART.md. The notes below document the retired map-symbol prototype.
+
 # City Landmark Maps
 
 Madison is the first prototype at `/maps/madison-wi?edition=landmarks`. Its north-up streets and shorelines use the existing OpenFreeMap / OpenStreetMap renderer. Three original, code-drawn map symbols mark the State Capitol, Memorial Union Terrace and James Madison Park. These are location symbols, not scaled building footprints. No generated image supplies the city's geography.

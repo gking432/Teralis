@@ -277,6 +277,13 @@ export function createPrintScene(
  * this so no control can leave the scene in a state that contradicts itself.
  */
 export function normalizeScene(scene: PrintScene): PrintScene {
+  if (scene.place.slug === 'madison-wi' && scene.region?.theme === 'landmarks') {
+    scene = { ...scene, region: { theme: 'illustrated' }, orientation: 'landscape',
+      detail: { ...scene.detail, border: 'none' },
+      colors: { land: '#f5f0e5', water: '#8b3c25', roads: '#302b24' },
+      title: { ...applyLayoutToTitle(scene.title, getLayout('footer')), textColor: undefined, panelColor: undefined, font: 'editorial' },
+    };
+  }
   // Designs saved before the simplified editor may still carry a `markers`
   // field. Drop it at the normalization boundary so legacy links remain
   // loadable without ever restoring decorations to the artwork.
@@ -287,7 +294,7 @@ export function normalizeScene(scene: PrintScene): PrintScene {
       ...scene.place,
       placeType: scene.place.placeType || scene.place.kind,
     },
-    region: scene.region?.theme === 'illustrated' && scene.place.slug === 'madison-wi' ? { theme: 'landmarks' } : scene.region?.theme === 'illustrated' && !ILLUSTRATIONS[scene.place.slug] ? defaultRegionDesign() : scene.region ?? defaultRegionDesign(),
+    region: scene.region?.theme === 'illustrated' && !ILLUSTRATIONS[scene.place.slug] ? defaultRegionDesign() : scene.region ?? defaultRegionDesign(),
     title: {
       ...scene.title,
       text: (scene.title.text ?? scene.place.name).slice(0, 48),

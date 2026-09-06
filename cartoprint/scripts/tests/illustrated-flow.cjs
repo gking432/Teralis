@@ -6,7 +6,7 @@ const fs=require('node:fs');
  const base=process.env.TERRALIS_TEST_URL||'http://localhost:3000';
  const ready=()=>page.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>b.textContent==='Choose size & frame'&&!b.disabled),{},{timeout:60000});
  const scene=()=>page.evaluate(()=>JSON.parse(sessionStorage.getItem('teralis:print-scene')));
- for(const [slug,orientation] of [['wisconsin','portrait'],['tennessee','landscape']]){
+ for(const [slug,orientation] of [['madison-wi','landscape'],['wisconsin','portrait'],['tennessee','landscape']]){
   await page.goto(`${base}/maps/${slug}?edition=illustrated`);await ready();assert.equal((await scene()).region.theme,'illustrated');assert.equal((await scene()).orientation,orientation);
   assert(await page.locator('.place-stage img').evaluate(i=>i.complete&&i.naturalWidth>0));
   await page.getByText('Edit wording',{exact:true}).click();await page.getByRole('textbox',{name:'Title',exact:true}).fill('Our favorite place');await page.waitForTimeout(500);
