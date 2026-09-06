@@ -87,17 +87,20 @@ export function PlaceOptions({ print, scene, update, boundary, waterAvailable, m
         {state ? STATE_EDITIONS.map((edition) => {
           const unavailable = edition.id === 'illustrated' && !art;
           return <button key={edition.id} className="place-choice" aria-pressed={scene.region.theme === edition.id} disabled={unavailable} onClick={() => update((current) => chooseEdition(current, edition.id), 'edition')}>
-            {edition.id === 'illustrated' ? art ? <img src={art.src} alt="" className="aspect-[3/4] w-full bg-[#f5f0e5] object-contain" /> : <div className="flex aspect-[3/4] items-center justify-center bg-[#eeeae0] px-2 text-center text-xs text-[#7b827b]">Tennessee is the first edition</div> : <StateEditionPreview print={print} edition={edition.id} boundary={boundary} />}
+            {edition.id === 'illustrated' ? art ? <img src={art.src} alt="" className="aspect-[3/4] w-full bg-[#f5f0e5] object-contain" /> : <div className="flex aspect-[3/4] items-center justify-center bg-[#eeeae0] px-2 text-center text-xs text-[#7b827b]">New places in progress</div> : <StateEditionPreview print={print} edition={edition.id} boundary={boundary} />}
             <span className="mt-2 block text-sm font-medium leading-tight">{edition.name}</span><span className="mt-1 block text-xs leading-4 text-[#657167]">{unavailable ? 'Not yet illustrated' : edition.description}</span>
           </button>;
-        }) : CITY_VERSIONS.map((version) => <button key={version.id} className="place-choice" disabled={version.id === 'on-water' && waterAvailable !== true} aria-pressed={scene.layoutId === version.id} onClick={() => update((current) => applyLayout(current, getLayout(version.id)), 'version')}>
+        }) : CITY_VERSIONS.map((version) => <button key={version.id} className="place-choice" disabled={version.id === 'on-water' && waterAvailable !== true} aria-pressed={!illustrated && scene.layoutId === version.id} onClick={() => update((current) => applyLayout(illustrated ? chooseEdition(current, 'atlas') : current, getLayout(version.id)), 'version')}>
           <CityVersionPreview scene={scene} mapPreview={mapPreview} layout={version.id} />
           <span className="mt-2 block text-sm font-medium">{version.name}</span>
           {version.id === 'on-water' && waterAvailable !== true && <span className="mt-1 block text-xs leading-4 text-[#657167]">{waterAvailable === false ? 'Needs a wider water view' : 'Checking shoreline…'}</span>}
         </button>)}
       </div>
+      {!state && art && <button className="place-choice mt-3 flex w-full items-center gap-4 text-left" aria-pressed={illustrated} onClick={() => update((current) => chooseEdition(current, 'illustrated'), 'edition')}><img src={art.src} alt="" className="h-24 w-32 object-contain" /><span><span className="block font-medium">Illustrated Atlas</span><span className="mt-1 block text-sm text-[#657167]">Lakes, landmarks & little discoveries</span></span></button>}
+      {print.slug === 'wisconsin' && <button className="place-choice mt-3 w-full text-left" aria-pressed={scene.region.theme === 'detailed'} onClick={() => update((current) => chooseEdition(current, 'detailed'), 'edition')}><span className="block font-medium">Landscape Atlas</span><span className="mt-1 block text-sm text-[#657167]">Terrain, waterways, roads & Wisconsin place names</span></button>}
+      {scene.region.theme === 'detailed' && <p className="mt-3 text-sm leading-6 text-[#687267]">Made for a closer look. Wisconsin cities, villages and towns over shaded terrain. Names are spaced to stay readable; some appear only in the enlarged proof.</p>}
       {state && !art && <p className="mt-3 text-sm text-[#687267]">Curious about the illustrated edition? <Link href="/maps/tennessee?edition=illustrated" className="underline underline-offset-4">Explore Tennessee →</Link></p>}
-      {illustrated && <p className="mt-3 text-sm leading-6 text-[#687267]">A pictorial interpretation of Tennessee, with fixed illustrated landmarks. Personalize the caption below.</p>}
+      {illustrated && <p className="mt-3 text-sm leading-6 text-[#687267]">A pictorial interpretation of {print.name}, with fixed illustrated landmarks. Personalize the caption below.</p>}
     </section>
     {!illustrated && <section className="my-6" aria-label="Map colors">
       <div className="mb-3 flex justify-between text-sm"><h2>Color</h2><span className="text-[#687267]">{getPalette(scene.paletteId).name}</span></div>
@@ -106,7 +109,7 @@ export function PlaceOptions({ print, scene, update, boundary, waterAvailable, m
     <div className="mt-6">
       <details><summary>Edit wording</summary><div><StudioPanels scene={scene} update={update} active="title" /></div></details>
       {!illustrated && <details onToggle={(event) => onAdjustArea(event.currentTarget.open)}><summary>{state ? 'Map detail & shape' : 'Adjust map area & shape'}</summary><div><StudioPanels scene={scene} update={update} active="view" /></div></details>}
-      {illustrated && <p className="mt-4 text-sm text-[#687267]">Landscape composition · Warm paper & rust lettering</p>}
+      {illustrated && <p className="mt-4 text-sm text-[#687267]">{art?.orientation === 'portrait' ? 'Portrait' : 'Landscape'} composition · Warm paper & rust lettering</p>}
     </div>
   </>;
 }

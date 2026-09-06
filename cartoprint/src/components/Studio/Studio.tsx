@@ -7,6 +7,7 @@ import type maplibregl from 'maplibre-gl';
 import type { CatalogPrint } from '@/lib/catalog/prints';
 import { LivePrintCanvas } from '@/components/Studio/LivePrintCanvas';
 import { TitleOverlay } from '@/components/Studio/TitleOverlay';
+import { ProofInspector } from './ProofInspector';
 import { PlaceOptions } from './PlaceOptions';
 import { chooseEdition, recommendedOrientation } from '@/lib/print/editions';
 import { illustrationFor, illustrationRect } from '@/lib/print/illustrations';
@@ -63,6 +64,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
   );
 
   const [boundary, setBoundary] = useState<GeoJSON.Geometry | null>(null);
+  const [inspect, setInspect] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [mapPreview, setMapPreview] = useState<string>();
   const [waterNotice, setWaterNotice] = useState(false);
@@ -131,12 +133,13 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
     }
     let initial = createPrintScene(print, searchParams.has('o') ? orientation : recommendedOrientation(print));
     const edition = searchParams.get('edition');
-    if (print.kind !== 'city') initial = chooseEdition(initial, edition === 'atlas' || edition === 'illustrated' ? edition : 'topographic');
+    if (print.kind !== 'city') initial = chooseEdition(initial, edition === 'atlas' || edition === 'illustrated' || (edition === 'detailed' && print.slug === 'wisconsin') ? edition : 'topographic');
     if (print.kind === 'city') {
       const look = searchParams.get('look');
       const coastal = ['chicago-il', 'madison-wi', 'miami-fl', 'seattle-wa', 'san-francisco-ca'].includes(print.slug);
       initial = applyLayout(initial, getLayout(look || (coastal ? 'on-water' : 'footer')));
     }
+    if (print.kind === 'city' && edition === 'illustrated') initial = chooseEdition(initial, 'illustrated');
     const palette = searchParams.get('palette');
     if (palette && initial.region.theme !== 'illustrated') initial = normalizeScene({ ...initial, paletteId: getPalette(palette).id, colors: getPalette(palette).colors });
     arrivalScene.current = initial;
@@ -306,12 +309,13 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
           <div ref={sheetRef} className="place-sheet" style={{ '--sheet-ratio': scene.orientation === 'portrait' ? 4 / 3 : scene.orientation === 'landscape' ? 3 / 4 : 1, aspectRatio: `1 / ${scene.orientation === 'portrait' ? 4 / 3 : scene.orientation === 'landscape' ? 3 / 4 : 1}` } as CSSProperties}>
             {illustrated && art && artRect ? <div className="relative h-full w-full" style={{ background: art.paper }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={art.src} alt="Illustrated Tennessee with mountains, forests, rivers, and settlements" onLoad={() => setMapReady(true)} onError={() => { setMapReady(false); setExportError('The illustration could not load. Try another edition or reload.'); }} style={{ position: 'absolute', left: percent(artRect.x), top: percent(artRect.y), width: percent(artRect.w), height: percent(artRect.h) }} />
+              <img src={art.src} alt={`Illustrated ${print.name} with local landscapes and landmarks`} onLoad={() => setMapReady(true)} onError={() => { setMapReady(false); setExportError('The illustration could not load. Try another edition or reload.'); }} style={{ position: 'absolute', left: percent(artRect.x), top: percent(artRect.y), width: percent(artRect.w), height: percent(artRect.h) }} />
               <TitleOverlay design={scene.title} colors={scene.colors} containerRef={sheetRef} onChange={() => {}} editable={false} />
             </div> : <LivePrintCanvas scene={scene} geometry={boundary} onViewportChange={handleViewportChange} onReady={(map) => { mapRef.current = map; }} onReadyStateChange={setMapReady} onMapPreview={setMapPreview} onWaterPlacement={handleWaterPlacement} interactive={!viewLocked && scene.place.kind === 'city'} className="h-full w-full">
               <TitleOverlay design={scene.title} colors={scene.colors} containerRef={sheetRef} onChange={() => {}} editable={false} />
             </LivePrintCanvas>}
           </div>
+          <button disabled={!mapReady} onClick={() => setInspect(true)} className="absolute right-4 top-4 rounded-full bg-[#f7f4eb] px-4 py-2 text-sm text-[#173f35] shadow disabled:opacity-50">Inspect print ↗</button>
           {exportError && <div role="alert" className="absolute inset-x-4 top-4 z-30 rounded bg-[#552b21] px-4 py-3 text-sm text-white">{exportError}<button onClick={() => setExportError(null)} aria-label="Dismiss error" className="ml-3">×</button></div>}
           <span className="pointer-events-none absolute bottom-1 text-xs text-white/60">{illustrated ? 'Illustrated Atlas' : scene.place.kind === 'city' ? 'Your city, your view' : designLabel}</span>
         </main>
@@ -332,6 +336,7 @@ export function Studio({ print, orientation = 'portrait' }: StudioProps) {
           </div>
         </aside>
       </div>
+      {inspect && <ProofInspector scene={scene} boundary={boundary} onClose={() => setInspect(false)} />}
       {continuing && <div role="status" className="fixed inset-0 z-[90] grid place-items-center bg-[#101a17]/80 text-white backdrop-blur-sm"><p>Preparing your print…</p></div>}
     </div>
   );

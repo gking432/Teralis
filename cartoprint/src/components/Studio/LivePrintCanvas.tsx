@@ -1,5 +1,6 @@
 'use client';
 
+import { addWisconsinAtlasLabels } from '@/lib/print/wisconsinAtlas';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -310,10 +311,11 @@ export function LivePrintCanvas({
     if (!map || !styleReady) return;
     const active = sceneRef.current;
     applyPrintColors(map, active.colors, currentScale());
+    if (kind === 'state') addWisconsinAtlasLabels(map, active.colors, currentScale());
     applyPrintMaskColor(map, active.colors);
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();
-  }, [colorsKey, styleReady, currentScale, reportMapPreview]);
+  }, [colorsKey, kind, styleReady, currentScale, reportMapPreview]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -323,6 +325,7 @@ export function LivePrintCanvas({
     // Detail changes reset paint properties on the layers they touch, so the
     // palette has to be re-applied on top of them.
     applyPrintColors(map, active.colors, currentScale());
+    if (kind === 'state') addWisconsinAtlasLabels(map, active.colors, currentScale());
     map.once('render', () => reportMapPreview(map));
     map.triggerRepaint();
   }, [colorsKey, detailKey, scene.strokeWeight, kind, styleReady, currentScale, reportMapPreview]);
@@ -449,6 +452,7 @@ export function LivePrintCanvas({
     const scale = strokeScaleFor(map.getCanvas().clientWidth || canvasWidth);
     applyPrintDetail(map, kind, active.detail, scale, active.strokeWeight);
     applyPrintColors(map, active.colors, scale);
+    if (kind === 'state') addWisconsinAtlasLabels(map, active.colors, scale);
     if (kind === 'state') styleDetailedStateFeatures(map, scale, active.strokeWeight);
     if (geometry && kind !== 'city') {
       applyPrintRegionOutline(map, geometry, active.colors, scale);

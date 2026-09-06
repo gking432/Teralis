@@ -19,15 +19,15 @@ export const STATE_EDITIONS = [
 
 export function chooseEdition(scene: PrintScene, theme: RegionTheme): PrintScene {
   if (theme === 'illustrated' && !ILLUSTRATIONS[scene.place.slug]) return scene;
-  const palette = getPalette(theme === 'topographic' ? 'forest' : 'bone');
+  const palette = getPalette(theme === 'topographic' || theme === 'detailed' ? 'forest' : 'bone');
   const next = applyLayout(applyPalette(scene, palette), getLayout('footer'));
   return normalizeScene({
     ...next,
     region: { theme },
-    // Tennessee's elongated artwork has a designed landscape sheet.
-    orientation: theme === 'illustrated' ? 'landscape' : scene.orientation,
-    detailBias: 0,
-    detail: { ...next.detail, border: 'none', labels: { ...next.detail.labels, cities: theme === 'atlas', towns: false } },
+    // Each saved illustration carries its own designed paper orientation.
+    orientation: theme === 'illustrated' ? ILLUSTRATIONS[scene.place.slug].orientation : scene.orientation,
+    detailBias: theme === 'detailed' ? 1 : 0,
+    detail: { ...next.detail, border: 'none', labels: { ...next.detail.labels, cities: theme === 'atlas' || theme === 'detailed', towns: theme === 'detailed' } },
     ...(theme === 'illustrated' ? { colors: { land: ILLUSTRATIONS[scene.place.slug].paper, water: '#8b3c25', roads: '#302b24' } } : {}),
     title: { ...next.title, font: 'editorial', rotation: 0 },
   });

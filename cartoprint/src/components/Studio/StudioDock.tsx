@@ -350,7 +350,7 @@ function ViewPanel({ scene, update }: PanelProps) {
         </Field>
       )}
 
-      {isState && scene.region.theme === 'atlas' && <Field label="Place names" help="Names are spaced automatically so they stay legible.">
+      {isState && (scene.region.theme === 'atlas' || scene.region.theme === 'detailed') && <Field label="Place names" help="Names are spaced automatically so they stay legible.">
         <Segmented options={[{ value: 'none', label: 'None' }, { value: 'cities', label: 'Cities' }, { value: 'towns', label: 'Cities & towns' }]} value={scene.detail.labels.towns ? 'towns' : scene.detail.labels.cities ? 'cities' : 'none'} onChange={(value) => update((current) => ({ ...current, labelsAuto: false, detail: { ...current.detail, labels: { ...current.detail.labels, cities: value !== 'none', towns: value === 'towns' } } }), 'place-labels')} />
       </Field>}
 

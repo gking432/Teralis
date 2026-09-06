@@ -1,3 +1,4 @@
+import { addWisconsinAtlasLabels, WISCONSIN_LABELS } from './wisconsinAtlas';
 import type maplibregl from 'maplibre-gl';
 import type { LayerState } from '@/types/map';
 import { addTerrain, applyGreyscale, applyStyleOverrides } from '@/lib/map/style';
@@ -694,8 +695,8 @@ export function applyRegionMapLayers(
 ): void {
   const style = map.getStyle();
   if (!style) return;
-  const showTerrain = design.theme === 'topographic';
-  const showDetailedRoads = design.theme === 'atlas' && detailBias === 1;
+  const showTerrain = design.theme === 'topographic' || design.theme === 'detailed';
+  const showDetailedRoads = (design.theme === 'atlas' || design.theme === 'detailed') && detailBias === 1;
   const showDetailedRivers = showTerrain;
 
   style.layers.forEach((layer) => {
@@ -705,7 +706,10 @@ export function applyRegionMapLayers(
     const isDetailedRoad = layer.id === 'print-state-detail-roads';
     const isDetailedCounty = layer.id === 'print-state-detail-county-boundaries';
     try {
-      if (kind === 'state' && (group === 'cities' || group === 'towns')) {
+      if (layer.id === WISCONSIN_LABELS) {
+        map.setLayoutProperty(layer.id, 'visibility', design.theme === 'detailed' && detail.labels.cities ? 'visible' : 'none');
+        map.setFilter(layer.id, detail.labels.towns ? null : ['==', ['get', 'rank'], 0]);
+      } else if (kind === 'state' && (group === 'cities' || group === 'towns')) {
         const visible = design.theme === 'atlas' && (group === 'cities' ? detail.labels.cities : detail.labels.towns);
         map.setLayoutProperty(layer.id, 'visibility', visible ? 'visible' : 'none');
       } else if (kind === 'state' && group === 'allroads') {
@@ -786,6 +790,7 @@ export function applyPrintMapStyle(
   applyStyleOverrides(map);
   applyPrintDetail(map, kind, detail, scale, weight);
   applyPrintColors(map, colors, scale);
+  if (kind === 'state') addWisconsinAtlasLabels(map, colors, scale);
 }
 
 /** Sets the isolation mask to paper, clipping neighboring geography quietly. */

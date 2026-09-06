@@ -15,7 +15,7 @@ The encoded `d` design takes precedence over named starting parameters and sessi
 
 Topographic and Street Atlas use existing map data and rendering. All catalog states support both. Street Atlas supports no place names, cities, or cities and towns; MapLibre collision placement keeps labels apart. Topographic carries elevation, rivers and lakes, with three detail levels.
 
-Illustrated Atlas uses a saved bitmap plus separately rendered personal caption. Tennessee is the initial pilot. Other states explicitly show that illustration is not available, with a link to Tennessee; no generic or mislabeled replacement is used. Adding a reviewed asset to `ILLUSTRATIONS` enables the edition for its state. Prepared art uses a fixed landscape composition, original colors, and a shared preview/export geometry. This avoids runtime AI generation and preserves its design.
+Illustrated Atlas uses a saved bitmap plus separately rendered personal caption. Tennessee, Wisconsin, and Madison are the initial pilots. Other states explicitly show that illustration is not available, with a link to Tennessee; no generic or mislabeled replacement is used. Adding a reviewed asset to `ILLUSTRATIONS` enables the edition for its state. Prepared art uses its registered portrait or landscape composition, original colors, and a shared preview/export geometry. This avoids runtime AI generation and preserves its design.
 
 Tennessee artwork: `public/illustrations/tennessee-atlas.png`, generated with the built-in image_gen tool (1693 × 929). It is a pictorial interpretation, not surveyed cartography. It needs geographic/art-direction review and a production-resolution master before a physical print launch. This iteration implements preview, personalization, and proof handoff; it does not claim the bitmap is a 300-DPI large-format master.
 
@@ -25,7 +25,7 @@ Generation brief: Complete north-up Tennessee silhouette on cream paper #f5f0e5.
 
 `node scripts/tests/place-flow.cjs` checks advertisement entry, exact proof routing, wording and palette persistence, a fresh shared-link load, state label levels, edition switching, illustrated proof handoff, mobile search and overflow, and browser runtime errors. Run with the development server available at `TERRALIS_TEST_URL` (defaults to localhost:3000). `UPDATE_MARKETING_ART=1` explicitly refreshes the Chicago hero from its rendered proof.
 
-Checkout/fulfillment are outside this change. Personal geographic pins and additional illustrated states remain future work.
+Checkout/fulfillment are outside this change. Personal geographic pins and further illustrated places remain future work.
 
 ## Development and deployment
 
